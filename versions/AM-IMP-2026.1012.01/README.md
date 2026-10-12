@@ -1,0 +1,3 @@
+# OA group tasks and preserved originals
+
+Ready. Owner-authorized common capabilities for every group served by this OA. Group project routing is no longer required for mention assignments or explicit manual retrieval. No business tenant registration, grant or binding mutation. Tasks still require one confirmed common configured service and current human membership; the target enforces active/enabled grants. Same-group files use exact quotes or exact names, original Drive checksums and expiring links; supported photos reply as native images. Missing source bytes cannot be recreated. Other bots, private assistants and meetings are unchanged.

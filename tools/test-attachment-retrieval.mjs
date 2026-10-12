@@ -204,16 +204,28 @@ for(const route of [{resolution:'not_found',tenant:null,binding:null},{resolutio
     await h.service.handle(mentioned());assert.match(h.replies[0][1],/preserved.jpg/);assert.equal(h.requests.length,0);assert.equal(h.checks.length,0);assert.ok(access>=3);assert.ok(reads>=1);
   });
 }
-test('archive fallback never bypasses transport, disabled, ambiguous, failed routing or absent real mention',async()=>{
+test('all-group archive operates independently of business routing but never bypasses transport or current membership',async()=>{
   for(const bound of [{resolution:'inactive'},{resolution:'ambiguous'},{resolution:'lookup_failed'},
     {resolution:'active',tenant:{...tenant,runtimeEnabled:false},binding:{status:'影子記錄'}}]){
-    let accesses=0;const h=harness({bound,centralArchive:{canRetrieveQuote:async()=>{accesses++;return true;}}});
-    await h.service.handle(mentioned());assert.equal(h.replies.length,0);assert.equal(accesses,0);
+    let accesses=0;const h=harness({bound,centralArchive:{canRetrieveQuote:async()=>{accesses++;return true;},original:async()=>archiveFile}});
+    await h.service.handle(mentioned());assert.equal(h.replies.length,1);assert.ok(accesses>=2);assert.equal(h.requests.length,0);
   }
   const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('must not query');}}});
   await h.service.handle(event());assert.equal(h.replies.length,0);
   const transport=harness({transport:true,bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('transport owns authorization');}}});
   await transport.service.handle(mentioned());assert.equal(transport.replies.length,0);
+});
+test('explicit named originals and photos are available in active and unregistered groups without business writes',async()=>{
+ for(const bound of [{resolution:'not_found'},{resolution:'active',tenant,binding:{status:'啟用'}}]){
+  let lookups=0;const h=harness({bound,centralArchive:{canRetrieveQuote:async()=>true,findOriginal:async(name,scope)=>{lookups++;assert.equal(name,'preserved.jpg');assert.equal(scope.groupId,'synthetic-group-a');return archiveFile;}}});
+  const e=mentioned();delete e.message.quotedMessageId;e.message.text='@小蝸 請幫我找回「preserved.jpg」';
+  await h.service.handle(e);assert.match(h.replies[0][1],/preserved.jpg/);assert.equal(lookups,1);assert.equal(h.requests.length,0);
+ }
+});
+test('old photo request without an exact source asks for a quote instead of choosing a private image',async()=>{
+ const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>true,findOriginal:async()=>{throw Error('must not search without an exact name');}}});
+ const e=mentioned();delete e.message.quotedMessageId;e.message.text='@小蝸 請幫我找回舊的照片';
+ await h.service.handle(e);assert.match(h.replies[0][1],/回覆/);assert.equal(h.requests.length,0);
 });
 test('missing original and failed current-member checks cannot produce a file link',async()=>{
   for(const original of [null,{pending:true},{missing:true},{file:{...archiveFile.file,md5Checksum:'invalid'}}]){

@@ -19,17 +19,18 @@ export function parseAttachmentRequest(event) {
   const mentions = (event.message.mention?.mentionees || []).filter(m => m.isSelf === true)
     .sort((a, b) => b.index - a.index);
   for (const m of mentions) text = text.slice(0, m.index) + text.slice(m.index + m.length);
-  text = text.trim().replace(/^(?:葉小蝸|HOZO\s*(?:Jr\.?|AM(?:\s*2\.0)?)|AM)[，,:：\s]+/i, '');
-  const match = /^(?:請|麻煩)?\s*(?:你)?\s*(?:幫我|幫忙)?\s*(?:再|重新)?\s*(提供|找一下|找|查找|重傳|傳給我|給我|傳送|傳)\s*(.*?)\s*[。！!？?]*$/.exec(text);
+  const addressed=/^葉小蝸(?:\s*AI\s*小助手)?[，,:：\s]+/i.test(text.trim());
+  text = text.trim().replace(/^(?:葉小蝸(?:\s*AI\s*小助手)?|HOZO\s*(?:Jr\.?|AM(?:\s*2\.0)?)|AM)[，,:：\s]+/i, '');
+  const match = /^(?:請|麻煩)?\s*(?:你)?\s*(?:幫我|幫忙)?\s*(?:再|重新)?\s*(提供|找一下|找回|找出|找|查找|重傳|傳給我|給我|傳送|傳)\s*(.*?)\s*[。！!？?]*$/.exec(text);
   if (!match) return null;
   let object = match[2].trim();
   for (let i = 0; i < 3; i++) object = object.replace(/(?:給我一下|給我|一下|的下載連結|的連結|下載連結|連結|[，,]?\s*謝謝)\s*$/, '').trim();
-  const generic = /^(?:我\s*)?(?:這個|這張|這份|這一份|這|該|原本的|原始的|原)?(?:檔案|文件|附件|照片|圖片|影片|音檔|錄音)$/.test(object);
+  const generic = /^(?:我\s*)?(?:這個|這張|這份|這一份|這|該|舊的|之前的|原本的|原始的|原)?(?:檔案|文件|附件|照片|圖片|影片|音檔|錄音)$/.test(object);
   const quoted = String(event.message.quotedMessageId || '');
   const named = /^(?:「([^」]+)」|『([^』]+)』|"([^"]+)"|([^\s「」『』"]+\.[a-zA-Z0-9]{1,12}))$/.exec(object);
   const filename = named ? (named[1] || named[2] || named[3] || named[4]).trim() : '';
   if (!generic && !filename && !(quoted && !object && ['重傳', '傳給我', '給我'].includes(match[1]))) return null;
-  return { quotedMessageId: quoted, filename, ...(mentions.length?{explicitSelf:true}:{}) };
+  return { quotedMessageId: quoted, filename, ...(mentions.length||addressed?{explicitSelf:true}:{}) };
 }
 
 export function createAttachmentRetrieval({ platform, router, ownsTransport = () => false,
@@ -62,6 +63,9 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     router.invalidate?.(groupId || undefined);
     if (ownsTransport(event)) return resolveTransport(event);
     if (groupId) {
+      // Owner-authorized manual file retrieval is independent of business routing.
+      if(command?.explicitSelf===true&&await platform.centralArchive?.canRetrieveQuote?.(event.source))
+        return {tenant:QUOTED_ARCHIVE_SCOPE,binding:{status:'啟用'},resolution:'group_archive'};
       const route=await router.resolveGroupBinding(groupId);
       const archiveSource=route?.resolution==='not_found'||(route?.binding?.status==='影子記錄'&&route.tenant?.runtimeEnabled!==false);
       if(archiveSource&&command?.explicitSelf===true&&command.quotedMessageId
@@ -134,8 +138,11 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   }
   async function retrieve(tenant, event, command = parseAttachmentRequest(event)) {
     if(tenant.key===QUOTED_ARCHIVE_SCOPE.key){
-      if(!command?.explicitSelf||!command.quotedMessageId||!await platform.centralArchive?.canRetrieveQuote?.(event.source))throw fail('unavailable');
-      const saved=await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''});
+      if(!command?.explicitSelf||!await platform.centralArchive?.canRetrieveQuote?.(event.source))throw fail('unavailable');
+      const saved=command.quotedMessageId
+        ?await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''})
+        :command.filename?await platform.centralArchive.findOriginal?.(command.filename,event.source):null;
+      if(!command.quotedMessageId&&!command.filename)throw fail('specify');
       if(!saved)throw fail('not_found');
       if(saved.missing)throw fail('missing_original');
       if(saved.pending)throw fail('pending');
@@ -199,7 +206,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     const tenant = current.tenant;
     let text, messages;
     try {
-      if(tenant.key===QUOTED_ARCHIVE_SCOPE.key){
+      if(tenant.key===QUOTED_ARCHIVE_SCOPE.key&&command.quotedMessageId){
         const existing=await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''});
         if(!existing&&platform.centralArchive.recoverQuoted){
           await platform.centralArchive.recoverQuoted(event);
@@ -210,7 +217,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
             await new Promise(resolve=>setTimeout(resolve,1000));
           }
         }
-      }else await recordRequest(tenant, event, command);
+      }else if(tenant.key!==QUOTED_ARCHIVE_SCOPE.key)await recordRequest(tenant, event, command);
       const file = await retrieve(tenant, event, command);
       messages = await delivery.messages(tenant, event, command, file);
       text = messages[0].text;

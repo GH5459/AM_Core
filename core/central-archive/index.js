@@ -4,6 +4,7 @@ import {createArchiveNotion} from './notion.js';
 import {archiveMedia,archiveReference} from './media.js';
 import {lineIoDatabaseConfig} from '../line-io/database.js';
 import {createQuotedArchiveAccess,quotedRecoveryRecord} from './quoted-access.js';
+import {createArchiveFileLookup} from './file-lookup.js';
 export const CENTRAL_ARCHIVE_CONTRACT='line-per-conversation-notion-drive-v1';
 export function archiveDatabaseConfig(env){
   const connectionString=env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_CENTRAL_ARCHIVE_LOCAL_DATABASE_URL;
@@ -129,6 +130,9 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     const rows=await pool.query(`SELECT j.*,c.source_id,c.source_kind,c.drive_folder_id FROM central_archive.jobs j
       JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE j.key=$1 AND c.bot_id=$2`,[key,config.botId]);
     const row=rows.rows[0];if(!row)return null;
+    return verifyOriginalRow(row,{groupId,userId});
+  }
+  async function verifyOriginalRow(row,{groupId='',userId=''}){
     if(row.source_id!==(groupId||userId)||(!groupId&&row.source_kind!=='user')
       ||(groupId&&!['group','room'].includes(row.source_kind)))throw Error('archive_original_source_mismatch');
     const result=row.result;
@@ -138,7 +142,7 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
       if(reference.driveId!==result.driveId||reference.md5!==result.md5||reference.size!==Number(result.size))throw Error('archive_reference_invalid');
       return {file:{id:reference.driveId,name:reference.name,size:reference.size,md5Checksum:reference.md5,webViewLink:reference.driveUrl},sha256:reference.sha256,md5:reference.md5};
     }
-    const file=await drive.verifyAttachment(result.driveId,row.drive_folder_id,{amCentralArchive:digest(key)},result.size,result.md5);
+    const file=await drive.verifyAttachment(result.driveId,row.drive_folder_id,{amCentralArchive:digest(row.key)},result.size,result.md5);
     return {file,sha256:result.sha256,md5:result.md5};
   }
   async function recoverQuoted(event){
@@ -170,9 +174,19 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
       [config.botId,new Date(start).toISOString(),new Date(end).toISOString(),contains]);
     return result.rows.map(row=>({key:row.key,event:row.payload.event}));
   }
+  async function groupActors({groupId}){
+    if(!/^C[a-f0-9]{32}$/i.test(groupId||''))throw Error('invalid_group_probe');
+    const result=await pool.query(`SELECT j.payload->'event'->'source'->>'userId' AS user_id
+      FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key
+      WHERE c.bot_id=$1 AND c.source_kind='group' AND c.source_id=$2
+      AND j.payload->>'direction'='incoming' AND j.payload->>'evidenceQuality'='webhook'
+      GROUP BY j.payload->'event'->'source'->>'userId' ORDER BY max(j.event_at) DESC LIMIT 20`,[config.botId,groupId]);
+    return result.rows.map(r=>r.user_id).filter(v=>/^U[a-f0-9]{32}$/i.test(v||''));
+  }
   const health=()=>({enabled:state.enabled,ready:state.ready,captureEnabled:state.captureEnabled,
     contract:state.contract,storage:state.storage,notionFiles:state.notionFiles,checkedAt:state.checkedAt,
     backlog:Boolean(state.states?.pending||state.states?.sending),needsSource:Boolean(state.states?.needs_source)});
-  return {capture,drain,original,canRetrieveQuote,recoverQuoted,taskSources,health,store,notion,processJob,
+  const findOriginal=createArchiveFileLookup({pool,botId:config.botId,canAccess:canRetrieveQuote,verifyRow:verifyOriginalRow});
+  return {capture,drain,original,findOriginal,canRetrieveQuote,recoverQuoted,taskSources,groupActors,health,store,notion,processJob,
     close:async()=>{clearInterval(timer);if(draining)await draining;if(!injectedPool)await pool.end();}};
 }
