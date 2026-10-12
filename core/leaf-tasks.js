@@ -28,7 +28,26 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   // Multiple confirmed task-service identities are ambiguous; never guess a tenant.
   return eligible.length===1?eligible[0]:null;
  }
- async function identity(userId,t,groupId,options){const who=await resolveIdentity(userId,t.key,options);if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};}
+ async function identity(userId,t,groupId,options){
+  let who=await resolveIdentity(userId,t.key,options);
+  if(!who?.bindingId&&idPattern.test(env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID||'')){
+   const c=await config(t);if(c){const r=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
+    if(r.identity?.userId===userId&&r.identity.identityId)who={tenantKey:t.key,account:r.identity.account,bindingId:r.identity.identityId};}
+  }
+  if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};
+ }
+ async function loginEntry(event,action){
+  const userId=event.source?.userId;
+  if(event.source?.type!=='user'||event.source.groupId||!idPattern.test(userId||'')||!idPattern.test(env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID||''))throw Error('work_login_source_required');
+  const profile=await line.lineGet('/v2/bot/profile/'+userId,{timeoutMs:5000});if(profile.userId!==userId)throw Error('work_login_identity_mismatch');
+  const choices=[];for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{const c=await config(t);if(c&&new URL(action.uri).origin===c.base)choices.push({t,c});}catch{}}
+  if(choices.length!==1)throw Error('work_login_service_ambiguous');const {t,c}=choices[0];
+  const prior=await resolveIdentity(userId,t.key,{readOnly:true});
+  const result=await call(t,c,'login-entry',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId,
+   lineDisplayName:String(profile.displayName||'LINE 同仁').slice(0,120),expectedAccount:prior?.account||null,eventId:String(event.webhookEventId||event.message?.id||''),timestamp:event.timestamp||Date.now()});
+  const url=new URL(result.loginUrl);if(url.origin!==c.base||url.pathname!=='/line-login'||result.contract!=='line-first-work-login-v1')throw Error('work_login_target_invalid');
+  return {type:'uri',label:'開啟工作日誌',uri:url.href};
+ }
  async function capture(events){if(!secret)return;eventsLoop:for(const e of events){
   if(e.source?.type==='group'&&['unsend','edit'].includes(e.type)){
    const routed=await route(e.source.groupId,[e.source.userId]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
@@ -100,5 +119,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    allHumanMembersObserved:current.length===summary.count,confirmedCommonTaskService:Boolean(r),tenantKey:r?.tenant.key||null,
    members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
- return {capture,drain,configureService,checkJudgment,inspectSource,inspectGroup,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ async function checkLogin({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('work_login_service_unavailable');const c=await config(t);if(!c)throw Error('work_login_service_unavailable');const r=await call(t,c,'login-health');if(r.contract!=='line-first-work-login-v1'||r.tenant!==t.key)throw Error('work_login_contract_mismatch');return {ok:true,contract:r.contract,tenantKey:t.key,manualPairingRequired:r.manualPairingRequired,uofApprovalRequired:r.uofApprovalRequired,noTicketsOrIdentitiesWritten:true};}
+ return {capture,drain,configureService,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
