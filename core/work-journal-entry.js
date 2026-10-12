@@ -4,23 +4,24 @@ export const WORK_JOURNAL_ENTRY_CONTRACT = 'line-work-journal-rich-menu-entry-v1
 export function isWorkJournalEvent(event) {
   const source = event?.source;
   const text = String(event?.message?.text || '').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
-  return event?.type === 'message' && event.message?.type === 'text'
+  return ((event?.type === 'message' && event.message?.type === 'text' && ['工作日誌', '開啟工作日誌', '打開工作日誌'].includes(text))
+    ||event?.type==='postback'&&String(event.postback?.data||'').startsWith('dailylog.open:'))
     && source?.type === 'user' && /^U[0-9a-f]{32}$/i.test(source.userId || '')
     && !source.groupId && !source.roomId
-    && ['工作日誌', '開啟工作日誌', '打開工作日誌'].includes(text);
+    ;
 }
 
 export function workJournalAction(menu) {
-  const actions = (menu?.areas || []).map(area => area.action).filter(action => action?.type === 'uri' && action.label === '工作日誌');
+  const actions = (menu?.areas || []).map(area => area.action).filter(action => action?.label === '工作日誌'&&(action.type==='uri'||action.type==='postback'&&String(action.data||'').startsWith('dailylog.open:')));
   if (actions.length !== 1) throw new Error('work_journal_menu_unavailable');
-  const uri = actions[0].uri;
+  const uri = actions[0].type==='uri'?actions[0].uri:decodeURIComponent(actions[0].data.slice('dailylog.open:'.length));
   const url = new URL(uri);
   if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) throw new Error('work_journal_menu_invalid');
   // Preserve the deployed menu URI exactly, including external browser behavior.
   return { type: 'uri', label: '開啟工作日誌', uri };
 }
 
-export function createWorkJournalEntry({ line, logger = console }) {
+export function createWorkJournalEntry({ line, logger = console,createAuthenticatedAction }) {
   const menus = new Map();
   async function actionFor(userId) {
     let association;
@@ -46,7 +47,8 @@ export function createWorkJournalEntry({ line, logger = console }) {
     if (!event.replyToken || event.mode === 'standby') return true;
     let message;
     try {
-      const action = await actionFor(event.source.userId);
+      const original = await actionFor(event.source.userId);
+      const action=createAuthenticatedAction?await createAuthenticatedAction(event,original):original;
       message = { type: 'template', altText: '開啟工作日誌', template: { type: 'buttons', text: '點選下方按鈕開啟工作日誌。', actions: [action] } };
     } catch {
       logger.warn?.('Work journal menu lookup unavailable.');

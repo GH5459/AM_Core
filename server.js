@@ -32,7 +32,7 @@ const { tenants, line, router, dispatcher, portal, modules, platform, llm, logge
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
 platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
-const workJournalEntry = createWorkJournalEntry({ line, logger });
+const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity });
@@ -543,9 +543,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/login-health'))return sendJson(res,200,await leafTasks.checkLogin(input));
       if(url.pathname.endsWith('/group-readiness'))return sendJson(res,200,await leafTasks.inspectGroup(input,await centralArchive.groupActors(input)));
       if(url.pathname.endsWith('/diagnose')){const sources=await centralArchive.taskSources(input),diagnostics=[];for(const source of sources)diagnostics.push(await leafTasks.inspectSource(source));return sendJson(res,200,{ok:true,diagnostics});}
       const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(input):leafTasks.configureService(input));return sendJson(res,200,result); }
