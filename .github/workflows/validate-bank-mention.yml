@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'core/central-archive/**'
+      - 'tools/test-archive-file-lookup.mjs'
+      - 'versions/AM-IMP-2026.1012.01/**'
       - 'tools/central-archive-admin.mjs'
       - 'tools/test-central-archive.mjs'
       - 'versions/AM-IMP-2026.1007.03/**'
@@ -101,6 +103,8 @@ jobs:
       - run: node --test tools/test-leaf-tasks.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.07
       - run: node --test tools/test-central-archive.mjs
+      - run: node --test tools/test-archive-file-lookup.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1012.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.03
       - run: node --test tools/test-work-journal-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02

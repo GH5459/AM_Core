@@ -30,7 +30,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
-platform.centralArchive={original:centralArchive.original,canRetrieveQuote:centralArchive.canRetrieveQuote,
+platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
@@ -291,7 +291,7 @@ const server = http.createServer(async (req, res) => {
       centralArchive: centralArchive.health(),
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
-      attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: attachmentRetrieval.deliveryContract,
+      attachmentRetrieval: { contract: attachmentRetrieval.contract, groupScope:'all-oa-groups', filenameLookup:'same-conversation-exact-name', delivery: attachmentRetrieval.deliveryContract,
         quotedArchive: attachmentRetrieval.quotedArchiveContract,
         filename: attachmentRetrieval.filenameContract,
         conversationIsolation: true, signedDownloadTtlSeconds: 7200,
@@ -543,9 +543,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/group-readiness'))return sendJson(res,200,await leafTasks.inspectGroup(input,await centralArchive.groupActors(input)));
       if(url.pathname.endsWith('/diagnose')){const sources=await centralArchive.taskSources(input),diagnostics=[];for(const source of sources)diagnostics.push(await leafTasks.inspectSource(source));return sendJson(res,200,{ok:true,diagnostics});}
       const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(input):leafTasks.configureService(input));return sendJson(res,200,result); }
     catch { return sendJson(res,503,{error:'Task service setup unavailable'}); }

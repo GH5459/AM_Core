@@ -1,0 +1,3 @@
+# Verify
+
+Run node --test tools/test-leaf-tasks.mjs tools/test-attachment-retrieval.mjs tools/test-archive-file-lookup.mjs tools/test-central-archive.mjs. Verify the exact-name SQL against isolated PostgreSQL. Require bot/group/source isolation, missing and ambiguous originals, real membership, grants, retry safety, private chat exclusion and assistant-operation exclusion. The purpose-authenticated group-readiness endpoint reads existing native archive actors and current profiles without altering bindings. Fixed synthetic AI checks and health readback are independent of human LINE acceptance. Never write a real task or send a chat as a deployment test.

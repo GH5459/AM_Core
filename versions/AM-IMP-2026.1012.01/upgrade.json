@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.1012.01",
+  "name": "OA-wide verified mention tasks and same-group original retrieval",
+  "type": "shared-runtime",
+  "portable": true,
+  "requiresDatabases": [
+    "Existing target task service and central_archive tables"
+  ],
+  "requiresEnv": [
+    "Existing original LINE credentials and dedicated service config"
+  ],
+  "requiresScripts": [
+    "tools/test-leaf-tasks.mjs",
+    "tools/test-attachment-retrieval.mjs",
+    "tools/test-archive-file-lookup.mjs",
+    "tools/test-central-archive.mjs"
+  ],
+  "installTargets": [
+    "Original root OA platform only"
+  ],
+  "dataIsolation": "No group reassignment; unique confirmed common task-service identities; live group membership; current target grants; original files scoped to same OA/group with checksums",
+  "definitionOfDone": [
+    "Reviewed main is live",
+    "Both health scopes all-oa-groups",
+    "Isolated SQL and lifecycle checks pass",
+    "Original identities, grants and data preserved",
+    "Human LINE acceptance separately recorded"
+  ]
+}

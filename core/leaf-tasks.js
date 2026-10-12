@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {createCalendarStore} from './leaf-calendar/store.js';
+import {parseAttachmentRequest} from './attachment-retrieval.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -14,19 +15,32 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running;
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
- async function route(groupId){const r=await router.resolveGroupBinding(groupId);if(r.resolution==='lookup_failed')throw Error('task_group_lookup_unavailable');return r.tenant&&['啟用','影子記錄'].includes(r.binding?.status)?r:null;}
+ // Tasks use confirmed work identities, independently of a group's project routing.
+ // Never register the group under another business tenant or grant personal access.
+ async function route(groupId,userIds=[]){
+  const eligible=[];
+  for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){
+   let c;try{c=await config(t);}catch{continue;}if(!c)continue;
+   let valid=userIds.length>0;
+   for(const id of userIds)if(!await identity(id,t,groupId,{readOnly:true})){valid=false;break;}
+   if(valid)eligible.push({tenant:t,binding:{status:'啟用'},resolution:'verified_group_task_service'});
+  }
+  // Multiple confirmed task-service identities are ambiguous; never guess a tenant.
+  return eligible.length===1?eligible[0]:null;
+ }
  async function identity(userId,t,groupId,options){const who=await resolveIdentity(userId,t.key,options);if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};}
  async function capture(events){if(!secret)return;eventsLoop:for(const e of events){
   if(e.source?.type==='group'&&['unsend','edit'].includes(e.type)){
-   const routed=await route(e.source.groupId);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
+   const routed=await route(e.source.groupId,[e.source.userId]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
    const messageId=e.unsend?.messageId||e.message?.id;if(!messageId)continue;
    await call(t,c,'source',{id:hash(t.tenantId+':'+e.source.groupId+':'+messageId),groupId:e.source.groupId,kind:e.type});continue;
   }
-  if(!mentionCandidate(e))continue;const routed=await route(e.source.groupId);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
-  const sender=await identity(e.source.userId,t,e.source.groupId);if(!sender)continue;
+  if(!mentionCandidate(e)||parseAttachmentRequest(e)?.explicitSelf)continue;
   const ids=[...new Set(e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))],mentions=[];
   if(e.message.mention.mentionees.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!idPattern.test(m.userId||'')))continue;
-  for(const userId of ids){const person=await identity(userId,t,e.source.groupId);if(!person){logger.warn?.('[leaf-tasks] mention identity unresolved; assignment not issued');continue eventsLoop;}mentions.push(person);}
+  const routed=await route(e.source.groupId,[e.source.userId,...ids]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
+  const sender=await identity(e.source.userId,t,e.source.groupId,{readOnly:true});if(!sender)continue;
+  for(const userId of ids){const person=await identity(userId,t,e.source.groupId,{readOnly:true});if(!person){logger.warn?.('[leaf-tasks] mention identity unresolved; assignment not issued');continue eventsLoop;}mentions.push(person);}
   const id=hash(t.tenantId+':'+e.source.groupId+':'+e.message.id),input={id,eventId:String(e.webhookEventId||e.message.id),messageId:String(e.message.id),groupId:e.source.groupId,sender,mentions,text:e.message.text,timestamp:e.timestamp};
   try{await call(t,c,'intake',input);}catch(error){if(error.status===403){logger.warn?.('[leaf-tasks] current access prevents assignment');continue;}throw error;}
  }}
@@ -40,7 +54,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   if(!data||!Array.isArray(data.assignments)||data.assignments.length>5)throw Error('invalid_task_judgment');
   return data.assignments.map(a=>{if(!a||typeof a.title!=='string'||!a.title.trim()||a.title.length>200||typeof a.description!=='string'||!a.description.trim()||a.description.length>4000||!Array.isArray(a.recipientIndices)||!a.recipientIndices.length||new Set(a.recipientIndices).size!==a.recipientIndices.length||a.recipientIndices.some(i=>!Number.isInteger(i)||i<0||i>=source.mentions.length))throw Error('invalid_task_judgment');return {title:a.title.trim(),description:a.description.trim(),recipientAccounts:a.recipientIndices.map(i=>source.mentions[i].account)};});
  }
- async function validate(t,job){const r=await route(job.input.groupId);if(r?.tenant.key!==t.key)return false;for(const prior of [job.input.sender,...job.input.mentions]){const current=await identity(prior.userId,t,job.input.groupId);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)return false;}return true;}
+ async function validate(t,job){const participants=[job.input.sender,...job.input.mentions],r=await route(job.input.groupId,participants.map(p=>p.userId));if(r?.tenant.key!==t.key)return false;for(const prior of participants){const current=await identity(prior.userId,t,job.input.groupId,{readOnly:true});if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)return false;}return true;}
  async function work(t,c,job){if(job.state==='issued'){
    // A scoped group notice has no private task text; never resend a task creation.
    if(!await validate(t,job))return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
@@ -57,7 +71,12 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function inspectSource({key,event:e}){
   const result={key,timestamp:e.timestamp,sourceType:e.source?.type,candidate:Boolean(mentionCandidate(e)),textHash:hash(e.message?.text||'')};
   if(!result.candidate)return result;
-  const routed=await router.resolveGroupBinding(e.source.groupId);
+  const businessRoute=await router.resolveGroupBinding(e.source.groupId);
+  const recipients=e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf);
+  const capabilityRoute=await route(e.source.groupId,[e.source.userId,...recipients.map(m=>m.userId)]);
+  const routed=capabilityRoute||businessRoute;
+  result.businessRouteResolution=businessRoute.resolution;
+  result.groupTaskScope='all-oa-groups';result.capabilityReady=Boolean(capabilityRoute);
   result.routeResolution=routed.resolution;result.tenantKey=routed.tenant?.key||null;result.bindingStatus=routed.binding?.status||null;
   if(!routed.tenant)return result;
   const t=routed.tenant;result.configured=Boolean(await config(t));
@@ -68,5 +87,14 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   }
   return result;
  }
- return {capture,drain,configureService,checkJudgment,inspectSource,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,configuredTenants:[...configured]}),close:()=>store.close?.()};
+ async function inspectGroup({groupId},actors){
+  if(!/^C[a-f0-9]{32}$/i.test(groupId||'')||!Array.isArray(actors)||actors.length>20)throw Error('invalid_group_probe');
+  const summary=await line.lineGet('/v2/bot/group/'+groupId+'/members/count',{timeoutMs:5000}),current=[];
+  for(const id of new Set(actors)){if(!idPattern.test(id))continue;try{const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+id,{timeoutMs:5000});if(p.userId===id)current.push(id);}catch{}}
+  const r=await route(groupId,current);
+  return {ok:true,groupScope:'all-oa-groups',humanMembers:summary.count,observedCurrentMembers:current.length,
+   allHumanMembersObserved:current.length===summary.count,confirmedCommonTaskService:Boolean(r),tenantKey:r?.tenant.key||null,
+   personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
+ }
+ return {capture,drain,configureService,checkJudgment,inspectSource,inspectGroup,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
