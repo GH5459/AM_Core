@@ -47,7 +47,7 @@ const platform = {
   },
 };
 const secret = 'synthetic-signature-secret';
-const journalReads = [], journalReplies = [];
+const journalReads = [], journalReplies = [], journalEntries=[];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
 const centralCaptured=[];let failCentralIntake=false;
 const dependencies = {
@@ -76,7 +76,7 @@ const dependencies = {
   './core/work-journal-entry.js': workJournalEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,
-  './core/leaf-tasks.js': leafTasks,
+  './core/leaf-tasks.js': {...leafTasks,createLeafTasks:options=>({...leafTasks.createLeafTasks(options),loginEntry:async(event,action)=>{assert.equal(event.source.type,'user');assert.equal(action.uri,'https://journal.example.com/?openExternalBrowser=1');journalEntries.push(event);return {type:'uri',label:'開啟工作日誌',uri:'https://journal.example.com/line-login?ticket=synthetic-private-entry&openExternalBrowser=1'};}})},
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
   './core/portal-handoff.js': { safePortalHandoffLocation: () => '/' },
   './core/util.js': { readBody: async req => req.rawBody, sendJson: (res, status, body) => { res.status = status; res.body = body; }, sendText: (res, status) => { res.status = status; } },
@@ -118,11 +118,16 @@ assert.equal((await webhook([journal], false)).status, 401);
 assert.equal(journalReads.length, 0);
 assert.equal((await webhook([journal])).status, 200);
 assert.equal(journalReplies.length, 1);
-assert.equal(journalReplies[0].messages[0].template.actions[0].uri, 'https://journal.example.com/?openExternalBrowser=1');
+assert.equal(journalEntries.length,1);
+assert.equal(journalReplies[0].messages[0].template.actions[0].uri, 'https://journal.example.com/line-login?ticket=synthetic-private-entry&openExternalBrowser=1');
 const previous = Object.fromEntries(Object.entries(passed).map(([key, events]) => [key, events.length]));
 assert.equal((await webhook([journal, transport])).status, 200);
 for (const [key, events] of Object.entries(passed)) assert.equal(events.length, previous[key] + (['io', 'archive', 'retrieval'].includes(key) ? 1 : 0), 'Navigation bypasses ' + key + '; mixed UOF transport still runs');
 assert.equal(journalReplies.length, 2);
+const postback={...journal,type:'postback',postback:{data:'dailylog.open:'+encodeURIComponent('https://journal.example.com/?openExternalBrowser=1')}};
+assert.equal((await webhook([postback],false)).status,401);assert.equal(journalEntries.length,2);
+assert.equal((await webhook([postback])).status,200);assert.equal(journalEntries.length,3);
+assert.equal(journalReplies.length,3,'Private menu postback stays available while general assistant remains paused');
 const centralCount=centralCaptured.length;
 failCentralIntake=true;
 assert.equal((await webhook([group])).status,503,'An archive outage must not acknowledge and lose the source');
