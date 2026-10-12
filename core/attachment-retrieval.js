@@ -61,11 +61,11 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   async function resolve(event, command = parseAttachmentRequest(event)) {
     const groupId = groupOf(event);
     router.invalidate?.(groupId || undefined);
-    if (ownsTransport(event)) return resolveTransport(event);
     if (groupId) {
       // Owner-authorized manual file retrieval is independent of business routing.
       if(command?.explicitSelf===true&&await platform.centralArchive?.canRetrieveQuote?.(event.source))
         return {tenant:QUOTED_ARCHIVE_SCOPE,binding:{status:'啟用'},resolution:'group_archive'};
+      if (ownsTransport(event)) return resolveTransport(event);
       const route=await router.resolveGroupBinding(groupId);
       const archiveSource=route?.resolution==='not_found'||(route?.binding?.status==='影子記錄'&&route.tenant?.runtimeEnabled!==false);
       if(archiveSource&&command?.explicitSelf===true&&command.quotedMessageId
@@ -74,6 +74,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
       }
       return route;
     }
+    if (ownsTransport(event)) return resolveTransport(event);
     if (event.source?.type !== 'user' || !event.source.userId) return null;
     router.invalidateDirect?.(event.source.userId);
     return router.resolveDirectAttachmentBinding(event.source.userId);

@@ -212,8 +212,12 @@ test('all-group archive operates independently of business routing but never byp
   }
   const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('must not query');}}});
   await h.service.handle(event());assert.equal(h.replies.length,0);
-  const transport=harness({transport:true,bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('transport owns authorization');}}});
+  const transport=harness({transport:true,bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>false}});
   await transport.service.handle(mentioned());assert.equal(transport.replies.length,0);
+});
+test('explicit own-OA same-group originals also work in transport-owned groups',async()=>{
+ const h=harness({transport:true,bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>true,original:async()=>archiveFile}});
+ await h.service.handle(mentioned());assert.match(h.replies[0][1],/preserved.jpg/);assert.equal(h.requests.length,0);
 });
 test('explicit named originals and photos are available in active and unregistered groups without business writes',async()=>{
  for(const bound of [{resolution:'not_found'},{resolution:'active',tenant,binding:{status:'啟用'}}]){

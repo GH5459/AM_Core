@@ -30,7 +30,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
-platform.centralArchive={original:centralArchive.original,canRetrieveQuote:centralArchive.canRetrieveQuote,
+platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
