@@ -89,12 +89,16 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  }
  async function inspectGroup({groupId},actors){
   if(!/^C[a-f0-9]{32}$/i.test(groupId||'')||!Array.isArray(actors)||actors.length>20)throw Error('invalid_group_probe');
-  const summary=await line.lineGet('/v2/bot/group/'+groupId+'/members/count',{timeoutMs:5000}),current=[];
-  for(const id of new Set(actors)){if(!idPattern.test(id))continue;try{const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+id,{timeoutMs:5000});if(p.userId===id)current.push(id);}catch{}}
+  const summary=await line.lineGet('/v2/bot/group/'+groupId+'/members/count',{timeoutMs:5000}),current=[],profiles=new Map();
+  for(const id of new Set(actors)){if(!idPattern.test(id))continue;try{const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+id,{timeoutMs:5000});if(p.userId===id){current.push(id);profiles.set(id,String(p.displayName||'群組成員').slice(0,120));}}catch{}}
   const r=await route(groupId,current);
+  const members=[];
+  for(const id of current){let matched=0;for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{if(await config(t)&&await identity(id,t,groupId,{readOnly:true}))matched++;}catch{}}
+   const name=profiles.get(id);members.push({displayName:/[CU][a-f0-9]{32}/i.test(name)?'群組成員':name,confirmedTaskIdentity:matched===1,ambiguousTaskIdentity:matched>1});
+  }
   return {ok:true,groupScope:'all-oa-groups',humanMembers:summary.count,observedCurrentMembers:current.length,
    allHumanMembersObserved:current.length===summary.count,confirmedCommonTaskService:Boolean(r),tenantKey:r?.tenant.key||null,
-   personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
+   members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
  return {capture,drain,configureService,checkJudgment,inspectSource,inspectGroup,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }

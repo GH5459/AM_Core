@@ -49,6 +49,7 @@ test('group readiness reads native actors and live membership without changing i
  const f=await fixture({businessResolution:'not_found'}),before=f.paths.length;
  const result=await f.service.inspectGroup({groupId:group},[sender,recipient]);
  assert.equal(result.observedCurrentMembers,2);assert.equal(result.confirmedCommonTaskService,true);assert.equal(result.groupScope,'all-oa-groups');
+ assert.equal(result.members.length,2);assert(result.members.every(m=>m.confirmedTaskIdentity&&!m.ambiguousTaskIdentity));
  assert.equal(f.paths.length,before);for(const id of [group,sender,recipient])assert(!JSON.stringify(result).includes(id));
  await assert.rejects(f.service.inspectGroup({groupId:'bad'},[]),/invalid_group_probe/);
 });
