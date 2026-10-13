@@ -11,7 +11,7 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
   async function tx(fn){const c=await db().connect();try{await c.query('BEGIN');const r=await fn(c);await c.query('COMMIT');return r;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}
   const select=`SELECT j.key,j.payload->'event' AS event,j.payload->'${marker}' AS dispatch FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key`;
   async function insert(event,kind='message',input={}){return tx(async c=>{
-    const key=canonical(bot,event),row=(await c.query(`${select} WHERE j.key=$1 AND c.bot_id=$2 AND c.source_kind='group' FOR UPDATE OF j`,[key,bot])).rows[0];
+    const key=canonical(bot,event),row=(await c.query(`${select} WHERE j.key=$1 AND c.bot_id=$2 AND c.source_kind='group' AND j.payload->>'evidenceQuality'='webhook' FOR UPDATE OF j`,[key,bot])).rows[0];
     const e=row?.event;
     if(!e||e.source.groupId!==event.source.groupId||e.source.userId!==event.source.userId||e.timestamp!==event.timestamp
       ||!isDeepStrictEqual(e.message||{},JSON.parse(JSON.stringify((({quoteToken,...message})=>message)(event.message||{}))))||e.postback?.data!==event.postback?.data)throw Error('group_source_not_archived');

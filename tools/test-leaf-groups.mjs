@@ -71,6 +71,7 @@ test('source removal, cancellation and changed work identity fence future side e
 }finally{await f.close();}});
 test('archive source gate rejects invented inputs and other bot scopes; lease tokens fence stale writers',async()=>{const f=await fixture();try{
  const e=f.message();await assert.rejects(f.options.store.insert(e),/not_archived/);await f.archive.capture([e]);await assert.rejects(f.options.store.insert({...e,message:{...e.message,text:'forged'}}),/not_archived/);
+ await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{evidenceQuality}','\"history\"'::jsonb)");await assert.rejects(f.store.insert(e),/not_archived/);await f.archive.capture([e]);
  const foreign=createGroupStore({env:{...f.options.env,AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID:U(9)},pool:{connect:async()=>({query:(...args)=>f.db.query(...args),release(){}})}});
  await assert.rejects(foreign.insert(e),/not_archived/);assert.equal(await foreign.lease(),null);
  await f.store.insert(e);const leased=await f.store.lease();f.advance();f.advance();f.advance();const newer=await f.store.lease();assert.ok(newer);assert.equal(await f.store.save(leased,{...leased.dispatch,phase:'done'}),false);
