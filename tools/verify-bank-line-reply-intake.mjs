@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as workJournalEntry from '../core/work-journal-entry.js';
+import * as uofSetupEntry from '../core/uof-setup-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
@@ -77,6 +78,7 @@ try {
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},
       './core/line-io/index.js':{createLineIo,readLineIoBody:async r=>r.rawBody},
       './core/work-journal-entry.js': workJournalEntry,
+      './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
       './core/leaf-calendar/index.js':leafCalendar,
       './core/leaf-tasks.js':leafTasks,

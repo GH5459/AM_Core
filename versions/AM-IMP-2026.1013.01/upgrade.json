@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1013.01",
+  "name": "UOF unbound private chat setup entry",
+  "type": "LINE / onboarding",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-13",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.1006.03"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-uof-setup-entry.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1013.01"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "files": ["core/uof-setup-entry.js", "core/line-io/conversation.js", "core/line-io/index.js", "server.js"],
+  "definitionOfDone": ["Unbound private pending queries reply with the public setup link", "Bound queries preserve independent UOF transport", "Fresh database classification fails closed", "No automatic pairing or access grant", "Production commit and entry health marker verified", "Phone acceptance reported separately"]
+}
