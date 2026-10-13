@@ -8,4 +8,4 @@
 
 This record does not install changes into SevenAM or other OA credentials. Their existing manifests and permissions are unchanged.
 
-| AM-IMP-2026.1013.03 | Root Leaf OA only | Installed | Group organizer confirmation, per-person Calendar copies and durable task identity wait; local SQL and signed webhook verified; production pending |
+| AM-IMP-2026.1013.03 | Root Leaf OA only | Deployed | PR290 CI passed; live 699d76d on both origins; enabled organizer-confirmation-per-person; LINE card validation 200; original task issued/notified with requester, recipient and evidence linked; meeting card remains unconfirmed |
