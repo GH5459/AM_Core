@@ -29,7 +29,7 @@ test('reply uses only the triggering token and fixed public URL, with bounded re
   await Promise.all([entry.handle(event()), entry.handle(event())]);
   assert.equal(replies.length, 1);assert.equal(replies[0][0], event().replyToken);
   const message = replies[0][1][0];assert.deepEqual(message, uofSetupMessage());
-  assert.equal(message.template.actions[0].uri, 'https://uof-line.ghotel.tw/Line/Setup');
+  assert.equal(message.template.actions[0].uri, 'https://uof-line.ghotel.tw/Line/Setup?openExternalBrowser=1');
   assert(message.template.text.includes('本人 UOF 帳密'));assert(message.template.text.includes('確認自己的 LINE 名稱'));
   assert(!JSON.stringify(message).includes(userId));assert(message.template.text.length <= 160);
   assert(message.template.actions[0].label.length <= 20);

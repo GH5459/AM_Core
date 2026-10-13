@@ -13,6 +13,7 @@ on:
       - 'core/uof-setup-entry.js'
       - 'tools/test-uof-setup-entry.mjs'
       - 'versions/AM-IMP-2026.1013.01/**'
+      - 'versions/AM-IMP-2026.1013.02/**'
       - 'tools/test-work-journal-entry.mjs'
       - 'versions/AM-IMP-2026.1007.02/**'
       - 'tools/apply-compact-rich-menu.mjs'
@@ -112,6 +113,7 @@ jobs:
       - run: node --test tools/test-work-journal-entry.mjs
       - run: node --test tools/test-uof-setup-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.01
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.02
       - run: node --test tools/test-line-work-login.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02
       - run: node --test tools/test-journal-external-browser-url.mjs

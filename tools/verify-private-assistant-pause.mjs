@@ -142,7 +142,7 @@ assert.equal(journalReplies.length, 3);
 failUofNavigation = false;
 assert.equal((await webhook([setup])).status, 200);
 assert.equal(journalReplies.length, 4);
-assert.equal(journalReplies.at(-1).messages[0].template.actions[0].uri, 'https://uof-line.ghotel.tw/Line/Setup');
+assert.equal(journalReplies.at(-1).messages[0].template.actions[0].uri, 'https://uof-line.ghotel.tw/Line/Setup?openExternalBrowser=1');
 assert.equal((await webhook([setup, transport])).status, 200);
 assert.equal(journalReplies.length, 4, 'Redelivery cannot send a second setup reply');
 for (const [key, events] of Object.entries(passed)) assert.equal(events.length, beforeSetup[key] + (['io', 'archive', 'retrieval'].includes(key) ? 1 : 0));
