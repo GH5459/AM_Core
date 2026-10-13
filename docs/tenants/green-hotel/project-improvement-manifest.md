@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1013.04 | Installed | Recurring activities and 禮拜 weekday aliases | 33 isolated root checks and 15 DailyLog checks | Production pending; original owner confirmation required. |
 | AM-IMP-2026.1011.02 | Deployed | Confirmed timing with optional calendar details | 33 local tests, full CI, live main 44ae19c on both origins, LINE format and actual saved-event evidence | One requested original owner click recovered; venue preserved, success notification accepted, no other confirmation replayed. |
 | AM-IMP-2026.1011.01 | Deployed | Natural timed appointment intake | 30 local tests, full CI, live main ff62d40 on both origins and accepted original-source card | One original event replayed with unchanged source identity/time; ambiguous venue still requires clarification and owner confirmation. |
 | AM-IMP-2026.1010.02 | Deployed | Text-first calendar supplementation and two-action cards | 29 tests, full CI, live main 71226fd, LINE format validation and original-card acceptance | One pending legacy card refreshed; exactly 建立/不參加 with red notes; owner confirmation remains required. |

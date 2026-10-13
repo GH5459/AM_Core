@@ -380,3 +380,16 @@ test('authenticated shared setup provisions a cold tenant without individual pai
     assert.equal(await service.accepts(message('cold-source','10/8 會議 14:00 台中')),true);assert.equal(f.writes.length,0);
   }finally{await f.close();}
 });
+
+
+test('weekly recurring draft keeps rule through durable confirmation and retry',async()=>{
+ const f=await fixture();try{
+  await f.bind();f.setEvents([{...activity,date:'2026-10-13',time:'20:00',endTime:'21:00',recurrence:{frequency:'WEEKLY',weekdays:['TU']}}]);
+  const e=message('repeat-intake','每個禮拜二晚上8點到9點，活動名稱是「測試線上聊天」');e.timestamp=Date.parse('2026-10-13T19:00:00+08:00');
+  assert.equal(await f.service.accepts(e),true);await f.service.capture([e]);await f.service.drain();assert.equal(f.writes.length,0);
+  const draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.payload.event.date,'2026-10-13');assert.deepEqual(draft.payload.event.recurrence,{frequency:'WEEKLY',interval:1,weekdays:['TU']});
+  assert.match(JSON.stringify(f.pushes.at(-1).msg),/每週 星期二/);assert.match(JSON.stringify(f.pushes.at(-1).msg),/不設結束日期/);
+  await f.service.capture([button('repeat-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.deepEqual(f.writes[0].recurrence,draft.payload.event.recurrence);
+  await f.service.capture([button('repeat-confirm-again','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.match(JSON.stringify(f.pushes.at(-1).msg),/每週 星期二/);
+ }finally{await f.close();}
+});
