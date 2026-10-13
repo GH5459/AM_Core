@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.1013.04",
+  "name": "Native recurring calendar activities with weekday aliases",
+  "type": "LINE / Calendar",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-13",
+  "installTargets": [
+    "AM_PLATFORM",
+    "DAILYLOG_CALENDAR_SERVICE"
+  ],
+  "requiresDatabases": [
+    "Existing tenant-local leaf_calendar requests and service config"
+  ],
+  "requiresEnv": [
+    "Existing scoped calendar service and Google OAuth bindings"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-calendar-recurrence.mjs",
+    "node --experimental-vm-modules --test tools/test-leaf-calendar.mjs tools/test-leaf-groups.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "files": [
+    "core/leaf-calendar/recurrence.cjs",
+    "core/leaf-calendar/extract.js",
+    "core/leaf-calendar/index.js"
+  ],
+  "definitionOfDone": [
+    "Native Google recurrence series preserved across confirmed retries",
+    "Weekday alias intake verified",
+    "Latest complete DailyLog production preserved",
+    "Root production main verified separately"
+  ]
+}

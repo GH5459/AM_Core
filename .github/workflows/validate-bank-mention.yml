@@ -27,6 +27,8 @@ on:
       - 'core/operational-memory.js'
       - 'core/bank-line-reply-intake.js'
       - 'core/leaf-calendar/**'
+      - 'tools/test-calendar-recurrence.mjs'
+      - 'versions/AM-IMP-2026.1013.04/**'
       - 'core/leaf-tasks.js'
       - 'tools/test-leaf-tasks.mjs'
       - 'versions/AM-IMP-2026.1008.07/**'
@@ -135,6 +137,8 @@ jobs:
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
+      - run: node --test tools/test-calendar-recurrence.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.04
       - run: node --experimental-vm-modules --test tools/test-leaf-calendar.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.07
       - run: node --experimental-vm-modules tools/verify-private-assistant-pause.mjs
