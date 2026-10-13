@@ -15,6 +15,17 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running;
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
+ async function groupServices(){const available=[];for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{if(await config(t))available.push(t);}catch{}}return available;}
+ async function submitGroupTask(t,event,participants){
+  const c=await config(t);if(!c)throw Error('task_service_not_configured');
+  if(!participants.length||participants[0].userId!==event.source.userId)throw Error('task_sender_required');
+  const id=hash(t.tenantId+':'+event.source.groupId+':'+event.message.id);
+  const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
+  const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))];
+  const mentions=ids.map(id=>participants.find(p=>p.userId===id));if(mentions.some(p=>!p))throw Error('task_recipient_required');
+  return call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
+   sender:clean(participants[0]),mentions:mentions.map(clean),text:event.message.text,timestamp:event.timestamp});
+ }
  // Tasks use confirmed work identities, independently of a group's project routing.
  // Never register the group under another business tenant or grant personal access.
  async function route(groupId,userIds=[]){
@@ -120,5 +131,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
  async function checkLogin({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('work_login_service_unavailable');const c=await config(t);if(!c)throw Error('work_login_service_unavailable');const r=await call(t,c,'login-health');if(r.contract!=='line-first-work-login-v1'||r.tenant!==t.key)throw Error('work_login_contract_mismatch');return {ok:true,contract:r.contract,tenantKey:t.key,manualPairingRequired:r.manualPairingRequired,uofApprovalRequired:r.uofApprovalRequired,noTicketsOrIdentitiesWritten:true};}
- return {capture,drain,configureService,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ return {capture,drain,configureService,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
+  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }

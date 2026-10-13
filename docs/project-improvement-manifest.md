@@ -7,3 +7,5 @@
 | AM-IMP-2026.1013.02 | Root Leaf OA only | Installed | UOF setup external browser URI; production verification pending |
 
 This record does not install changes into SevenAM or other OA credentials. Their existing manifests and permissions are unchanged.
+
+| AM-IMP-2026.1013.03 | Root Leaf OA only | Installed | Group organizer confirmation, per-person Calendar copies and durable task identity wait; local SQL and signed webhook verified; production pending |

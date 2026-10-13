@@ -71,6 +71,12 @@ async function fixture(){
     restart:()=>createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant,other],platform,store,fetchImpl,resolveIdentity,logger:{warn(){}}}),
     async accelerate(){await db.query('BEGIN');await db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);await db.query('UPDATE leaf_calendar.requests SET available_at=now(),lease_expires_at=NULL WHERE tenant_id=$1',[T]);await db.query('COMMIT');},close:async()=>{await store.close();await db.close();}};
 }
+test('internal confirmed group writer uses scoped service and stable account/request without private draft',async()=>{const f=await fixture();try{
+ const input={...activity,requestId:'groupcal:synthetic:participant'};
+ const saved=await f.service.writeGroupEvent(tenant,'synthetic-other',input);assert.equal(saved.id,input.requestId);assert.equal(f.writes[0].account,'synthetic-other');
+ assert.equal((await f.service.writeGroupEvent(tenant,'synthetic-other',input)).replayed,true);
+ await assert.rejects(f.service.writeGroupEvent(other,'synthetic-other',input));await assert.rejects(f.service.writeGroupEvent(tenant,'synthetic-other',{...input,time:''}));assert.equal(f.writes.length,2);
+}finally{await f.close();}});
 test('activity normalization: Taiwan timezone, invalid dates, default and explicit cross-day end',async()=>{
   assert.equal(taipeiDate(Date.UTC(2026,9,6,17)), '2026-10-07');
   assert.equal(calendarCandidate('待簽'),false);assert.equal(calendarCandidate('明天開會，下午三點，台中辦公室'),true);
@@ -327,6 +333,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
         dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>groups.push(event)},portal:{},modules:new Map(),platform:f.platform,llm:{available:false,backends:[]},logger:{log(){},warn(){},error(){}}})},
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
+      './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
       './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:()=>false})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},

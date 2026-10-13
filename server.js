@@ -10,6 +10,7 @@ import { createCentralArchive } from './core/central-archive/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
+import { createLeafGroups } from './core/leaf-groups.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
 import { createUofSetupEntry } from './core/uof-setup-entry.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
@@ -38,6 +39,7 @@ const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity });
+const leafGroups = createLeafGroups({ platform, line, tasks: leafTasks, calendar: leafCalendar, llm, logger });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
   ownsTransport: event => lineIo.owns(event), resolveTransport: lineIo.resolveAttachmentBinding, logger });
@@ -288,6 +290,7 @@ const server = http.createServer(async (req, res) => {
       personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'am-platform-private-assistant' },
       lineCalendar: leafCalendar.health(),
       lineTasks: leafTasks.health(),
+      lineGroupMentions: leafGroups.health(),
       workJournalEntry: workJournalEntry.health(),
       uofSetupEntry: uofSetupEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
@@ -445,7 +448,11 @@ const server = http.createServer(async (req, res) => {
     // Capture every verified event before private-assistant pause, command and business-module filters.
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
-    try { await leafTasks.capture(body.events); }
+    try {
+      const grouped = await leafGroups.capture(body.events);
+      await leafTasks.capture(body.events.filter(e => !grouped.includes(e)));
+      body.events = body.events.filter(e => !grouped.includes(e) || !leafGroups.isControl(e));
+    }
     catch { return sendJson(res,503,{error:'Task intake is temporarily unavailable.'}); }
     // A navigation command uses the same public URI as the Rich Menu. Keep it
     // outside task parsing, tenant identity lookup and independent UOF intake.
@@ -649,6 +656,8 @@ const calendarTimer = setInterval(() => { leafCalendar.drain().catch(() => logge
 calendarTimer.unref?.();
 const taskTimer = setInterval(() => { leafTasks.drain().catch(() => logger.warn('Task processing deferred.')); }, 5000);
 taskTimer.unref?.();
+const groupTimer = setInterval(() => { leafGroups.drain().catch(() => logger.warn('Group processing deferred.')); }, 5000);
+groupTimer.unref?.();
 
 let archivePatrolRunning = false;
 async function archivePatrol() {
