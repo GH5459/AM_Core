@@ -1,11 +1,11 @@
 import { directUofQuery } from './line-io/conversation.js';
 
 export const UOF_SETUP_ENTRY_CONTRACT = 'line-unbound-uof-setup-entry-v1';
-const setupUrl = 'https://uof-line.ghotel.tw/Line/Setup';
+const setupUrl = 'https://uof-line.ghotel.tw/Line/Setup?openExternalBrowser=1';
 
 export function uofSetupMessage() {
   return { type: 'template', altText: '首次使用 UOF，請先完成 LINE 綁定：' + setupUrl,
-    template: { type: 'buttons', text: '請先完成 UOF LINE 綁定。\n開啟啟用頁，用本人 UOF 帳密登入，複製啟用文字到此私訊送出，再回頁面確認自己的 LINE 名稱。',
+    template: { type: 'buttons', text: '請先完成 UOF LINE 綁定。\n用外部瀏覽器開啟啟用頁，以本人 UOF 帳密登入，複製啟用文字到此私訊送出，再回瀏覽器確認自己的 LINE 名稱。',
       actions: [{ type: 'uri', label: '開啟 UOF LINE 啟用頁', uri: setupUrl }] } };
 }
 
@@ -33,5 +33,5 @@ export function createUofSetupEntry({ line, lineIo, logger = console }) {
     return true;
   }
   return { partition, handle, health: () => ({ contract: UOF_SETUP_ENTRY_CONTRACT,
-    enabled: Boolean(lineIo.bindingsEnabled), scope: 'unbound-direct-chat-navigation', requiresUofLogin: true }) };
+    enabled: Boolean(lineIo.bindingsEnabled), scope: 'unbound-direct-chat-navigation', requiresUofLogin: true, browserMode: 'external' }) };
 }

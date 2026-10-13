@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1013.02",
+  "name": "Open UOF setup in external browser",
+  "type": "LINE / onboarding",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-13",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.1013.01"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-uof-setup-entry.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1013.02"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "files": ["core/uof-setup-entry.js"],
+  "definitionOfDone": ["New setup action and fallback URL use openExternalBrowser=1", "Owner login and confirmation remain", "Format and existing webhook tests pass", "Production browserMode=external verified", "Phone acceptance reported separately"]
+}
