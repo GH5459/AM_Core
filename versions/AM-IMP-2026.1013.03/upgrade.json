@@ -1,0 +1,45 @@
+{
+  "id": "AM-IMP-2026.1013.03",
+  "name": "Confirmed group mention calendars and durable task routing",
+  "type": "LINE / calendar / task",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-13",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresPackages": [
+    "AM-IMP-2026.1012.01"
+  ],
+  "requiresDatabases": [
+    "Existing OA-scoped central_archive",
+    "Existing tenant-local calendar service config"
+  ],
+  "requiresEnv": [
+    "Existing LINE credentials and archive bot identity"
+  ],
+  "requiresScripts": [
+    "node --experimental-vm-modules --test tools/test-leaf-groups.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1013.03"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "files": [
+    "core/leaf-groups.js",
+    "core/leaf-groups-store.js",
+    "core/leaf-tasks.js",
+    "core/leaf-calendar/index.js",
+    "core/leaf-calendar/extract.js",
+    "server.js"
+  ],
+  "definitionOfDone": [
+    "Native mention and original source evidence preserved before ACK",
+    "Organizer confirms revision before per-person calendar writes",
+    "Pending work/Google connection resumes without duplicate writes",
+    "Existing recipient and requester task projections reused",
+    "Root production health and original-source receipts verified separately"
+  ]
+}

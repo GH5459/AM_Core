@@ -53,3 +53,5 @@ test('group readiness reads native actors and live membership without changing i
  assert.equal(f.paths.length,before);for(const id of [group,sender,recipient])assert(!JSON.stringify(result).includes(id));
  await assert.rejects(f.service.inspectGroup({groupId:'bad'},[]),/invalid_group_probe/);
 });
+
+test('group helper freezes same legacy intake identity and preserves source requester and mentions',async()=>{const f=await fixture();const e=event();assert.deepEqual((await f.service.groupServices()).map(t=>t.key),['fixture']);const ids=[sender,recipient];const people=await Promise.all(ids.map(id=>f.service.resolveGroupIdentity(id,tenant,group)));await f.service.submitGroupTask(tenant,e,people);await f.service.capture([e]);await f.service.drain();assert.equal(f.counts().issues,1);assert.equal(f.paths.filter(p=>p==='intake').length,2);});

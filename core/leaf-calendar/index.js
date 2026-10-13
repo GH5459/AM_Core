@@ -139,6 +139,12 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
     configured.add(tenant.key);
     return {ok:true,tenantKey,configured:true};
   }
-  return {accepts,capture,drain,configureService,adminAuthorized:value=>Boolean(secret)&&same(value,calendarAdminKey(secret)),
+  async function writeGroupEvent(tenant,account,event){
+    if(!ready.some(t=>t.key===tenant.key)||!account)throw Error('calendar_group_service_unavailable');
+    const config=await store.service(tenant);if(!config)throw Error('calendar_group_service_unavailable');
+    const prepared=prepareEvent(event,event.requestId);if(prepared.missing.length)throw Error('calendar_group_timing_required');
+    return calendarRequest({...config,account,apiKey:decrypt(config.encrypted_key,secret,tenant.tenantId)},{...prepared.event,account});
+  }
+  return {accepts,capture,drain,configureService,writeGroupEvent,adminAuthorized:value=>Boolean(secret)&&same(value,calendarAdminKey(secret)),
     health:()=>({enabled,contract:LEAF_CALENDAR_CONTRACT,provisionedTenants:ready.map(t=>t.key),configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
