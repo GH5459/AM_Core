@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as workJournalEntry from '../core/work-journal-entry.js';
+import * as uofSetupEntry from '../core/uof-setup-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
@@ -49,7 +50,7 @@ const platform = {
 const secret = 'synthetic-signature-secret';
 const journalReads = [], journalReplies = [], journalEntries=[];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
-const centralCaptured=[];let failCentralIntake=false;
+const centralCaptured=[];let failCentralIntake=false, failUofNavigation=false;
 const dependencies = {
   './core/central-archive/index.js': { createCentralArchive: async () => ({capture:async events=>{
     if(failCentralIntake)throw Error('synthetic_archive_outage');centralCaptured.push(...events);},health:()=>({enabled:true})}) },
@@ -65,6 +66,7 @@ const dependencies = {
   }) },
   './core/line-io/index.js': { createLineIo: async () => ({
     enabled: false, owns: event => event.message?.id === transport.message.id, handle: async () => false, capture: async events => { calls.io++; passed.io.push(...events); },
+    bindingsEnabled: true, uofSetupEvents: async events => { if (failUofNavigation) throw Error('fixture_binding_outage');return events.filter(event => event.webhookEventId === 'fixture-unbound'); },
   }), readLineIoBody: async req => req.rawBody },
   './core/bank-line-reply-intake.js': { createBankLineReplyIntake: () => ({
     receive: async event => { calls.bank++; passed.bank.push(event); return false; }, drain: async () => {},
@@ -74,6 +76,7 @@ const dependencies = {
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
   './core/work-journal-entry.js': workJournalEntry,
+  './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,
   './core/leaf-tasks.js': {...leafTasks,createLeafTasks:options=>({...leafTasks.createLeafTasks(options),loginEntry:async(event,action)=>{assert.equal(event.source.type,'user');assert.equal(action.uri,'https://journal.example.com/?openExternalBrowser=1');journalEntries.push(event);return {type:'uri',label:'開啟工作日誌',uri:'https://journal.example.com/line-login?ticket=synthetic-private-entry&openExternalBrowser=1'};}})},
@@ -129,7 +132,21 @@ assert.equal((await webhook([postback],false)).status,401);assert.equal(journalE
 assert.equal((await webhook([postback])).status,200);assert.equal(journalEntries.length,3);
 assert.equal(journalReplies.length,3,'Private menu postback stays available while general assistant remains paused');
 const centralCount=centralCaptured.length;
+const setup = { ...journal, webhookEventId: 'fixture-unbound', replyToken: 'fixture-setup', message: { type: 'text', text: '待簽' } };
+const beforeSetup = Object.fromEntries(Object.entries(passed).map(([key, events]) => [key, events.length]));
+assert.equal((await webhook([setup], false)).status, 401);
+assert.equal(journalReplies.length, 3);
+failUofNavigation = true;
+assert.equal((await webhook([setup])).status, 503);
+assert.equal(journalReplies.length, 3);
+failUofNavigation = false;
+assert.equal((await webhook([setup])).status, 200);
+assert.equal(journalReplies.length, 4);
+assert.equal(journalReplies.at(-1).messages[0].template.actions[0].uri, 'https://uof-line.ghotel.tw/Line/Setup');
+assert.equal((await webhook([setup, transport])).status, 200);
+assert.equal(journalReplies.length, 4, 'Redelivery cannot send a second setup reply');
+for (const [key, events] of Object.entries(passed)) assert.equal(events.length, beforeSetup[key] + (['io', 'archive', 'retrieval'].includes(key) ? 1 : 0));
 failCentralIntake=true;
 assert.equal((await webhook([group])).status,503,'An archive outage must not acknowledge and lose the source');
-assert.equal(centralCaptured.length,centralCount);
+assert.equal(centralCaptured.length,centralCount + 4);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');

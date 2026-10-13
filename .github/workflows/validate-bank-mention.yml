@@ -10,6 +10,9 @@ on:
       - 'versions/AM-IMP-2026.1007.03/**'
       - 'server.js'
       - 'core/work-journal-entry.js'
+      - 'core/uof-setup-entry.js'
+      - 'tools/test-uof-setup-entry.mjs'
+      - 'versions/AM-IMP-2026.1013.01/**'
       - 'tools/test-work-journal-entry.mjs'
       - 'versions/AM-IMP-2026.1007.02/**'
       - 'tools/apply-compact-rich-menu.mjs'
@@ -107,6 +110,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1012.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.03
       - run: node --test tools/test-work-journal-entry.mjs
+      - run: node --test tools/test-uof-setup-entry.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.01
       - run: node --test tools/test-line-work-login.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02
       - run: node --test tools/test-journal-external-browser-url.mjs

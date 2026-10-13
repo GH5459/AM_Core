@@ -11,6 +11,7 @@ import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
+import { createUofSetupEntry } from './core/uof-setup-entry.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
 import { routeDirectLineEvent, isPausedDirectEvent, PERSONAL_ASSISTANT_ENABLED, PERSONAL_ASSISTANT_CONTRACT } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
@@ -34,6 +35,7 @@ platform.centralArchive={original:centralArchive.original,findOriginal:centralAr
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
 const lineIo = await createLineIo({ tenants, line, router, logger });
+const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
@@ -287,6 +289,7 @@ const server = http.createServer(async (req, res) => {
       lineCalendar: leafCalendar.health(),
       lineTasks: leafTasks.health(),
       workJournalEntry: workJournalEntry.health(),
+      uofSetupEntry: uofSetupEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       centralArchive: centralArchive.health(),
       driveConfigured: platform.driveConfigured,
@@ -448,6 +451,12 @@ const server = http.createServer(async (req, res) => {
     // outside task parsing, tenant identity lookup and independent UOF intake.
     const journalEvents = body.events.filter(workJournalEntry.matches);
     body.events = body.events.filter(event => !workJournalEntry.matches(event));
+    let uofSetupEvents;
+    try {
+      const partition = await uofSetupEntry.partition(body.events);
+      uofSetupEvents = partition.setupEvents;
+      body.events = partition.remaining;
+    } catch { return sendJson(res,503,{error:'UOF binding navigation is temporarily unavailable.'}); }
     // 暫停 AM 私人助理；已明確綁定給獨立傳輸服務的指令仍由原本服務處理。
     let activeEvents;
     try {
@@ -466,6 +475,7 @@ const server = http.createServer(async (req, res) => {
     if (!activeEvents.length) {
       sendText(res,200,'OK');
       for (const event of journalEvents) workJournalEntry.handle(event);
+      for (const event of uofSetupEvents) uofSetupEntry.handle(event);
       if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
       return;
     }
@@ -529,6 +539,7 @@ const server = http.createServer(async (req, res) => {
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
     for (const event of journalEvents) workJournalEntry.handle(event);
+    for (const event of uofSetupEvents) uofSetupEntry.handle(event);
     if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
     for (const tenant of attachmentTenants) {
       platform.attachmentArchive.drain(tenant).catch(() => logger.error('Attachment archive worker unavailable.'));

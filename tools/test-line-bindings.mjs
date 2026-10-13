@@ -50,6 +50,26 @@ function deferred() {
   return {promise,resolve};
 }
 
+test('setup navigation rereads binding status and never creates a candidate or transports an unbound query', async t => {
+  const h = await harness(t), dm = (id, text = '待簽') => ({ ...h.event(id, text), source: { type: 'user', userId: user } });
+  const query = dm('setup-query');
+  assert.deepEqual(await h.gateway.uofSetupEvents([query, h.event('group-query', '待簽'), dm('ordinary', '你好')]), [query]);
+  assert.equal(Number((await h.db.query('SELECT count(*) AS count FROM line_bindings.bindings')).rows[0].count), 0);
+  const row = await h.bind();
+  const switchBody = { externalUserId: 'synthetic-owner', mode: 'direct', expectedGroupId: group, expectedUserId: user };
+  assert.equal((await h.request(`/bindings/${row.bindingId}/conversation`, { method: 'POST', body: switchBody })).status, 200);
+  assert.deepEqual(await h.gateway.uofSetupEvents([query]), []);
+  await h.gateway.capture([query]);
+  assert.deepEqual((await h.request('/events', { key: ioKey })).body.events.map(e => e.event.webhookEventId), ['setup-query']);
+  // Change the authoritative DB without updating the gateway's rows cache.
+  await h.db.query("UPDATE line_bindings.bindings SET status='suspended' WHERE id=$1", [row.bindingId]);
+  assert.deepEqual(await h.gateway.uofSetupEvents([query]), [query]);
+  await h.gateway.capture([dm('suspended-query')]);
+  assert.deepEqual((await h.request('/events', { key: ioKey })).body.events, []);
+  assert.deepEqual((await h.db.query('SELECT event_id FROM line_io.line_io_events')).rows.map(e => e.event_id), ['setup-query']);
+  assert.equal((await h.bindingStore.readOne(row.bindingId)).status, 'suspended');
+});
+
 test('task diagnostics verify current identities without changing or suspending bindings',async t=>{
  const h=await harness(t),row=await h.bind();
  await h.start('synthetic-expired-pending');

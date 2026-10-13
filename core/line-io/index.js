@@ -6,7 +6,7 @@ import { createDirectory } from './directory.js';
 import { createDirectoryStore } from './directory-store.js';
 import { createBindings } from './bindings.js';
 import { buildReviewCards, buildInlineResult } from './cards.js';
-import { conversationId, directId, directUofInput } from './conversation.js';
+import { conversationId, directId, directUofInput, directUofQuery } from './conversation.js';
 
 const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
@@ -451,7 +451,20 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         canSend:outputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('messages:write') };
     },
   }) : null;
-  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns,
+  async function uofSetupEvents(events) {
+    const candidates = events.filter(directUofQuery);
+    if (!personal || !candidates.length) return [];
+    // One fresh binding snapshot per webhook. This is only a navigation
+    // decision; the existing capture path still verifies bound identities.
+    await personal.refresh();
+    return candidates.filter(event => {
+      const userId = conversationId(event), row = personal.lookup(userId);
+      return !(row?.status === 'bound' && row.user_id === userId
+        && clients.some(client => client.allowPersonalBindings && client.transportOnly
+          && client.id === row.client_id && client.tenantKey === row.tenant_key));
+    });
+  }
+  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns, uofSetupEvents,
     acceptsBindingEvent: event => personal?.acceptsBindingEvent(event) ?? Promise.resolve(false),
     resolveCalendarIdentity, resolveTaskIdentity, resolveAttachmentBinding, close: async () => pool?.end() };
 }

@@ -15,3 +15,9 @@ export function directUofInput(event) {
   return /^(待簽|代簽|查詢待簽|查詢待辦)$/i.test(text)
     || /^(核准|批次核准)\s+\S/.test(text);
 }
+
+export function directUofQuery(event) {
+  return event?.source?.type === 'user' && Boolean(conversationId(event))
+    && event.type === 'message' && event.message?.type === 'text'
+    && /^(待簽|代簽|查詢待簽|查詢待辦)$/.test(String(event.message.text || '').trim());
+}
