@@ -28,3 +28,4 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_pending (
   state text NOT NULL DEFAULT 'waiting', updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS meeting_events_pending ON central_archive.meeting_events(state,event_at);
+CREATE INDEX IF NOT EXISTS meeting_archive_activity ON central_archive.jobs(conversation_key,event_at DESC);
