@@ -9,3 +9,4 @@
 - 正式確認 AM commit/health、兩 Worker 100% 版本、所有未修改模組 hash、配置、原資產與排程；匿名存取受保護入口仍拒絕。
 - 正式登入後只讀確認後台資料。不要以真人錄音重送、群組訊息、簽核或建立真人任務作為隔離測試。真人錄音完整流程驗收另行註明。
 - 核對管理轉接使用的 HTTPS 原站與簽章；拒絕帶帳密、路徑、查詢或非 HTTPS 的設定。非 JSON／網路失敗保留草稿，錯誤不得洩漏上游內容或秘密；正式登入後必須看見名單，不能只驗證 AM 的直接查詢。
+- 執行 `node tools/test-meeting-proxy-workerd.cjs MINIFLARE_MODULE_PATH` 核對真正 Worker 執行環境。使用 `redirect: manual` 並明確拒絕 3xx；正式執行環境不接受 `redirect: error`，只用 Node 模擬會漏掉此錯誤。
