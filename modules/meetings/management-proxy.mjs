@@ -6,6 +6,11 @@ export async function meetingManagementProxy(request,env,actor,{fetchImpl=fetch,
   if(!['GET','PUT'].includes(request.method))return Response.json({error:'不支援此操作。'},{status:405});
   const secret=env.AMCORE_MEETING_MANAGEMENT_SECRET;
   if(!secret||secret.length<32||!/^\d{1,20}$/.test(String(actor)))return Response.json({error:'會議管理尚未設定完成。'},{status:503});
+  let origin;
+  try{const target=new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com');
+    if(target.protocol!=='https:'||target.username||target.password||target.pathname!=='/'||target.search||target.hash)throw Error('origin');
+    origin=target.origin;
+  }catch{return Response.json({error:'會議管理尚未設定完成。'},{status:503});}
   const body=request.method==='GET'?'':await request.text();
   if(body.length>20000)return Response.json({error:'設定資料過大。'},{status:413});
   const path='/integrations/meeting-management/conversations',timestamp=String(now());
@@ -13,12 +18,16 @@ export async function meetingManagementProxy(request,env,actor,{fetchImpl=fetch,
   const key=await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(await crypto.subtle.sign('HMAC',key,encoder.encode([request.method,path,timestamp,actor,digest].join('\n'))));
   try{
-    const response=await fetchImpl('https://am.hozorental.com'+path,{method:request.method,redirect:'error',
+    const response=await fetchImpl(origin+path,{method:request.method,redirect:'error',
       headers:{'Content-Type':'application/json','x-meeting-time':timestamp,'x-meeting-actor':String(actor),'x-meeting-signature':signature},
       ...(body?{body}:{}),signal:AbortSignal.timeout(45000)});
+    if(!(response.headers.get('Content-Type')||'').includes('application/json')){
+      console.warn('meeting-management-upstream',JSON.stringify({status:response.status,format:'non-json'}));
+      return Response.json({error:'會議服務暫時無法連線，請保留修改後重試。'},{status:503,headers:{'Cache-Control':'no-store'}});
+    }
     const result=await response.json();
     return Response.json(result,{status:response.status,headers:{'Cache-Control':'no-store'}});
-  }catch{return Response.json({error:'會議服務暫時無法連線，請保留修改後重試。'},{status:503});}
+  }catch(error){console.warn('meeting-management-upstream',JSON.stringify({failure:['TimeoutError','AbortError','TypeError','SyntaxError'].includes(error?.name)?error.name:'transport'}));return Response.json({error:'會議服務暫時無法連線，請保留修改後重試。'},{status:503,headers:{'Cache-Control':'no-store'}});}
 }
 
 export async function meetingManagementRoute(app,request,session){
