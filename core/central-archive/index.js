@@ -189,6 +189,6 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     backlog:Boolean(state.states?.pending||state.states?.sending),needsSource:Boolean(state.states?.needs_source)});
   const findOriginal=createArchiveFileLookup({pool,botId:config.botId,canAccess:canRetrieveQuote,verifyRow:verifyOriginalRow});
   const {taskPhotos,taskPhoto}=createArchiveTaskPhotos({pool,botId:config.botId,canAccess:canRetrieveQuote,verifyRow:verifyOriginalRow});
-  return {capture,drain,original,findOriginal,taskPhotos,taskPhoto,canRetrieveQuote,recoverQuoted,taskSources,groupActors,health,store,notion,processJob,
+  return {capture,drain,original,findOriginal,taskPhotos,taskPhoto,canRetrieveQuote,recoverQuoted,taskSources,groupActors,health,store,notion,processJob,pool,config,
     close:async()=>{clearInterval(timer);if(draining)await draining;if(!injectedPool)await pool.end();}};
 }

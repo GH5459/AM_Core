@@ -150,7 +150,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       if (groupId && !current?.tenant) current = await resolveTransport({ type: 'message',
         source: { type: 'group', groupId, userId }, message: { id: plain(page.properties?.['LINE 訊息 ID']), type: plain(page.properties?.['附件類型']) } });
       // Only notify the still-active original tenant/group, never a re-bound or shadow group.
-      if (current?.tenant?.key !== tenant.key || current.binding?.status !== '啟用') return;
+      if (current?.tenant?.key !== tenant.key || current.binding?.status !== '啟用'||current.binding?.outputEnabled===false) return;
       const filename = plain(page.properties?.['檔案名稱']).slice(0, 160);
       const messages = {
         retry: `⚠ 附件「${filename}」尚未保存成功，系統正在重試。請先保留原檔。`,

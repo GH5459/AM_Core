@@ -28,18 +28,20 @@ export const ONBOARDING_TENANTS = [
     key: 'forest',
     label: 'Forest',
     aliases: ['forest', 'forest am', '森在', '森在 am'],
-    defaultStatus: '影子記錄',
+    defaultStatus: '啟用',
+    directIdentityEnabled: false,
     defaultCapabilities: ['訊息收集', '會議', '照片'],
-    purpose: (name) => `Forest AM「${name}」群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。`,
+    purpose: (name) => `Forest AM「${name}」群組；已啟用來源訊息、圖片與會議，其他功能由管理者另外開啟。`,
     statusUpdatePolicy: '主要負責人',
   },
   {
     key: 'green-hotel',
     label: 'Green Hotel AM',
     aliases: ['green hotel am', 'green hotel', 'green', '葉綠宿 am', '葉綠宿'],
-    defaultStatus: '影子記錄',
+    defaultStatus: '啟用',
+    directIdentityEnabled: false,
     defaultCapabilities: ['訊息收集', '會議', '照片'],
-    purpose: (name) => `Green Hotel AM「${name}」群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。`,
+    purpose: (name) => `Green Hotel AM「${name}」群組；已啟用來源訊息、圖片與會議，其他功能由管理者另外開啟。`,
     statusUpdatePolicy: '總管',
   },
   {
@@ -185,7 +187,7 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
   const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
   if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
   const has = (name) => !schema || Boolean(schema.properties?.[name]);
-  const status = config.defaultStatus || '影子記錄';
+  const status = config.defaultStatus || '啟用';
   const capabilities = config.defaultCapabilities || ['訊息收集', '會議', '照片'];
   const properties = {
     '群組名稱': { title: [textItem(command.groupName)] },
@@ -193,6 +195,8 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
     '群組角色': { select: { name: config.defaultRole || '內部' } },
     '工種': { select: { name: config.defaultTrade || '營運' } },
     '狀態': { select: { name: status } },
+    '私人助理身分': { select: { name: config.directIdentityEnabled===false?'停用':'啟用' } },
+    '對話輸出': { select: { name: config.directIdentityEnabled===false?'停用':'啟用' } },
     '成員對照': memberMapProperty({}, member),
     '群組用途': { rich_text: [textItem(config.purpose(command.groupName))] },
     '主要負責人': { rich_text: [] },

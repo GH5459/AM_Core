@@ -3,7 +3,7 @@
 
 export const GROUP_CAPABILITIES = ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒', '請款'];
 export const GROUP_STATUS_UPDATE_POLICIES = ['所有成員', '主要負責人', '總管'];
-export const GROUP_BINDING_STATUSES = ['啟用', '影子記錄', '停用'];
+export const GROUP_BINDING_STATUSES = ['啟用', '停用'];
 // 請款的送件資格一律以既有「成員對照」中的 LINE user ID 判斷。
 // 顯示名稱僅供後臺選單顯示，不可作為授權依據。
 export const GROUP_CLAIM_SUBMISSION_POLICIES = ['停用', '指定成員'];
@@ -14,6 +14,8 @@ export const GROUP_BINDING_V2_REQUIRED_FIELDS = [
 export const GROUP_BINDING_CLAIMS_REQUIRED_FIELDS = ['請款送件權限', '請款指定送件人'];
 
 export const GROUP_BINDING_V2_PROPERTIES = {
+  '私人助理身分': { select:{options:[{name:'啟用'},{name:'停用'}]} },
+  '對話輸出': { select:{options:[{name:'啟用'},{name:'停用'}]} },
   '狀態': { select: { options: GROUP_BINDING_STATUSES.map((name) => ({ name })) } },
   '群組用途': { rich_text: {} },
   '主要負責人': { rich_text: {} },

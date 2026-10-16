@@ -150,7 +150,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     // Revalidate assignment on each external request, including revocation.
     router.invalidate(groupId);
     const { tenant, binding } = await router.resolveGroupBinding(groupId);
-    if (tenant?.key !== tenantKey || !binding || (writable && binding.status !== '啟用')) {
+    if (tenant?.key !== tenantKey || !binding || (writable && (binding.status !== '啟用'||binding.outputEnabled===false))) {
       throw ioError(403, 'group_unavailable');
     }
     return binding;
@@ -247,7 +247,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             const binding = await resolve(client.tenantKey, groupId);
             return { groupId, name: binding.groupName, bindingId: binding.pageId,
               conversationType:directId(groupId)?'user':'group',
-              projectId: binding.projectPageId || null, writable: binding.status === '啟用',
+              projectId: binding.projectPageId || null, writable: binding.status === '啟用'&&binding.outputEnabled!==false,
               inputUserIds: binding.personalBinding ? [binding.personalBinding.user_id] : client.inputUserIds || null,
               notifyUserId: binding.personalBinding?.user_id || client.notifyUserId };
           } catch (error) { if (error.code !== 'group_unavailable') throw error; }
@@ -444,7 +444,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     ioState:async (client,groupId,route,availabilityKnown) => {
       const assigned = clients.filter((c) => c.tenantKey === route?.tenantKey && c.groupIds.includes(groupId));
       const inputEnabled = Boolean(['啟用','影子記錄'].includes(route?.status) && assigned.some((c) => c.scopes.includes('events:read')));
-      const outputEnabled = Boolean(route?.status === '啟用' && assigned.some((c) => c.scopes.includes('messages:write')));
+      const outputEnabled = Boolean(route?.status === '啟用' && route.outputEnabled!==false && assigned.some((c) => c.scopes.includes('messages:write')));
       return { availabilityKnown,inputEnabled:availabilityKnown ? inputEnabled : null,
         outputEnabled:availabilityKnown ? outputEnabled : null,
         canReadInput:inputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('events:read'),

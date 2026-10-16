@@ -2,6 +2,9 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'modules/meetings/**'
+      - 'versions/AM-IMP-2026.1016.06/**'
+      - 'tools/test-conversation-meetings.mjs'
       - 'core/leaf-groups*.js'
       - 'core/task-judgment.js'
       - 'versions/AM-IMP-2026.1016.05/**'
@@ -119,6 +122,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node tools/test-conversation-meetings.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.06
       - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs

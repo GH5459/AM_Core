@@ -27,7 +27,7 @@ export function createDirectory({ store, router, line, clients, ioState, now = D
       const scanned = await router.listDirectoryBindings();
       const nextRoutes = new Map();
       for (const group of scanned.groups) nextRoutes.set(group.groupId,
-        nextRoutes.has(group.groupId) ? null : { tenantKey:group.tenantKey,status:group.status });
+        nextRoutes.has(group.groupId) ? null : { tenantKey:group.tenantKey,status:group.status,outputEnabled:group.outputEnabled });
       const groups = scanned.groups.map((g) => ({ ...g, members: Object.fromEntries(
         Object.entries(g.members || {}).filter(([,id]) => userPattern.test(id)).map(([name,id]) => [id,name])) }));
       for (const client of clients) for (const groupId of client.groupIds) {
