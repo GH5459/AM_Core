@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('assert/strict'),fs=require('fs');
-process.env.DAILYLOG_ROUTINE_PACKAGE='.dailylog-data/task-speed-release-20261016';
+process.env.DAILYLOG_ROUTINE_PACKAGE=process.env.DAILYLOG_SPEED_PACKAGE||'.dailylog-data/task-speed-release-20261016';
 const {fixture}=require('./routine-tabs.worker.test.cjs');
 const key='synthetic-photo-service-key-at-least-32-bytes',group='C'+'1'.repeat(32),user='U'+'2'.repeat(32),id='a'.repeat(64),quote='12345678901234567';
 async function setup(){const a=await fixture({extraBindings:{LEAF_TASK_SERVICE_KEY:key,LEAF_TASK_TENANT:'fixture'}});for(const sql of fs.readFileSync('.dailylog-data/line-assignment-release-20261008-v2/line-assignment.sql','utf8').split(';').filter(s=>s.trim()))await a.db.prepare(sql).run();
