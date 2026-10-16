@@ -80,7 +80,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
     const source=ctx?.event?.source||{};const messageId=String(ctx?.event?.message?.id||ctx?.audioMessageId||'');
     if(!messageId)throw Error('meeting_original_source_missing');
     for(let n=0;n<60;n++){
-      const item=await archive.original({messageId,...(source.type==='user'?{userId:source.userId}:{groupId:source.groupId||source.roomId})});
+      const item=await archive.original(messageId,source.type==='user'?{userId:source.userId}:{groupId:source.groupId||source.roomId});
       if(item?.file?.webViewLink)return item.file.webViewLink;
       if(item?.missing)throw Error('meeting_original_unavailable');
       await sleep(2000);
@@ -101,7 +101,9 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
     if(state==='processing'&&!r.rows.length)throw Error('meeting_wait_already_claimed');
   }}
   async function context(row,event,extra={}){
-    const route=row.source_kind==='user'?{}:await router.resolveGroupBinding(row.source_id);
+    const route=row.source_kind==='user'||!row.tenant_key?{}:await router.resolveGroupBinding(row.source_id);
+    if(['lookup_failed','ambiguous'].includes(route.resolution)||route.tenant&&route.tenant.key!==row.tenant_key)
+      throw Error('meeting_conversation_owner_changed');
     const tenant=tenantFor(row,route.binding||{});
     if(event.source.type==='user')tenant.meetingBinding.members={[extra.senderName||row.display_name||'本人']:row.source_id};
     return {tenant,binding:tenant.meetingBinding,event,message:event.message,groupId:row.source_id,
@@ -166,7 +168,8 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
               await db.query(`UPDATE central_archive.meeting_events SET state='processing' WHERE event_key=$1`,[job.event_key]);
               const work=meetingModule.onMessage(ctx).then(()=>pool.query(`UPDATE central_archive.meeting_events SET state='completed' WHERE event_key=$1`,[job.event_key]))
                 .catch(async()=>{await pool.query(`UPDATE central_archive.meeting_events SET state='failed',error_code='meeting_processing_failed' WHERE event_key=$1`,[job.event_key]);logger.warn('Meeting processing interrupted; original retained.');})
-                .finally(()=>active.delete(row.key));
+                .finally(()=>active.delete(row.key))
+                .catch(()=>logger.warn('Meeting checkpoint unavailable; original source retained.'));
               active.set(row.key,work);continue;
             }
             await db.query(`UPDATE central_archive.meeting_events SET state='completed' WHERE event_key=$1`,[job.event_key]);
