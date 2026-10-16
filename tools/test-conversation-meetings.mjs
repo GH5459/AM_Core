@@ -56,6 +56,13 @@ const proxy=await meetingManagementProxy(new Request('https://internal/api/meeti
 assert.equal(proxy.status,200);assert(!Object.keys(forwarded.headers).some(h=>h.toLowerCase()==='cookie'));
 await assert.rejects(()=>meetingManagementRoute({csrf(){throw Error('csrf rejected');},env:{}},new Request('https://sample/api/management/meetings/conversations',{method:'PUT',body}),{account:actor}),/csrf rejected/);
 meetings.init({publicBaseUrl:'https://sample.test',publicLinkSecret:secret});assert.equal(meetings.publicMeetingUrl('a'.repeat(32),owner),'');
+await __test.assertReviewGroupMember({tenant:owner,groupId:user},user,'本人');
+await assert.rejects(()=>__test.assertReviewGroupMember({tenant:owner,groupId:user,hostName:'本人',hostUserId:user},'U'+'9'.repeat(32),'本人'),/只有此個人對話本人/);
+const groupOwner=service.tenantFor(await service.store.get(keyFor(bot,event('audio','group').source)));
+meetings.init({lineGet:async()=>{throw Error('no longer a group member');}});
+await assert.rejects(()=>__test.assertReviewGroupMember({tenant:groupOwner,groupId:group,hostName:'同名',hostUserId:user,memberMap:{同名:user}},user,'同名'),/現有成員/);
+meetings.init({lineGet:async path=>{assert(path.includes('/room/'+room+'/member/'+user));return {userId:user};}});
+await __test.assertReviewGroupMember({tenant:groupOwner,groupId:room},user);
 let recordedProps,transcriptCount=0;
 meetings.init({resolveConversationMeetingTarget:async()=>({dbId:target.dbId,perGroup:true}),notionRequest:async(p,o)=>{if(p==='/v1/pages'){recordedProps=o.body.properties;return {id:'p',url:'https://www.notion.so/p'};}if(o?.method==='PATCH'){transcriptCount+=(o.body.children||[]).filter(b=>b.type==='paragraph'&&b.paragraph.rich_text[0].text.content.startsWith('transcript')).length;return {results:[{id:'toggle'}]};}return {};},pushLineMessage:async()=>{}});
 await __test.publishMeeting({tenant:owner,binding:owner.meetingBinding,parsed:{title:'test',highlights:[],conclusions:[],todos:[],minutes:[]},diarized:'transcript'.repeat(20000),legend:new Map(),roster:{speakers:[]},groupId:user,filename:'test.m4a',audioDriveUrl:'https://drive.google.com/file/d/synthetic/view',sourceMessageId:'a1'});
