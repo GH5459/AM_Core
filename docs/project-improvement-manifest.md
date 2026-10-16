@@ -11,3 +11,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1013.03 | Root Leaf OA only | Deployed | PR290 CI passed; live 699d76d on both origins; enabled organizer-confirmation-per-person; LINE card validation 200; original task issued/notified with requester, recipient and evidence linked; meeting card remains unconfirmed |
 
 | AM-IMP-2026.1013.04 | Root Leaf OA calendar and configured DailyLog | Installed | 33 root calendar/group checks; 15 DailyLog source/full-worker/sharing checks; production pending |
+
+| AM-IMP-2026.1016.01 | Root Leaf OA / authorized photo pilot only | Deployed | PR293 full CI passed; live 06f8811 on both origins; DailyLog819d95d5 complete24 modules and original Assets/bindings/cron verified; exact original group pilot enabled and other group disabled; human new mention/photo selection pending natural acceptance |
