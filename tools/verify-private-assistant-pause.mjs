@@ -52,6 +52,7 @@ const journalReads = [], journalReplies = [], journalEntries=[];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
 const centralCaptured=[];let failCentralIntake=false, failUofNavigation=false;
 const dependencies = {
+  './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
   './core/central-archive/index.js': { createCentralArchive: async () => ({capture:async events=>{
     if(failCentralIntake)throw Error('synthetic_archive_outage');centralCaptured.push(...events);},health:()=>({enabled:true})}) },
   'node:http': { default: { createServer(fn) { handler = fn; return { listen() {} }; } } },

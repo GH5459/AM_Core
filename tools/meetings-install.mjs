@@ -60,6 +60,9 @@ try{
       if(plan.filter(p=>p.existing?.database===item.existing.database).length!==1)throw Error('Cannot move a multi-conversation database');
     }
     await pool.query(fs.readFileSync(new URL('../modules/meetings/conversations.sql',import.meta.url),'utf8'));
+    const runtimeRole=new URL(env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_LINE_IO_DATABASE_URL).username;
+    if(!/^[a-z0-9_]+$/i.test(runtimeRole))throw Error('Invalid runtime role');
+    await pool.query(`GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_settings,central_archive.meeting_changes,central_archive.meeting_events,central_archive.meeting_pending TO "${runtimeRole}"`);
     const service=createConversationMeetings({env:{...env,AMCORE_CONVERSATION_MEETINGS_ENABLED:'1'},archive:{pool,config:{botId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID},notion},
       platform:{registerTenantDataSource:async()=>{}},tenants,meetingModule:{},router:{}});
     await service.store.seed();
