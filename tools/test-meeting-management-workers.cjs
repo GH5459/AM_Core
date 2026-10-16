@@ -13,13 +13,13 @@ const route='/api/management/meetings/conversations',rpc='/api/meeting-managemen
   const module=await import(pathToFileURL(out));if(name==='uof-line-cloud')uof=module;else daily=module;
  }
  let forwarded=0,csrf=0;
- const app={session:async()=>identity,access:async()=>({}),isAdmin:()=>true,csrf(request){csrf++;assert.equal(request.headers.get('X-UOF-CSRF'),'synthetic');},env:{DAILYLOG_MANAGEMENT:{manage:async(r,i)=>{forwarded++;assert.equal(new URL(r.url).pathname,rpc);assert.equal(i.account,identity.account);assert(!r.headers.has('Cookie'));return Response.json({ok:true});}}}};
+ const app={session:async()=>identity,access:async()=>({}),isAdmin:()=>true,csrf(request){csrf++;assert.equal(request.headers.get('X-UOF-CSRF'),'synthetic');},env:{DAILYLOG_MANAGEMENT:{manage:async(r,i)=>{forwarded++;assert.equal(new URL(r.url).pathname,rpc);assert.equal(i.account,identity.account);assert(!r.headers.has('Cookie'));return Response.json(r.method==='GET'?{conversations:[{key:'synthetic-group',type:'group'},{key:'synthetic-person',type:'user'}],tenants:[]}:{ok:true});}}}};
  assert.equal((await uof.testRoute(app,new Request('https://sample'+route))).status,200);
- assert.equal((await uof.testRoute(app,new Request('https://sample'+route,{method:'PUT',headers:{'X-UOF-CSRF':'synthetic'},body:'{}'}))).status,200);assert.equal(csrf,1);
+ assert.equal((await uof.testRoute(app,new Request('https://sample'+route,{method:'PUT',headers:{'X-UOF-CSRF':'synthetic'},body:'{"key":"synthetic-group"}'}))).status,200);assert.equal(csrf,1);
  await assert.rejects(()=>uof.testRoute({...app,isAdmin:()=>false},new Request('https://sample'+route)),/ACCESS_DENIED/);
  await assert.rejects(()=>uof.testRoute({...app,session:async()=>null},new Request('https://sample'+route)),/LOGIN_REQUIRED/);
  await assert.rejects(()=>uof.testRoute(app,new Request('https://sample'+route,{method:'PUT',body:'{}'})));
- assert.equal(forwarded,2,'Unauthorized requests must never reach the management service');
+ assert.equal(forwarded,3,'One list plus a write inventory and update; unauthorized requests never reach the service');
  const state={revision:1,sharedAccessRevision:1,routineLibraryPolicy:'multi-library-v1',accountLifecycleVersion:0,accounts:{'140901':{enabled:true,admin:true},'123':{enabled:true,admin:false}}};
  const DB={prepare(sql){return {bind(){return this;},async first(){if(sql.includes('FROM documents'))return {value:JSON.stringify(state),revision:1};if(sql.includes('FROM employees'))return {user_id:'synthetic-id',value:JSON.stringify({name:'管理者'})};throw Error('Unexpected SQL '+sql);}};}};
  const env={DB,SHARED_ACCESS_REQUIRED:'true',AMCORE_MEETING_MANAGEMENT_SECRET:'synthetic-secret-only-'.repeat(3),SHARED_ACCESS:{snapshot:async()=>({schemaVersion:1,revision:1,dailylogEnabledAccounts:['140901'],adminAccounts:['140901']})}};
