@@ -104,6 +104,7 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
  const deps={
   'node:http':{default:{createServer(fn){handler=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
   './core/bootstrap.js':{bootstrap:async()=>({tenants:[],line:{configured:true,isValidSignature:(raw,s)=>s===sign(raw)},router:{resolveGroupBinding:async()=>({tenant:{key:'fixture'},binding:{status:'啟用'}})},dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>business.push(event)},portal:{},modules:new Map(),platform,llm:f.options.llm,logger:{log(){},warn(){},error(){}}})},
+  './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:events=>f.archive.capture(events),health:()=>({})})},
   './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,capture:async()=>{},handle:async()=>false}),readLineIoBody:async req=>req.rawBody},
   './core/leaf-calendar/index.js':{createLeafCalendar:async()=>({accepts:()=>false,capture:async()=>{},drain:async()=>{},health:()=>({})})},

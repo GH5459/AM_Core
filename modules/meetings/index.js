@@ -180,6 +180,7 @@ function meetingLineText({ parsed, legendLine, date, type, url, publicUrl, defau
   L.push(`\n📅 待辦 ${todos.length} 項${todos.length ? '\n' + todos.map((t, n) => `${n + 1}. ${t.content}${t.owner ? `(${t.owner})` : ''}${t.due ? ` 期限${t.due}` : ''}`).join('\n') : ':(無)'}`);
   if (parsed.nextMeeting) L.push(`\n🔔 下次會議:${parsed.nextMeeting}`);
   if (publicUrl) L.push(`\n🌐 完整記錄(免帳號,可轉傳):${publicUrl}`);
+  if (url) L.push(`\n📄 Notion 會議記錄:${url}`);
   return L.join('\n');
 }
 
@@ -289,6 +290,7 @@ function rosterPrompt(filename) {
 // ctx: { tenant, buffer, filename, contentType, binding, senderName, groupId, ackSent }
 // ackSent=true 表示外層已先送過反問訊息(大檔先回覆再處理),這裡就不重送。
 async function onAudio(ctx) {
+  if(platform?.conversationMeetingsEnabled&&!ctx.tenant?.conversationKey)return platform.acceptConversationMeetingAudio(ctx);
   const { tenant, buffer, audioMessageId, filename, binding, senderName, groupId, ackSent } = ctx;
   const rollout = meetingRolloutPolicy(tenant, binding || {});
   if (!rollout.enabled) {
@@ -303,7 +305,7 @@ async function onAudio(ctx) {
   }
   let contentType = normalizeMeetingContentType(ctx.contentType, filename, sourceIsVideo);
   // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
-  if (!aiForTenant(tenant).assemblyKey) {
+  if (!aiForTenant(tenant).assemblyKey && !tenant?.conversationKey) {
     let buf = buffer;
     if (!buf && audioMessageId) {
       const downloaded = await platform.downloadLineContent(audioMessageId);
@@ -326,17 +328,20 @@ async function onAudio(ctx) {
 
   const key = pkey(tenant, groupId);
   clearPending(key); // 同(租戶,群)若有上一份待補會議,以新錄音取代
-  const entry = { tenant, buffer, audioMessageId, filename, contentType, sourceIsVideo, binding, senderName, senderUserId, groupId, audioDriveUrl, meetingMode: rollout.effectiveMode, policyVersion: MEETING_POLICY_VERSION, createdAt: Date.now() };
+  const entry = { tenant, buffer, audioMessageId, filename, contentType, sourceIsVideo, binding, senderName, senderUserId, groupId, audioDriveUrl, archiveSource:ctx, meetingMode: rollout.effectiveMode, policyVersion: MEETING_POLICY_VERSION, createdAt: ctx.createdAt||Date.now() };
   if (!buffer && audioMessageId) {
     // 背景留底:即刻開始(不等與會回覆——就算沒人回、或伺服器中途重啟,原檔已在 Drive)。
     // 結果掛在 entry 上,finalize 發布前再收割;.catch 確保這個 promise 永不 reject。
     entry.drivePromise = streamArchiveAudio(tenant, audioMessageId, filename, ctx)
       .catch((e) => { console.warn(`Meeting audio Drive backup (stream) failed: ${e.message}`); return ''; });
   }
+  pending.set(key, entry);
+  try { await platform.saveMeetingPending?.(entry); }
+  catch(error){clearPending(key);throw error;}
   entry.timer = setTimeout(() => {
     finalizeMeeting(key, '').catch((e) => console.warn(`meeting auto-finalize failed: ${e.message}`));
-  }, ROSTER_TIMEOUT_MS);
-  pending.set(key, entry);
+  }, Math.max(1,ROSTER_TIMEOUT_MS-(Date.now()-entry.createdAt)));
+  entry.timer.unref?.();
 
   if (!ackSent) {
     const prompt = rosterPrompt(filename);
@@ -380,6 +385,9 @@ async function onMessage(ctx) {
 async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   const entry = pending.get(key);
   if (!entry) return;
+  // Persist before clearing memory. Interrupted processing is never replayed
+  // automatically, so a restart cannot publish a second record or task set.
+  await platform.completeMeetingPending?.(entry.tenant,'processing');
   clearPending(key);
   const { tenant, buffer, audioMessageId, filename, sourceIsVideo, binding, senderName, senderUserId, groupId, meetingMode } = entry;
   let contentType = entry.contentType;
@@ -417,9 +425,13 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布(轉寫已花了幾分鐘,背景 Drive 備份通常早就完成;最多再等 2 分鐘)
     if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 120000, '');
-    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding, meetingMode });
+    if(tenant?.conversationKey&&!audioDriveUrl)audioDriveUrl=await canonicalAudio(tenant,entry.archiveSource);
+    if(tenant?.conversationKey && !audioDriveUrl)throw Error('錄音尚未保存完成，原會議處理已保留');
+    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding, meetingMode, sourceMessageId:audioMessageId });
+    await platform.completeMeetingPending?.(tenant,'completed');
   } catch (error) {
     console.warn(`Meeting finalize failed (key=${key}): ${error.message}`);
+    await platform.completeMeetingPending?.(tenant,'failed').catch(()=>{});
     // 只有真的備份成功才敢說「已存 Drive」——沒留底時要明講,否則使用者會以為原檔還在而刪掉手機裡的錄音。
     if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 10000, '');
     const note = audioDriveUrl
@@ -755,6 +767,7 @@ async function provisionMeetingsDb(tenant, groupName) {
 //  per-group 模式(tenant.meetingsParentPageId 有值 + 有 binding.pageId):每群一個獨立庫,第一次開會自動建、id 記回綁定頁「會議資料庫」欄。
 //  否則:租戶預設庫(例如目前的 engineering 設定)。
 async function resolveMeetingsTarget(tenant, binding) {
+  if(tenant?.conversationKey)return platform.resolveConversationMeetingTarget(tenant,binding);
   const fallback = { dbId: tenant?.dataSources?.meetings, perGroup: false };
   if (!tenant?.meetingsParentPageId || !binding?.pageId) return fallback;
   try {
@@ -811,6 +824,7 @@ function meetingSigMatches(pageId, signature) {
   return publicLinkSecrets().some((secret) => meetingSig(pageId, secret) === String(signature || '').toLowerCase());
 }
 function publicMeetingUrl(pageId, tenant = null) {
+  if(tenant?.config?.meetings?.privateOnly)return '';
   const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
   const secret = publicLinkSecretForTenant(tenant);
   if (!baseUrl || !secret) return '';
@@ -944,13 +958,14 @@ async function persistReviewSession(session) {
 async function loadReviewSessionFromMeeting(sessionId, tenants = [], routeTenant = null) {
   if (!/^[0-9a-f]{32}$/i.test(String(sessionId || ''))) return null;
   try {
+    const conversationOwner=await platform.resolveConversationMeetingOwner?.(sessionId);
     const children = await readChildren(sessionId);
     const markers = children.filter((block) => block.type === 'paragraph'
       && richText(block.paragraph?.rich_text).startsWith(REVIEW_SESSION_MARKER));
     for (let i = markers.length - 1; i >= 0; i -= 1) {
       const payload = parseReviewSessionMarker(richText(markers[i].paragraph?.rich_text));
       if (!payload || payload.id !== sessionId) continue;
-      const tenant = tenants.find((t) => t.key === payload.tenantKey) || routeTenant || null;
+      const tenant = conversationOwner || tenants.find((t) => t.key === payload.tenantKey) || routeTenant || null;
       if (!tenant) return null;
       const binding = payload.binding && typeof payload.binding === 'object' ? { ...payload.binding } : {};
       binding.members = payload.memberMap || binding.members || {};
@@ -1145,6 +1160,18 @@ async function assertReviewGroupMember(session, userId, actorName = '') {
   const groupId = String(session?.groupId || '').trim();
   const actor = String(userId || '').trim();
   if (!groupId || !actor) throw Object.assign(new Error('無法確認會議群組身分。'), { statusCode: 403 });
+  if(session?.tenant?.config?.meetings?.conversationOwnerId){
+    if(actor!==session.tenant.config.meetings.conversationOwnerId)throw Object.assign(new Error('只有此個人對話本人可以操作。'),{statusCode:403});
+    return;
+  }
+    if(session?.tenant?.conversationKey){
+      if(typeof platform.lineGet!=='function')throw Object.assign(Error('群組身分驗證暫時不可用。'),{statusCode:503});
+      const kind=groupId.startsWith('R')?'room':'group';
+      try{const profile=await platform.lineGet(`/v2/bot/${kind}/${encodeURIComponent(groupId)}/member/${encodeURIComponent(actor)}`,{timeoutMs:8000});
+        if(profile?.userId===actor)return;
+      }catch{}
+      throw Object.assign(Error('只有此 LINE 對話的現有成員可以操作。'),{statusCode:403});
+    }
   const knownIds = knownReviewMemberUserIds(session);
   if (actor === String(session?.hostUserId || '').trim() || knownIds.has(actor)) return;
   if (String(session?.hostUserId || '').trim() && namesEqual(actorName, session?.hostName)) {
@@ -1440,6 +1467,8 @@ async function registerKnownGroupMeetingSources(tenants = []) {
 }
 
 async function resolveTenantForPublicMeeting(pageId, tenants = []) {
+  const conversationOwner=await platform.resolveConversationMeetingOwner?.(pageId);
+  if(conversationOwner)return conversationOwner;
   const list = Array.isArray(tenants) ? tenants : [];
   if (!list.length) return null;
   // Per-group meeting data sources are runtime-created and are not present in
@@ -1486,6 +1515,7 @@ async function handlePublicRequest(req, res, pathname, { tenants = [] } = {}) {
     try {
       const body = await readJsonBody(req);
       const tenant = await resolveTenantForPublicMeeting(id, tenants);
+      if(tenant?.config?.meetings?.privateOnly){deny();return true;}
       const result = await handleSpeakerSave({
         pageId: id,
         body,
@@ -1504,6 +1534,7 @@ async function handlePublicRequest(req, res, pathname, { tenants = [] } = {}) {
 
   try {
     const tenant = await resolveTenantForPublicMeeting(id, tenants);
+    if(tenant?.config?.meetings?.privateOnly){deny();return true;}
     const html = await renderPublicMeetingHtml(id, tenant);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
     res.end(html);
@@ -1730,7 +1761,7 @@ function renderReviewHtml(session) {
   const members = memberOptions(session);
   const s = reviewSummary(session);
   const liffId = reviewLiffId(session);
-  const protectedData = Boolean(liffId);
+  const protectedData = Boolean(liffId || session.tenant?.config?.meetings?.privateOnly);
   const createsFormalTasks = sessionCreatesFormalTasks(session);
   const sessionJson = JSON.stringify({
     id: session.id,
@@ -1910,7 +1941,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = nu
 }
 
 // ── 落地 + 發布 ────────────────────────────────────────────
-async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding, meetingMode }) {
+async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding, meetingMode, sourceMessageId }) {
   const rollout = meetingRolloutPolicy(tenant, binding || {}, meetingMode);
   if (!rollout.enabled) {
     console.log(`Meeting publish skipped by rollout policy (tenant=${tenant?.key || 'default'}, group=${groupId}).`);
@@ -1946,6 +1977,10 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
         '日期': { date: { start: today } },
         ...(projectPageId ? { '專案': { relation: [{ id: projectPageId }] } } : {}),
         '參與者': { rich_text: [text(participantsText)] },
+        ...(tenant?.conversationKey ? {
+          '原始錄音名稱':{rich_text:[text(filename)]},'Google Drive 錄音':{url:audioDriveUrl},
+          '錄音保存狀態':{rich_text:[text('已保存')]},'來源識別':{rich_text:[text(sourceMessageId||'')]},
+        } : {}),
       },
     },
   });
@@ -1957,12 +1992,12 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, kind, { formalTasks: false }));
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
   const transcriptBlocks = [];
-  for (let i = 0; i < diarized.length && transcriptBlocks.length < 90; i += 1900) {
+  for (let i = 0; i < diarized.length; i += 1900) {
     transcriptBlocks.push(para(diarized.slice(i, i + 1900)));
   }
   if (transcriptBlocks.length) {
     try { await appendToggleSection(meeting.id, '🎧 逐字稿(署名)', transcriptBlocks); }
-    catch (e) { console.warn(`transcript section failed: ${e.message}`); }
+    catch (e) { if(tenant?.conversationKey)throw e; console.warn(`transcript section failed: ${e.message}`); }
   }
 
   // 候選待辦先留在 review session；正式待辦只在主持人略過確認或最終確認後建立。
@@ -2010,6 +2045,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
 
 // 錄音原檔存 Drive「會議錄音/日期/」
 async function canonicalAudio(tenant, source) {
+  if(tenant?.conversationKey)return platform.archiveConversationMeetingAudio(source);
   if (!platform.attachmentArchive || !source?.event?.message) return null;
   const page = await platform.attachmentArchive.persist({ tenant, event: source.event, binding: source.binding,
     messagePage: source.messagePageId ? { id: source.messagePageId } : undefined });
@@ -2205,6 +2241,9 @@ export default {
     prefix: '/meetings/manage',
     access: { kind: 'tenant', capability: 'groups.core', denied: 'handler' },
     handler: async (req, res, rctx) => {
+      if(platform?.conversationMeetingsEnabled){
+        res.writeHead(302,{Location:'https://uof-line.ghotel.tw/Management#meetings','Cache-Control':'no-store'});res.end();return;
+      }
       if (!meetingAdminHandler) {
         res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
         return res.end(JSON.stringify({ error: '會議功能管理服務尚未初始化。' }));
@@ -2231,4 +2270,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { canonicalAudio, archiveAudio, meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, resolveTenantForPublicMeeting, reviewSessions };
+export const __test = { assertReviewGroupMember, canonicalAudio, archiveAudio, meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, resolveTenantForPublicMeeting, reviewSessions };

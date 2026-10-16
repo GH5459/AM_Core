@@ -1,0 +1,9 @@
+{
+ "id":"AM-IMP-2026.1016.06","name":"Shared LINE conversation meeting management","type":"Meeting management and storage","portable":true,"status":"Ready","createdAt":"2026-10-16",
+ "installTargets":["AM_PLATFORM","UOF","DailyLog"],
+ "requiresDatabases":["Existing project-local central archive PostgreSQL; meetings/conversations.sql adds isolated settings and intake tables","Notion per-conversation meeting databases"],
+ "requiresEnv":["AMCORE_CONVERSATION_MEETINGS_ENABLED","AMCORE_MEETINGS_PARENT_PAGE_ID","Existing project-local LINE, Notion, Drive and management service credentials"],
+ "requiresScripts":["node tools/test-conversation-meetings.mjs","node tools/verify-meeting-rollout-policy.mjs","node tools/verify-meeting-admin.mjs","node tools/verify-meeting-review-persistence.mjs","node tools/dryrun-meetings.mjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Shared management login and latest admin access protect both reads and writes","Meeting switch is independent from todo mode","Existing modes and source evidence retained without enabling other features","Each known conversation has a separate database under deployment-local parent","Existing dedicated databases retain database and page identity","Original audio is reused from Drive and linked from Notion","Direct meeting review verifies exact LINE owner","Latest complete Worker modules, assets, bindings and schedules preserved","Reviewed main deployed and production readback verified"]
+}

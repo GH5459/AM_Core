@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createCentralArchive } from './core/central-archive/index.js';
+import { createConversationMeetings } from './modules/meetings/conversation-service.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
@@ -32,6 +33,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
+const conversationMeetings=createConversationMeetings({env:process.env,archive:centralArchive,platform,router,tenants,meetingModule:modules.get('meetings'),logger});
 platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,taskPhotos:centralArchive.taskPhotos,taskPhoto:centralArchive.taskPhoto,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
@@ -262,6 +264,7 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (await conversationMeetings.handle(req,res,url)) return;
   if (await lineIo.handle(req, res, url)) return;
   // LINE opens a LIFF deep link at its registered endpoint and carries the
   // requested page in liff.state. Route only known public LIFF paths before
@@ -295,6 +298,7 @@ const server = http.createServer(async (req, res) => {
       uofSetupEntry: uofSetupEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       centralArchive: centralArchive.health(),
+      conversationMeetings: conversationMeetings.health(),
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
       attachmentRetrieval: { contract: attachmentRetrieval.contract, groupScope:'all-oa-groups', filenameLookup:'same-conversation-exact-name', delivery: attachmentRetrieval.deliveryContract,
@@ -448,6 +452,14 @@ const server = http.createServer(async (req, res) => {
     // Capture every verified event before private-assistant pause, command and business-module filters.
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
+    try {
+      const meetingEvents=await conversationMeetings.capture(body.events);
+      // Keep existing subscribed input feeds and conversation observations even
+      // when the meeting workflow consumes the business event locally.
+      if(meetingEvents.length)await lineIo.capture(meetingEvents,{excludeEvents:event=>Boolean(parseAttachmentRequest(event))});
+      body.events=body.events.filter(event=>!meetingEvents.includes(event));
+      conversationMeetings.drain().catch(()=>logger.warn('Conversation meeting queue deferred.'));
+    } catch { return sendJson(res,503,{error:'Meeting intake is temporarily unavailable.'}); }
     try {
       const photoEvents=[];for(const e of body.events)if(await leafTasks.handlePhoto?.(e))photoEvents.push(e);
       body.events=body.events.filter(e=>!photoEvents.includes(e));
@@ -665,6 +677,8 @@ const taskTimer = setInterval(() => { leafTasks.drain().catch(() => logger.warn(
 taskTimer.unref?.();
 const groupTimer = setInterval(() => { leafGroups.drain().catch(() => logger.warn('Group processing deferred.')); }, 5000);
 groupTimer.unref?.();
+const meetingTimer=setInterval(()=>conversationMeetings.drain().catch(()=>logger.warn('Conversation meeting recovery deferred.')),15000);
+meetingTimer.unref?.();
 
 let archivePatrolRunning = false;
 async function archivePatrol() {

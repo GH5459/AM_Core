@@ -80,6 +80,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
       groupId: plain(page.properties?.['LINE 群組 ID']),
       groupName: plain(page.properties?.['群組名稱'], 'title'),
       status,
+      outputEnabled:selected(page.properties?.['對話輸出'])!=='停用',
       projectPageId: page.properties?.['專案']?.relation?.[0]?.id || '',
       projectName: plain(page.properties?.['所屬目標']) || '',
       role: selected(page.properties?.['群組角色']),
@@ -155,6 +156,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     for (const page of result.results || []) {
       const status = selected(page.properties?.['狀態']);
       if (!DIRECT_IDENTITY_STATUSES.includes(status)) continue;
+      if(selected(page.properties?.['私人助理身分'])==='停用')continue;
       const memberNames = Object.entries(parseMembers(page))
         .filter(([, mappedUserId]) => String(mappedUserId || '').trim() === userId)
         .map(([name]) => String(name || '').trim())
@@ -254,6 +256,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
             if (page.archived || page.in_trash) continue;
             groups.push({ groupId:plain(page.properties?.['LINE 群組 ID']),tenantKey:tenant.key,
               status:selected(page.properties?.['狀態']),
+              outputEnabled:selected(page.properties?.['對話輸出'])!=='停用',
               name:plain(page.properties?.['群組名稱'],'title'),members:parseMembers(page) });
           }
           cursor = result.has_more ? result.next_cursor : null;

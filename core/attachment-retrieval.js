@@ -80,7 +80,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     return router.resolveDirectAttachmentBinding(event.source.userId);
   }
   const allowed = result => result?.tenant?.runtimeEnabled !== false && result?.tenant
-    && result.binding?.status === '啟用';
+    && result.binding?.status === '啟用'&&result.binding?.outputEnabled!==false;
   const delivery = createAttachmentDelivery({ platform, resolveConversation: resolve, resolveOriginal: retrieve, logger });
   async function originMatches(tenant, page, event, quotedId = '') {
     const p = page.properties || {}, group = groupOf(event);

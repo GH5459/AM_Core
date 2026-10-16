@@ -42,7 +42,8 @@ for (const fails of [false, true]) {
   platform.attachmentArchive = createAttachmentArchive({ platform, router, logger });
   platform.attachmentArchive.drain = async () => { assert.equal(acked, true); workerStarts++; };
   const dependencies = {
-    './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
+    './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
+  './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
     './core/attachment-retrieval.js': {createAttachmentRetrieval,parseAttachmentRequest},
     'node:http': { default: { createServer(fn) { handler = fn; return {listen(){}}; } } },
     'node:crypto': { default: crypto },

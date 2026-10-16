@@ -71,7 +71,8 @@ try {
       assert.equal(acked,false);if(persistenceFails)throw new Error('storage unavailable');return {ok:true,job:{input_payload:input.inputPayload,replayed:false}};
     },leaseProcessingJobs:async()=>[]};
     const dependencies={
-      './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
+      './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
+  './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval,parseAttachmentRequest},
       'node:http':{default:{createServer(fn){callback=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic',attachmentArchive:createAttachmentArchive({platform:{},router:{},logger})},logger})},

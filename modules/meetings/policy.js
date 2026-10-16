@@ -77,6 +77,7 @@ export function isShadowMeetingBinding(binding) {
 }
 
 function bindingHasMeetingCapability(binding) {
+  if(typeof binding?.meetingEnabled==='boolean')return binding.meetingEnabled;
   const capabilities = binding?.capabilities;
   // Older group-binding rows did not have the capability field. An absent
   // field (or an old empty field with no explicit meeting mode) must preserve
