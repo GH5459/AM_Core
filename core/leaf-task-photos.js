@@ -2,6 +2,14 @@ import crypto from 'node:crypto';
 import {createAttachmentDelivery} from './attachment-delivery.js';
 import {QUOTED_ARCHIVE_SCOPE} from './attachment-retrieval.js';
 export const PHOTO_CONTRACT='line-task-photo-selection-v1';
+export const TASK_EDIT_CONTRACT='line-task-edit-card-v1';
+export function taskEditNotice(base,taskIds,notice){
+ const origin=new URL(base);if(origin.protocol!=='https:'||origin.username||origin.password)throw Error('invalid_task_origin');
+ return {type:'flex',altText:notice,contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:notice,wrap:true,size:'sm'}]},footer:{type:'box',layout:'vertical',contents:taskIds.slice(0,5).map((id,i)=>{
+  if(!/^[\w-]{1,100}$/.test(id))throw Error('invalid_task_id');const uri=new URL('/',origin);uri.searchParams.set('task',id);uri.searchParams.set('openExternalBrowser','1');
+  return {type:'button',height:'sm',action:{type:'uri',label:taskIds.length===1?'編輯這個任務':`編輯任務 ${i+1}`,uri:uri.href}};
+ })}}};
+}
 const prefix='taskphoto:';
 const text=t=>({type:'text',text:t});
 const button=(label,data)=>({type:'button',height:'sm',action:{type:'postback',label,data}});
@@ -67,5 +75,13 @@ export function createTaskPhotos({platform,context,call,logger=console}){
   }
   return true;
  }
- return {handle,contract:PHOTO_CONTRACT};
+ async function attachQuoted(e,ctx,assertCurrent){
+  const messageId=ctx.source.quotedMessageId;if(!/^\d{15,30}$/.test(messageId||''))return {imported:false};
+  const prior=await call(ctx,'quoted-status',{messageId});if(prior.imported||prior.removed)return prior;
+  const f=await file(e,messageId),download=await platform.drive.download(f.fileId,10*1024*1024);
+  const type=download.contentType.split(';')[0];if(!['image/jpeg','image/png'].includes(type)||download.buffer.length!==f.size||crypto.createHash('md5').update(download.buffer).digest('hex')!==f.md5)throw Error('photo_checksum_changed');
+  await assertCurrent();const latest=await file(e,messageId);if(latest.fileId!==f.fileId||latest.md5!==f.md5)throw Error('photo_source_changed');
+  return call(ctx,'quoted-upload',{messageId,file:new Blob([download.buffer],{type}),filename:f.filename});
+ }
+ return {handle,attachQuoted,contract:PHOTO_CONTRACT};
 }

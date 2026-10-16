@@ -1,0 +1,14 @@
+{
+  "id":"AM-IMP-2026.1016.02",
+  "name":"LINE assignment edit-card entry and quoted single-image attachment",
+  "type":"LINE / DailyLog tasks",
+  "portable":true,
+  "status":"Ready",
+  "createdAt":"2026-10-16",
+  "installTargets":["AM_PLATFORM","DailyLog"],
+  "requiresDatabases":["Existing central archive","Existing task attachments"],
+  "requiresEnv":["Original OA credentials","Existing purpose-specific task service"],
+  "requiresScripts":["node --test tools/test-leaf-task-edit.mjs","DailyLog full Worker/D1 and browser checks"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Same work ID and protected editor link","Single source quote idempotently attached or explicitly reported missing","No interactive photo wait","Company login returns to original card","Preserve latest complete deployment and bindings","Production readback without real test messages or tasks"]
+}
