@@ -11,3 +11,9 @@ Verification: 33 targeted AM/SQL/group runtime checks, private-assistant pause c
 No real test task, LINE chat message, journal, Notion or UOF write was performed. Original-group policy configuration is the only intended production data change in this release. Human-authored mention, selection, original image visibility and Windows/mobile LINE behavior remain pending user acceptance. Photos must already exist in the same OA/group archive; missing originals are not reconstructed. Recent candidates are bounded to seven days / ten images, with an explicitly quoted original prioritized.
 
 Original pilot receipts and source identifiers stay in the original AM .local-data and DailyLog .dailylog-data. Use the authorized admin API to disable the precise group pilot for rollback, retaining all existing tasks and saved attachments; never restore old business snapshots.
+
+## Latest desktop compatibility and concurrent DailyLog preservation
+
+PR295 passed the full CI workflow and deployed as f0189614a1786218e1adfc97369120f5378c86b3. Both origins report this revision, and Render reports Live. Continue/confirm/resume now use regular Flex postback buttons, so the flow does not rely on the mobile-only quick reply presentation. Twenty task/photo checks and two additional LINE validation requests passed; totals are 34 targeted AM checks, 9 DailyLog checks and 5 no-send LINE card validations.
+
+The original group pilot and activation time were re-read unchanged with confirmed common work identity. A concurrent DailyLog update advanced production to2966b151-bb71-400f-aefb-90a221c5fad7. Its immutable version, complete24 modules, byte-identical photo module, photo handler entry, bindings/runtime and cron were verified and retained. No older DailyLog worker was re-published. Initial819d95d5 and06f8811 evidence remains historical, and human Windows/mobile acceptance is still pending natural user testing.
