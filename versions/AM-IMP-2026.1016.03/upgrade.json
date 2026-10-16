@@ -1,0 +1,14 @@
+{
+  "id":"AM-IMP-2026.1016.03",
+  "name":"Recognize explicit colleague explanation requests on replied images",
+  "type":"LINE task judgment",
+  "portable":true,
+  "status":"Ready",
+  "createdAt":"2026-10-16",
+  "installTargets":["AM_PLATFORM"],
+  "requiresDatabases":["Existing central archive and task service"],
+  "requiresEnv":["Original OA credentials and existing task service"],
+  "requiresScripts":["node --experimental-vm-modules --test tools/test-quoted-task-intent.mjs tools/test-leaf-groups.mjs tools/test-leaf-tasks.mjs tools/test-leaf-task-edit.mjs"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Both gates share the explicit quoted-image explanation rule","Questions, negation, progress checks and ambiguous recipients retain safeguards","Existing task editor and replay protections verified","Reviewed main deployed and both policy markers read back","No real task or message replay for testing"]
+}
