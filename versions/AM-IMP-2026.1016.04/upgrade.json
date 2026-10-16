@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1016.04",
+  "name":"Show task attachment images on the main card",
+  "type":"Task evidence presentation",
+  "portable":true,
+  "status":"Ready",
+  "installTargets":["DailyLog"],
+  "requiresDatabases":["Existing protected attachment store"],
+  "requiresEnv":["Original DailyLog target settings"],
+  "requiresScripts":["Protected full-worker tests and six-width browser verification"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Gallery appears after main description outside collapsed fields","Original access controls protect each preview","Non-image or executable content is not rendered","Draft, retry, original downloads and current functionality preserved","Latest complete production version and settings verified before and after release"]
+}
