@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {Readable} from 'node:stream';
 import {PGlite} from '@electric-sql/pglite';
+import {createCentralArchive} from '../core/central-archive/index.js';
+import {digest} from '../core/central-archive/store.js';
 import {createConversationMeetings} from '../modules/meetings/conversation-service.js';
 import {keyFor} from '../modules/meetings/conversation-store.js';
 import {managementSignature,verifyManagementRequest} from '../modules/meetings/management-auth.js';
@@ -28,7 +30,7 @@ const request=async(path,method='GET',body)=>{
  if(path.startsWith('/pages/'))return pages.get(path.slice(7))||{parent:{data_source_id:'unrelated'}};
  throw Error('Unexpected Notion path '+path);
 };
-const archive={pool,config:{botId:bot},notion:{request},original:async()=>({file:{webViewLink:'https://drive.google.com/file/d/synthetic/view'}})};
+const archive={pool,config:{botId:bot},notion:{request},original:async(messageId,source)=>{assert.equal(typeof messageId,'string');assert(source.userId||source.groupId);return {file:{webViewLink:'https://drive.google.com/file/d/synthetic/view'}};}};
 const platform={registerTenantDataSource:async(t,ds)=>{assert.equal(t.parentPageId,parent);assert(ds.startsWith('source-'));},resolveSenderName:async()=> '本人'};
 const mod={isAudio:m=>m?.type==='audio',hasPending:(t,id)=>memory.has(id),onAudio:async ctx=>{calls.push({audio:ctx.groupId});memory.add(ctx.groupId);await platform.saveMeetingPending({tenant:ctx.tenant,archiveSource:ctx,filename:ctx.filename,createdAt:ctx.createdAt||Date.now()});},onMessage:async ctx=>{calls.push({roster:ctx.groupId});await platform.completeMeetingPending(ctx.tenant,'processing');memory.delete(ctx.groupId);await platform.completeMeetingPending(ctx.tenant,'completed');}};
 const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret};
@@ -40,6 +42,19 @@ await assert.rejects(()=>service.store.change({...input,enabled:false},'123'),/�
 await assert.rejects(()=>service.store.change({...input,operationId:'different-00000001'},'123'),/設定已被更新/);
 const target=await service.ensureDatabase(await service.store.get(key));await service.ensureDatabase(await service.store.get(key));assert.equal(dbs.size,1);
 assert.equal((await platform.archiveConversationMeetingAudio({event:event('audio')})),'https://drive.google.com/file/d/synthetic/view');
+// Exercise the real central archive adapter too: its argument contract and
+// same-conversation verification must agree with meeting intake.
+const originalFetch=global.fetch;let central;
+try{
+ global.fetch=async()=>Response.json({id:'synthetic-root-folder',mimeType:'application/vnd.google-apps.folder',trashed:false,capabilities:{canAddChildren:true}});
+ central=await createCentralArchive({env:{AMCORE_CENTRAL_ARCHIVE_ENABLED:'1',AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID:bot,AMCORE_CENTRAL_ARCHIVE_NOTION_PARENT_PAGE_ID:parent,AMCORE_CENTRAL_ARCHIVE_DRIVE_ROOT_FOLDER_ID:'synthetic-root-folder',NOTION_TOKEN:'synthetic'},pool,
+  line:{configured:true,lineGet:async()=>({userId:bot}),setArchiveObserver(){}},drive:{configured:true,getAccessToken:async()=> 'synthetic',verifyAttachment:async(file,folder)=>{assert.equal(file,'synthetic-file');assert.equal(folder,'synthetic-folder');return {id:file,webViewLink:'https://drive.google.com/file/d/synthetic/view'};}},notion:{request:async()=>({})},logger:{warn(){},error(){}}});
+ await pool.query('UPDATE central_archive.conversations SET drive_folder_id=$2 WHERE key=$1',[key,'synthetic-folder']);
+ await pool.query(`INSERT INTO central_archive.jobs(key,conversation_key,event_at,payload,state,result) VALUES($1,$2,now(),'{}','completed',$3::jsonb)`,['in:'+digest(bot+':message:real-adapter'),key,JSON.stringify({driveId:'synthetic-file',size:100,md5:'synthetic-md5'})]);
+ archive.original=central.original;
+ assert.equal(await platform.archiveConversationMeetingAudio({event:event('audio','user','real-adapter')}),'https://drive.google.com/file/d/synthetic/view');
+ await assert.rejects(()=>platform.archiveConversationMeetingAudio({event:event('audio','group','real-adapter')}),/source_mismatch/);
+}finally{global.fetch=originalFetch;await central?.close();}
 pages.set('private-page',{parent:{data_source_id:target.dbId}});const owner=await platform.resolveConversationMeetingOwner('private-page');assert.equal(owner.config.meetings.conversationOwnerId,user);
 assert.equal((await service.capture([event('audio','group','disabled')])).length,1);assert.equal((await pool.query('SELECT * FROM central_archive.meeting_events')).rows.length,0);
 await service.capture([event('audio')]);await service.capture([event('text','user','roster1')]);await service.drain();assert.equal(calls.filter(c=>c.audio).length,1);assert.equal(calls.filter(c=>c.roster).length,1);
