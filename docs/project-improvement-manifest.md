@@ -3,7 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
-| AM-IMP-2026.1016.05 | Root Leaf OA / original photo pilot and DailyLog | Deployed | PR302 complete CI2m7s; exactmain1990cb2 both group/task speed policies and original pilot/edit contract verified; DailyLog80927ec4 full31 modules/100%, final207d331a baseline and29 unchanged modules/assets/configuration retained;65 isolated checks/pause,2 Worker-D1/9 collaboration-sharing/six widths/10 formal synthetic judgments; natural speed pending |
+| AM-IMP-2026.1016.05 | Root Leaf OA / original photo pilot and DailyLog | Deployed | PR302/303/304 full CI passed; latest exactmain60fd0df both group/task speed policies,60-second idle photo recovery and original pilot/edit contract verified; DailyLog80927ec4 full31 modules/100%, final207d331a baseline and29 unchanged modules/assets/configuration retained;65 initial isolated checks plus idle regression/pause,2 Worker-D1/9 collaboration-sharing/six widths/10 final formal synthetic judgments; natural speed pending |
 | AM-IMP-2026.1012.01 | Root Leaf OA only | Deployed | 67 isolated checks; PR285 CI passed; production 6566e18, both all-oa-groups scopes and six fixed AI checks verified |
 | AM-IMP-2026.1013.01 | Root Leaf OA only | Deployed | PR288 CI passed; production e2773df and enabled entry marker verified; 82 tests and three webhook simulations passed |
 | AM-IMP-2026.1013.02 | Root Leaf OA only | Installed | UOF setup external browser URI; production verification pending |
