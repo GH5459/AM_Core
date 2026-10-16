@@ -41,7 +41,7 @@ export async function photoQueue(request,env,{now=Date.now}={}){
 
 export async function taskSpeedResponse(request,response){
  if(request.method!=='GET'||new URL(request.url).pathname!=='/tasks.js'||response.status!==200)return response;
- let s=await response.text();const needle="function bindCard(){const node=dialog();node.removeAttribute('data-task-overview');";if(s.split(needle).length!==2)throw Error('Task card status anchor changed');
+ let s=await response.text();const needle="node.querySelector('[data-card-close]').onclick=requestCardClose;";if(s.split(needle).length!==2)throw Error('Task card status anchor changed');
  const status="node.querySelector('.task-photo-import-status')?.remove();const photoState=active?.task?.assignment?.photoImport?.state;if(photoState){const status=document.createElement('p');status.className='task-photo-import-status';status.setAttribute('role','status');status.textContent=({pending:'引用照片正在背景附入，可先編輯任務；稍後重新開啟查看。',complete:'引用照片已附入，可在下方查看。',unavailable:'引用照片未自動加入，請在附件區上傳原圖。',failed:'引用照片暫時無法加入，請在附件區上傳原圖；任務已交辦。',cancelled:'引用來源已變更，照片未繼續自動加入。'})[photoState]||'';if(status.textContent){const body=node.querySelector('.dialog-body'),taskId=active?.task?.id;body?.prepend(status);queueMicrotask(()=>{if(body?.isConnected&&active?.task?.id===taskId)body.prepend(status);});}}";
  s=s.replace(needle,needle+status);const headers=new Headers(response.headers);for(const k of ['Content-Length','ETag','Content-Encoding','Last-Modified'])headers.delete(k);headers.set('Cache-Control','private, no-store');headers.set('X-DailyLog-Task-Speed',TASK_SPEED_POLICY);return new Response(s,{status:200,headers});
 }

@@ -1,5 +1,5 @@
 const fs=require('fs'),path=require('path'),crypto=require('crypto'),assert=require('assert/strict');
-const release=path.resolve('.dailylog-data/task-speed-release-20261016'),base=path.resolve('.dailylog-data/hr-date-range-release-20261015');
+const release=path.resolve(process.env.DAILYLOG_SPEED_PACKAGE||'.dailylog-data/task-speed-release-20261016'),base=path.resolve('.dailylog-data/hr-date-range-release-20261015');
 const cfg=JSON.parse(fs.readFileSync(base+'/wrangler.json','utf8')),token=fs.readFileSync(process.env.USERPROFILE+'/.wrangler/config/greenhotel-dailylog.toml','utf8').match(/oauth_token\s*=\s*"([^"\r\n]+)"/)[1],root='https://api.cloudflare.com/client/v4/accounts/'+cfg.account_id,url=root+'/workers/scripts/'+cfg.name;
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex'),read=f=>JSON.parse(fs.readFileSync(release+'/'+f,'utf8')),write=(f,v)=>fs.writeFileSync(release+'/'+f,JSON.stringify(v,null,2));
 async function request(endpoint,options={}){const r=await fetch(endpoint,{...options,headers:{Authorization:'Bearer '+token,...options.headers},signal:AbortSignal.timeout(60000)});if(!r.ok){const j=await r.json().catch(()=>({}));throw Error('Cloudflare HTTP '+r.status+' '+JSON.stringify((j.errors||[]).map(e=>({code:e.code,message:String(e.message||'').slice(0,500)}))));}return r;}
