@@ -32,7 +32,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
-platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,canRetrieveQuote:centralArchive.canRetrieveQuote,
+platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,taskPhotos:centralArchive.taskPhotos,taskPhoto:centralArchive.taskPhoto,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
 const lineIo = await createLineIo({ tenants, line, router, logger });
@@ -449,6 +449,8 @@ const server = http.createServer(async (req, res) => {
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
     try {
+      const photoEvents=[];for(const e of body.events)if(await leafTasks.handlePhoto?.(e))photoEvents.push(e);
+      body.events=body.events.filter(e=>!photoEvents.includes(e));
       const grouped = await leafGroups.capture(body.events);
       await leafTasks.capture(body.events.filter(e => !grouped.includes(e)));
       body.events = body.events.filter(e => !grouped.includes(e) || !leafGroups.isControl(e));
@@ -561,9 +563,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/photo-health'))return sendJson(res,200,await leafTasks.checkPhotos(input));
+      if(url.pathname.endsWith('/configure-photos'))return sendJson(res,200,await leafTasks.configurePhotos(input));
       if(url.pathname.endsWith('/login-health'))return sendJson(res,200,await leafTasks.checkLogin(input));
       if(url.pathname.endsWith('/group-readiness'))return sendJson(res,200,await leafTasks.inspectGroup(input,await centralArchive.groupActors(input)));
       if(url.pathname.endsWith('/diagnose')){const sources=await centralArchive.taskSources(input),diagnostics=[];for(const source of sources)diagnostics.push(await leafTasks.inspectSource(source));return sendJson(res,200,{ok:true,diagnostics});}

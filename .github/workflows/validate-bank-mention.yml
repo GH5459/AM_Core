@@ -29,6 +29,9 @@ on:
       - 'core/leaf-calendar/**'
       - 'tools/test-calendar-recurrence.mjs'
       - 'versions/AM-IMP-2026.1013.04/**'
+      - 'core/leaf-task-photos.js'
+      - 'tools/test-leaf-task-photos.mjs'
+      - 'versions/AM-IMP-2026.1016.01/**'
       - 'core/leaf-tasks.js'
       - 'tools/test-leaf-tasks.mjs'
       - 'versions/AM-IMP-2026.1008.07/**'
@@ -111,6 +114,8 @@ jobs:
       - run: npm run check
       - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
+      - run: node --test tools/test-leaf-task-photos.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.01
       - run: node --test tools/test-leaf-tasks.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.07
       - run: node --test tools/test-central-archive.mjs

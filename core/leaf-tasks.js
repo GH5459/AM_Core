@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import {createCalendarStore} from './leaf-calendar/store.js';
 import {parseAttachmentRequest} from './attachment-retrieval.js';
+import {createTaskPhotos,photoNotice,PHOTO_CONTRACT} from './leaf-task-photos.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -15,6 +16,20 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running;
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
+ async function photoCall(ctx,path,input={}){
+  const value={tenantKey:ctx.t.key,id:ctx.id,groupId:ctx.groupId,userId:ctx.who.userId,account:ctx.who.account,bindingId:ctx.who.bindingId,taskId:ctx.taskId,...input};
+  if(path!=='upload')return call(ctx.t,ctx.c,'photos/'+path,value);
+  const form=new FormData(),{file,filename,...metadata}=value;form.set('context',JSON.stringify(metadata));form.set('file',file,filename);
+  const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/photos/upload',ctx.c.base),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+ctx.c.key},body:form,signal:AbortSignal.timeout(20000)}),v=await r.json();
+  if(!r.ok||!v.ok)throw Object.assign(Error('photo_upload_failed'),{code:v.code,status:r.status});return v;
+ }
+ async function photoContext(e,id,index){
+  const routed=await route(e.source.groupId,[e.source.userId]);if(!routed)throw Error('photo_identity_required');
+  const t=routed.tenant,c=await config(t),who=await identity(e.source.userId,t,e.source.groupId,{readOnly:true}),ctx={t,c,who,id,groupId:e.source.groupId};
+  const r=await photoCall(ctx,'context');if(!await validate(t,{input:r.source}))throw Error('photo_binding_changed');
+  ctx.source=r.source;ctx.taskId=r.result.taskIds[index];if(!ctx.taskId)throw Error('photo_task_missing');return ctx;
+ }
+ const photos=createTaskPhotos({platform,context:photoContext,call:photoCall,logger});
  async function groupServices(){const available=[];for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{if(await config(t))available.push(t);}catch{}}return available;}
  async function submitGroupTask(t,event,participants){
   const c=await config(t);if(!c)throw Error('task_service_not_configured');
@@ -24,7 +39,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))];
   const mentions=ids.map(id=>participants.find(p=>p.userId===id));if(mentions.some(p=>!p))throw Error('task_recipient_required');
   return call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
-   sender:clean(participants[0]),mentions:mentions.map(clean),text:event.message.text,timestamp:event.timestamp});
+   sender:clean(participants[0]),mentions:mentions.map(clean),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});
  }
  // Tasks use confirmed work identities, independently of a group's project routing.
  // Never register the group under another business tenant or grant personal access.
@@ -71,7 +86,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const routed=await route(e.source.groupId,[e.source.userId,...ids]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
   const sender=await identity(e.source.userId,t,e.source.groupId,{readOnly:true});if(!sender)continue;
   for(const userId of ids){const person=await identity(userId,t,e.source.groupId,{readOnly:true});if(!person){logger.warn?.('[leaf-tasks] mention identity unresolved; assignment not issued');continue eventsLoop;}mentions.push(person);}
-  const id=hash(t.tenantId+':'+e.source.groupId+':'+e.message.id),input={id,eventId:String(e.webhookEventId||e.message.id),messageId:String(e.message.id),groupId:e.source.groupId,sender,mentions,text:e.message.text,timestamp:e.timestamp};
+  const id=hash(t.tenantId+':'+e.source.groupId+':'+e.message.id),input={id,eventId:String(e.webhookEventId||e.message.id),messageId:String(e.message.id),groupId:e.source.groupId,sender,mentions,text:e.message.text,timestamp:e.timestamp,...(e.message.quotedMessageId?{quotedMessageId:String(e.message.quotedMessageId)}:{})};
   try{await call(t,c,'intake',input);}catch(error){if(error.status===403){logger.warn?.('[leaf-tasks] current access prevents assignment');continue;}throw error;}
  }}
  async function judge(t,job){
@@ -89,7 +104,9 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    // A scoped group notice has no private task text; never resend a task creation.
    if(!await validate(t,job))return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
    const h=hash('leaf-task-notice:'+job.id),retryKey=[h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20,32)].join('-');
-   await platform.pushLineMessage(job.input.groupId,job.result.notice,null,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
+   let notice=job.result.notice;
+   try{const enabled=await call(t,c,'photos/enabled',{groupId:job.input.groupId});if(enabled.enabled&&enabled.contract===PHOTO_CONTRACT&&Number.isFinite(enabled.since)&&job.input.timestamp>=enabled.since)notice=photoNotice(job.id,job.result.taskIds,notice);}catch{}
+   await platform.pushLineMessage(job.input.groupId,notice,null,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
   }
   if(!await validate(t,job)){if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:[],ruleVersion:LEAF_TASK_CONTRACT});throw Error('binding_changed');}
   if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:await judge(t,job),ruleVersion:LEAF_TASK_CONTRACT});
@@ -131,6 +148,8 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
  async function checkLogin({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('work_login_service_unavailable');const c=await config(t);if(!c)throw Error('work_login_service_unavailable');const r=await call(t,c,'login-health');if(r.contract!=='line-first-work-login-v1'||r.tenant!==t.key)throw Error('work_login_contract_mismatch');return {ok:true,contract:r.contract,tenantKey:t.key,manualPairingRequired:r.manualPairingRequired,uofApprovalRequired:r.uofApprovalRequired,noTicketsOrIdentitiesWritten:true};}
- return {capture,drain,configureService,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
-  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ async function configurePhotos({tenantKey,groupId,enabled}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!/^C[a-f0-9]{32}$/i.test(groupId||'')||typeof enabled!=='boolean')throw Error('invalid_photo_pilot');const c=await config(t);return call(t,c,'photos/configure',{groupId,enabled});}
+ async function checkPhotos({tenantKey,groupId}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('invalid_photo_tenant');const c=await config(t),health=await call(t,c,'photos/health');if(health.contract!==PHOTO_CONTRACT)throw Error('photo_contract_mismatch');const pilot=groupId?await call(t,c,'photos/enabled',{groupId}):null;return {ok:true,contract:PHOTO_CONTRACT,enabled:pilot?.enabled??false,since:pilot?.since??null};}
+ return {capture,drain,configureService,configurePhotos,checkPhotos,handlePhoto:photos.handle,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
+  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,photoContract:PHOTO_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
