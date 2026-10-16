@@ -1,0 +1,13 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict'),crypto=require('crypto');
+const folder=process.argv[2];assert(path.isAbsolute(folder||''),'Pass the private complete Worker snapshot directory');
+const root=path.resolve(__dirname,'..'),dir=folder+'/uof-line-cloud',before=JSON.parse(fs.readFileSync(dir+'/before.private.json'));
+let source=fs.readFileSync(dir+'/baseline/worker.mjs','utf8');
+const start=source.indexOf('managementAssets.js += "\\n" + '),end=source.indexOf('\nvar MANAGEMENT_PATH = "/Management";',start);
+assert(start>=0&&end>start,'Expected current meeting UI injection');
+const original=source.slice(start,end);assert(original.endsWith(';'),'Expected a single UI append statement');
+source=source.slice(0,start)+'managementAssets.js += "\\n" + '+JSON.stringify(fs.readFileSync(root+'/modules/meetings/management-ui.js','utf8'))+';'+source.slice(end);
+assert.equal(source.split('import {meetingManagementRoute} from "./meeting-management.mjs";').length,2,'Existing authenticated route must already be installed');
+fs.writeFileSync(dir+'/candidate/worker.mjs',source);fs.copyFileSync(root+'/modules/meetings/management-proxy.mjs',dir+'/candidate/meeting-management.mjs');
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex');for(const m of before.modules)if(!['worker.mjs','meeting-management.mjs'].includes(m.name))assert.equal(sha(fs.readFileSync(dir+'/candidate/'+m.name)),m.sha256,m.name+' preserved');
+fs.writeFileSync(folder+'/personnel-build.private.json',JSON.stringify({baseVersion:before.versions,changed:['worker.mjs meeting UI append only','meeting-management.mjs'],otherModulesPreserved:before.modules.length-2},null,2));
+console.log('Existing UOF authenticated route retained; only meeting UI append and meeting management module updated.');

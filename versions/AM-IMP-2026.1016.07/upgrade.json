@@ -1,0 +1,8 @@
+{
+ "id":"AM-IMP-2026.1016.07","name":"Personal meetings in personnel management","type":"Meeting management navigation","portable":true,"status":"Ready","createdAt":"2026-10-16",
+ "installTargets":["UOF shared management"],"requiresDatabases":[],
+ "requiresEnv":["Deployment-local AMCORE_MEETING_BOT_USER_ID matching the existing archive OA; no new credential"],
+ "requiresScripts":["node tools/test-meeting-personnel.mjs","node tools/test-conversation-meetings.mjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Personal meeting controls appear under the exact active employee","Unknown or ambiguous identities are not guessed","Group and room management excludes personal records and rejects personal writes","Fresh binding and active employee checked before personal changes","Original settings, databases, audio, other permissions and personnel drafts retained","Latest complete Worker assets, other modules, credentials and schedules preserved","Authenticated production UI verified"]
+}
