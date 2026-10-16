@@ -425,6 +425,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布(轉寫已花了幾分鐘,背景 Drive 備份通常早就完成;最多再等 2 分鐘)
     if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 120000, '');
+    if(tenant?.conversationKey&&!audioDriveUrl)audioDriveUrl=await canonicalAudio(tenant,entry.archiveSource);
     if(tenant?.conversationKey && !audioDriveUrl)throw Error('錄音尚未保存完成，原會議處理已保留');
     await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding, meetingMode, sourceMessageId:audioMessageId });
     await platform.completeMeetingPending?.(tenant,'completed');
@@ -1163,6 +1164,14 @@ async function assertReviewGroupMember(session, userId, actorName = '') {
     if(actor!==session.tenant.config.meetings.conversationOwnerId)throw Object.assign(new Error('只有此個人對話本人可以操作。'),{statusCode:403});
     return;
   }
+    if(session?.tenant?.conversationKey){
+      if(typeof platform.lineGet!=='function')throw Object.assign(Error('群組身分驗證暫時不可用。'),{statusCode:503});
+      const kind=groupId.startsWith('R')?'room':'group';
+      try{const profile=await platform.lineGet(`/v2/bot/${kind}/${encodeURIComponent(groupId)}/member/${encodeURIComponent(actor)}`,{timeoutMs:8000});
+        if(profile?.userId===actor)return;
+      }catch{}
+      throw Object.assign(Error('只有此 LINE 對話的現有成員可以操作。'),{statusCode:403});
+    }
   const knownIds = knownReviewMemberUserIds(session);
   if (actor === String(session?.hostUserId || '').trim() || knownIds.has(actor)) return;
   if (String(session?.hostUserId || '').trim() && namesEqual(actorName, session?.hostName)) {
@@ -1752,7 +1761,7 @@ function renderReviewHtml(session) {
   const members = memberOptions(session);
   const s = reviewSummary(session);
   const liffId = reviewLiffId(session);
-  const protectedData = Boolean(liffId);
+  const protectedData = Boolean(liffId || session.tenant?.config?.meetings?.privateOnly);
   const createsFormalTasks = sessionCreatesFormalTasks(session);
   const sessionJson = JSON.stringify({
     id: session.id,
