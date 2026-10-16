@@ -1,5 +1,7 @@
 # Root OA runtime improvements
 
+| AM-IMP-2026.1016.05 | Root Leaf OA / original photo pilot and DailyLog | Installed | 65 AM isolated checks and pause; complete Worker/D1 photo queue and six UI widths; latest505e612e full28 modules preserved; production release pending |
+
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
 | AM-IMP-2026.1012.01 | Root Leaf OA only | Deployed | 67 isolated checks; PR285 CI passed; production 6566e18, both all-oa-groups scopes and six fixed AI checks verified |

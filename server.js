@@ -452,7 +452,10 @@ const server = http.createServer(async (req, res) => {
       const photoEvents=[];for(const e of body.events)if(await leafTasks.handlePhoto?.(e))photoEvents.push(e);
       body.events=body.events.filter(e=>!photoEvents.includes(e));
       const grouped = await leafGroups.capture(body.events);
+      if(grouped.length)leafGroups.drain?.()?.catch(()=>logger.warn('Immediate group processing deferred.'));
+
       await leafTasks.capture(body.events.filter(e => !grouped.includes(e)));
+      leafTasks.wake?.();
       body.events = body.events.filter(e => !grouped.includes(e) || !leafGroups.isControl(e));
     }
     catch { return sendJson(res,503,{error:'Task intake is temporarily unavailable.'}); }
