@@ -5,6 +5,8 @@ export const PHOTO_CONTRACT='line-task-photo-selection-v1';
 const prefix='taskphoto:';
 const text=t=>({type:'text',text:t});
 const button=(label,data)=>({type:'button',height:'sm',action:{type:'postback',label,data}});
+// Ordinary Flex actions remain visible on desktop as well as mobile LINE.
+export function photoActions(message,actions){return {type:'flex',altText:message,contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:message,wrap:true,size:'sm'}]},footer:{type:'box',layout:'vertical',contents:actions.map(([label,data])=>button(label,data))}}};}
 export function photoNotice(id,taskIds,notice){return {type:'flex',altText:notice,contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:notice,wrap:true,size:'sm'}]},footer:{type:'box',layout:'vertical',contents:taskIds.slice(0,5).map((_,i)=>button(taskIds.length===1?'選擇群組照片':`任務 ${i+1}：選擇照片`,`${prefix}open:${id}:${i}`))}}};}
 export function photoCard(id,index,state,images={}){
  const root=`${prefix}`,selected=new Set(state.selected),make=(c,i)=>({type:'bubble',size:'kilo',...(images[c.messageId]?{hero:{type:'image',url:images[c.messageId],size:'full',aspectRatio:'4:3',aspectMode:'fit'}}:{}),body:{type:'box',layout:'vertical',contents:[{type:'text',text:`照片 ${i+1}${selected.has(c.messageId)?' ✓ 已選取':''}`,weight:'bold'},{type:'text',text:new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(c.at)),size:'sm',wrap:true},{type:'text',text:c.name,wrap:true,size:'xs'}]},footer:{type:'box',layout:'vertical',contents:[button(selected.has(c.messageId)?'取消選取':'選取這張',`${root}set:${id}:${index}:${state.version}:${i}:${selected.has(c.messageId)?0:1}`)]}});
@@ -38,8 +40,7 @@ export function createTaskPhotos({platform,context,call,logger=console}){
    if(action==='set'){
     if(!state.candidates[Number(photo)])throw Error('photo_invalid');
     state=(await invoke('select',{version:Number(version),messageId:state.candidates[Number(photo)].messageId,selected:selected==='1',operationId:e.webhookEventId||data})).state;
-    const message=text(`已選 ${state.selected.length} 張照片。可繼續選取，或確認加入任務。`);
-    message.quickReply={items:[{type:'action',action:{type:'postback',label:'繼續選照片',data:`${prefix}show:${id}:${index}`}},{type:'action',action:{type:'postback',label:'確認加入',data:`${prefix}confirm:${id}:${index}:${state.version}`}}]};
+    const message=photoActions(`已選 ${state.selected.length} 張照片。可繼續選取，或確認加入任務。`,[['繼續選照片',`${prefix}show:${id}:${index}`],['確認加入',`${prefix}confirm:${id}:${index}:${state.version}`]]);
     await context(e,id,Number(index));await send(e,message);return true;
    }
    if(action==='confirm'||action==='resume'||state.phase==='importing'){
@@ -55,8 +56,7 @@ export function createTaskPhotos({platform,context,call,logger=console}){
      }
      if(state.selected.every(id=>state.imported.includes(id)))state=(await invoke('finish')).state;
     }
-    const done=state.phase==='done',notice=text(done?`已將 ${state.selected.length} 張照片附到原任務，可在工作日誌任務卡的附件查看。`:'照片尚未全部加入，已保存的附件會保留，請按「繼續加入」。');
-    if(!done)notice.quickReply={items:[{type:'action',action:{type:'postback',label:'繼續加入',data:`${prefix}resume:${id}:${index}`}}]};
+    const done=state.phase==='done',notice=done?text(`已將 ${state.selected.length} 張照片附到原任務，可在工作日誌任務卡的附件查看。`):photoActions('照片尚未全部加入，已保存的附件會保留，請按「繼續加入」。',[['繼續加入',`${prefix}resume:${id}:${index}`]]);
     await context(e,id,Number(index));await send(e,notice);return true;
    }
    const previews=await images(e,state);await context(e,id,Number(index));await send(e,photoCard(id,index,state,previews));

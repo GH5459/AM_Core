@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {PGlite} from '@electric-sql/pglite';
 import {createArchiveTaskPhotos} from '../core/central-archive/task-photos.js';
-import {createTaskPhotos,photoCard,photoNotice} from '../core/leaf-task-photos.js';
+import {createTaskPhotos,photoCard,photoNotice,photoActions} from '../core/leaf-task-photos.js';
 const mid='12345678901234567',id='a'.repeat(64),source={type:'group',groupId:'group-a',userId:'actor'},bytes=Buffer.from([137,80,78,71,1,2,3]);
 test('actual PostgreSQL limits photos to same OA/group, excludes outgoing, unsent and missing originals; quote can recover an older candidate',async()=>{
  const db=new PGlite();try{
@@ -28,8 +28,9 @@ function fixture({badChecksum=false,deny=false}={}){
  return {sent,calls,send,api};
 }
 test('explicit selection imports verified original into the same task; success only after persisted finish',async()=>{
- const f=fixture();assert(await f.send('set'));assert.match(f.sent.at(-1).text,/已選 1 張/);assert(!f.calls.includes('upload'));await f.send('confirm');assert.deepEqual(f.calls,['status','select','status','confirm','upload','finish']);assert.match(f.sent.at(-1).text,/已將 1 張照片附到原任務/);
+ const f=fixture();assert(await f.send('set'));assert.match(f.sent.at(-1).altText,/已選 1 張/);assert.equal(f.sent.at(-1).quickReply,undefined);assert.deepEqual(f.sent.at(-1).contents.footer.contents.map(b=>b.action.label),['繼續選照片','確認加入']);assert(!f.calls.includes('upload'));await f.send('confirm');assert.deepEqual(f.calls,['status','select','status','confirm','upload','finish']);assert.match(f.sent.at(-1).text,/已將 1 張照片附到原任務/);
 });
+test('desktop retry uses a persistent Flex postback button',()=>{const m=photoActions('繼續加入照片',[['繼續加入',`taskphoto:resume:${id}:0`]]);assert.equal(m.type,'flex');assert.equal(m.quickReply,undefined);assert.equal(m.contents.footer.contents[0].action.type,'postback');});
 test('checksum changes and removed member do not upload or claim success',async()=>{
  const f=fixture({badChecksum:true});await f.send('set');await f.send('confirm');assert(!f.calls.includes('upload'));assert.match(f.sent.at(-1).text,/無法完成/);const denied=fixture({deny:true});await denied.send('open');assert.equal(denied.calls.length,0);assert.match(denied.sent.at(-1).text,/無法完成/);assert.equal(await denied.api.handle({type:'message',message:{type:'text',text:'hello'}}),false);
 });
