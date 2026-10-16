@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1016.01",
+  "name": "Requester-selected same-group photos on existing LINE tasks",
+  "type": "LINE / task attachments",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-16",
+  "installTargets": [
+    "AM_PLATFORM",
+    "DailyLog"
+  ],
+  "requiresDatabases": [
+    "Existing central_archive",
+    "Existing DailyLog D1 documents and task attachments"
+  ],
+  "requiresEnv": [
+    "Existing LINE credentials",
+    "Existing purpose-specific task service key"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-leaf-task-photos.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1016.01"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Original requester and current membership required",
+    "Explicit same-group photo selection",
+    "Original bytes stored idempotently on same work ID",
+    "Pilot enabled only for authorized exact group",
+    "Latest deployment read back without real test writes"
+  ]
+}

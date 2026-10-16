@@ -1,0 +1,44 @@
+const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto'),fs=require('node:fs');
+process.env.DAILYLOG_ROUTINE_PACKAGE='.dailylog-data/line-task-photos-release-20261016';
+const {fixture}=require('./routine-tabs.worker.test.cjs'),key='synthetic-photo-service-key-at-least-32-bytes',group='C'+'1'.repeat(32),user='U'+'2'.repeat(32),recipient='U'+'3'.repeat(32),id='a'.repeat(64),messageId='12345678901234567',second='12345678901234568';
+test('complete latest Worker+D1: purpose auth, pilot, original sender, same task, selection CAS, binary import, retry, read ACL and revocation',async()=>{
+ const a=await fixture({extraBindings:{LEAF_TASK_SERVICE_KEY:key,LEAF_TASK_TENANT:'fixture'}});
+ try{
+  await a.db.prepare('CREATE TABLE IF NOT EXISTS line_assignment_intake(id TEXT PRIMARY KEY,tenant TEXT,state TEXT,input TEXT,result TEXT)').run();
+  let r=await a.send('900003','/api/tasks',{id:'work-'+crypto.randomUUID(),title:'隔離圖文交辦',description:'請修正畫面',sourceDate:'2026-10-16',leadAccount:'900001',collaboratorAccounts:[],level:1,workSchema:2,workSource:'assigned'});assert.equal(r.status,201,await r.clone().text());
+  const task=(await r.json()).task;const stored=JSON.parse((await a.db.prepare('SELECT value FROM work_items WHERE id=?').bind(task.id).first()).value);stored.assignment={sourceId:id,assignmentState:'issued',detailsState:'needs_requester_details'};
+  await a.db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(stored),task.id).run();
+  const source={sender:{userId:user,account:'900003',bindingId:'fixture-original'},mentions:[{userId:recipient,account:'900001',bindingId:'fixture-recipient'}],groupId:group,text:'隔離測試請修正畫面',timestamp:Date.now()};
+  await a.db.prepare('INSERT INTO line_assignment_intake VALUES(?,?,?,?,?)').bind(id,'fixture','issued',JSON.stringify(source),JSON.stringify({taskIds:[task.id]})).run();
+  const context={tenantKey:'fixture',id,groupId:group,userId:user,account:'900003',bindingId:'fixture-original',taskId:task.id};
+  const machine=async(action,v={},auth=true,file=null)=>{let body=JSON.stringify({...context,...v}),headers={Authorization:auth?'Bearer '+key:'Bearer wrong','Content-Type':'application/json'};if(file){const form=new FormData();form.set('context',body);form.set('file',file);const request=new Request('http://example.test',{method:'POST',body:form});headers['Content-Type']=request.headers.get('Content-Type');body=await request.arrayBuffer();}return a.mf.dispatchFetch('http://example.test/api/integrations/leaf-snail/tasks/photos/'+action,{method:'POST',headers,body});};
+  const good=async(action,v,file)=>{const r=await machine(action,v,true,file);assert.equal(r.status,200,await r.clone().text());return (await r.json()).state;};
+  assert.equal((await machine('context',{},false)).status,401);
+  assert.equal((await machine('context')).status,403);
+  await good('configure',{enabled:true});assert.equal((await(await machine('enabled')).json()).enabled,true);
+  assert.equal((await machine('context',{userId:recipient,account:'900001'})).status,403);
+  assert.equal((await machine('context',{groupId:'C'+'9'.repeat(32)})).status,403);
+  assert.equal((await machine('open',{taskId:'work-'+crypto.randomUUID(),candidates:[]})).status,403);
+  const candidates=[messageId,second].map((messageId,i)=>({messageId,name:'截圖'+i+'.png',at:new Date().toISOString()}));
+  let s=await good('open',{candidates});assert.equal(s.selected.length,0);
+  assert.equal((await machine('upload',{messageId},true,new File(['bad'],'bad.png',{type:'image/png'}))).status,403);
+  s=await good('select',{version:s.version,messageId,selected:true,operationId:'first'});const version=s.version;
+  s=await good('select',{version:version-1,messageId,selected:true,operationId:'first'});assert.equal(s.version,version);
+  assert.equal((await machine('select',{version:version-1,messageId:second,selected:true,operationId:'stale'})).status,409);
+  s=await good('select',{version:s.version,messageId:second,selected:true,operationId:'second'});
+  s=await good('confirm',{version:s.version,operationId:'confirm'});
+  assert.equal((await machine('finish')).status,409);
+  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64'),file=()=>new File([bytes],'截圖0.png',{type:'image/png'});
+  assert.equal((await machine('upload',{messageId},true,new File(['not a PNG'],'bad.png',{type:'image/png'}))).status,400);
+  s=await good('upload',{messageId},file());s=await good('upload',{messageId},file());
+  assert.equal((await a.db.prepare('SELECT count(*) n FROM task_attachments').first()).n,1);
+  s=await good('upload',{messageId:second},new File([bytes],'截圖1.png',{type:'image/png'}));s=await good('finish');assert.equal(s.phase,'done');
+  r=await a.send('900001','/api/attachments/normal/'+task.id);assert.equal(r.status,200,await r.clone().text());const files=(await r.json()).attachments;assert.equal(files.length,2);
+  r=await a.send('900001','/api/attachments/normal/'+task.id+'/'+files[0].id);assert.equal(r.status,200);assert.deepEqual(Buffer.from(await r.arrayBuffer()),bytes);
+  assert([403,404].includes((await a.send('900002','/api/attachments/normal/'+task.id+'/'+files[0].id)).status));
+  assert.equal((await a.db.prepare('SELECT count(*) n FROM work_items').first()).n,1,'no task copy');
+  source.sourceRemoved=true;await a.db.prepare('UPDATE line_assignment_intake SET input=? WHERE id=?').bind(JSON.stringify(source),id).run();assert.equal((await machine('context')).status,409);
+  delete source.sourceRemoved;await a.db.prepare('UPDATE line_assignment_intake SET input=? WHERE id=?').bind(JSON.stringify(source),id).run();
+  a.access.accounts['900003'].enabled=false;a.access.accounts['900003'].standardEnabled=false;await a.updateAccess();assert.equal((await machine('status')).status,403);
+ }finally{await a.close();}
+});
