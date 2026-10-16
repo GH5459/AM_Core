@@ -101,7 +101,9 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
     if(state==='processing'&&!r.rows.length)throw Error('meeting_wait_already_claimed');
   }}
   async function context(row,event,extra={}){
-    const route=row.source_kind==='user'?{}:await router.resolveGroupBinding(row.source_id);
+    const route=row.source_kind==='user'||!row.tenant_key?{}:await router.resolveGroupBinding(row.source_id);
+    if(['lookup_failed','ambiguous'].includes(route.resolution)||route.tenant&&route.tenant.key!==row.tenant_key)
+      throw Error('meeting_conversation_owner_changed');
     const tenant=tenantFor(row,route.binding||{});
     if(event.source.type==='user')tenant.meetingBinding.members={[extra.senderName||row.display_name||'本人']:row.source_id};
     return {tenant,binding:tenant.meetingBinding,event,message:event.message,groupId:row.source_id,

@@ -34,7 +34,8 @@ const archive={pool,config:{botId:bot},notion:{request},original:async(messageId
 const platform={registerTenantDataSource:async(t,ds)=>{assert.equal(t.parentPageId,parent);assert(ds.startsWith('source-'));},resolveSenderName:async()=> '本人'};
 const mod={isAudio:m=>m?.type==='audio',hasPending:(t,id)=>memory.has(id),onAudio:async ctx=>{calls.push({audio:ctx.groupId});memory.add(ctx.groupId);await platform.saveMeetingPending({tenant:ctx.tenant,archiveSource:ctx,filename:ctx.filename,createdAt:ctx.createdAt||Date.now()});},onMessage:async ctx=>{calls.push({roster:ctx.groupId});await platform.completeMeetingPending(ctx.tenant,'processing');memory.delete(ctx.groupId);await platform.completeMeetingPending(ctx.tenant,'completed');}};
 const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret};
-const service=createConversationMeetings({env,archive,platform,router:{resolveGroupBinding:async()=>({})},tenants:[tenant],meetingModule:mod});
+let resolvedRoute={};
+const service=createConversationMeetings({env,archive,platform,router:{resolveGroupBinding:async()=>resolvedRoute},tenants:[tenant],meetingModule:mod});
 await service.store.seed();assert.equal((await service.store.list()).length,3);assert((await service.store.list()).every(r=>!r.enabled&&r.todo_mode==='record_only'));
 const key=keyFor(bot,event('audio').source),input={key,enabled:true,todoMode:'record_only',tenantKey:'',version:1,operationId:'operation-0000000001'};
 const result=await service.store.change(input,'123');assert.equal(result.version,2);assert.deepEqual(await service.store.change(input,'123'),result);
@@ -63,6 +64,7 @@ await service.capture([event('audio','user','a2')]);await service.drain();memory
 assert(!(JSON.stringify((await pool.query('SELECT payload FROM central_archive.meeting_events')).rows).includes('NEVER_PERSIST')));
 assert.equal(resolveMeetingRolloutPolicy({tenant,binding:{status:'停用',meetingEnabled:true,meetingMode:'record_only'}}).enabled,false);
 assert.equal(resolveMeetingRolloutPolicy({tenant,binding:{status:'啟用',meetingEnabled:false,meetingMode:'review_only'}}).enabled,false);
+const groupKey=keyFor(bot,event('audio','group').source);await pool.query("UPDATE central_archive.meeting_settings SET enabled=true,tenant_key='sample' WHERE conversation_key=$1",[groupKey]);resolvedRoute={tenant:{key:'foreign'},binding:{projectPageId:'foreign-project'}};const beforeAudio=calls.filter(c=>c.audio).length;await service.capture([event('audio','group','wrong-owner')]);await service.drain();await service.settle();assert.equal(calls.filter(c=>c.audio).length,beforeAudio,'A changed tenant must not supply project context to the old owner');assert.equal((await pool.query("SELECT state FROM central_archive.meeting_events WHERE payload->'message'->>'id'='wrong-owner'")).rows[0].state,'failed');resolvedRoute={};
 const path='/integrations/meeting-management/conversations',timestamp=String(Date.now()),body=JSON.stringify(input),actor='123';
 const req={method:'PUT',url:path,headers:{'x-meeting-time':timestamp,'x-meeting-actor':actor,'x-meeting-signature':managementSignature(secret,{method:'PUT',path,timestamp,actor,body})}};
 assert(verifyManagementRequest(secret,req,body));assert(!verifyManagementRequest(secret,req,body+' '));assert(!verifyManagementRequest(secret,req,body,Date.now()+120000));
