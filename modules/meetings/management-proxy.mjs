@@ -18,9 +18,13 @@ export async function meetingManagementProxy(request,env,actor,{fetchImpl=fetch,
   const key=await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(await crypto.subtle.sign('HMAC',key,encoder.encode([request.method,path,timestamp,actor,digest].join('\n'))));
   try{
-    const response=await fetchImpl(origin+path,{method:request.method,redirect:'error',
+    const response=await fetchImpl(origin+path,{method:request.method,redirect:'manual',
       headers:{'Content-Type':'application/json','x-meeting-time':timestamp,'x-meeting-actor':String(actor),'x-meeting-signature':signature},
       ...(body?{body}:{}),signal:AbortSignal.timeout(45000)});
+    if(response.status>=300&&response.status<400){
+      console.warn('meeting-management-upstream',JSON.stringify({status:response.status,format:'redirect'}));
+      return Response.json({error:'會議服務暫時無法連線，請保留修改後重試。'},{status:503,headers:{'Cache-Control':'no-store'}});
+    }
     if(!(response.headers.get('Content-Type')||'').includes('application/json')){
       console.warn('meeting-management-upstream',JSON.stringify({status:response.status,format:'non-json'}));
       return Response.json({error:'會議服務暫時無法連線，請保留修改後重試。'},{status:503,headers:{'Cache-Control':'no-store'}});

@@ -74,16 +74,16 @@ assert.equal(proxy.status,200);assert(!Object.keys(forwarded.headers).some(h=>h.
 const proxyRequest=()=>new Request('https://internal/api/meeting-management/conversations');
 let originCalls=0;
 const originEnv={AMCORE_MEETING_MANAGEMENT_SECRET:secret,AMCORE_MEETING_MANAGEMENT_ORIGIN:'https://upstream.example.test'};
-assert.equal((await meetingManagementProxy(proxyRequest(),originEnv,actor,{fetchImpl:async(url,options)=>{originCalls++;assert.equal(url,'https://upstream.example.test'+path);assert.equal(options.redirect,'error');assert(verifyManagementRequest(secret,{method:'GET',url:path,headers:options.headers}));return Response.json({ok:true});}})).status,200);
+assert.equal((await meetingManagementProxy(proxyRequest(),originEnv,actor,{fetchImpl:async(url,options)=>{originCalls++;assert.equal(url,'https://upstream.example.test'+path);assert.equal(options.redirect,'manual');assert(verifyManagementRequest(secret,{method:'GET',url:path,headers:options.headers}));return Response.json({ok:true});}})).status,200);
 for(const origin of ['http://sample.test','https://sample.test/path','https://user:secret@sample.test','https://sample.test?token=x','https://sample.test/#x'])assert.equal((await meetingManagementProxy(proxyRequest(),{...originEnv,AMCORE_MEETING_MANAGEMENT_ORIGIN:origin},actor,{fetchImpl:()=>{originCalls++;throw Error('must not fetch');}})).status,503);
 assert.equal(originCalls,1);
 const warnings=[],oldWarn=console.warn;console.warn=(...args)=>warnings.push(args);
 try{
- for(const fetchImpl of [async()=>new Response('private upstream content',{status:403,headers:{'Content-Type':'text/html'}}),async()=>{throw new TypeError('private transport content');}]){
+ for(const fetchImpl of [async()=>new Response('private upstream content',{status:403,headers:{'Content-Type':'text/html'}}),async()=>Response.json({private:'upstream content'},{status:302,headers:{Location:'https://other.example.test'}}),async()=>{throw new TypeError('private transport content');}]){
   const failed=await meetingManagementProxy(proxyRequest(),originEnv,actor,{fetchImpl});assert.equal(failed.status,503);assert.equal(failed.headers.get('Cache-Control'),'no-store');assert(!(await failed.text()).includes('private'));
  }
 }finally{console.warn=oldWarn;}
-assert.equal(warnings.length,2);assert(!JSON.stringify(warnings).includes('private'));assert(!JSON.stringify(warnings).includes(secret));
+assert.equal(warnings.length,3);assert(!JSON.stringify(warnings).includes('private'));assert(!JSON.stringify(warnings).includes(secret));
 await assert.rejects(()=>meetingManagementRoute({csrf(){throw Error('csrf rejected');},env:{}},new Request('https://sample/api/management/meetings/conversations',{method:'PUT',body}),{account:actor}),/csrf rejected/);
 meetings.init({publicBaseUrl:'https://sample.test',publicLinkSecret:secret});assert.equal(meetings.publicMeetingUrl('a'.repeat(32),owner),'');
 await __test.assertReviewGroupMember({tenant:owner,groupId:user},user,'本人');
