@@ -1,0 +1,7 @@
+# Task reply latency improvement
+
+AM-IMP-2026.1016.05 Ready, user-authorized implementation/release on2026-10-16. E50 confirmed source-to-push49.857s, no failure retry, with16.828s after task timestamp. The new task issue transaction stores a pilot-scoped background photo plan with the work. New AM receipts notify first with the same task editor URI, then a separate photo worker leases notified plans. Five attempts with backoff, deterministic attachment IDs, current original-source/identity checks and terminal status prevent repeated work/notice or silent loss. No interactive photo session is opened.
+
+Group classification returns kind plus checked task assignments, frozen with the original event before intake; the task extractor reuses that result. Old intake remains compatible. Read reuse is only within one step; current route/member identity is rechecked at task issue, notice and photo upload. Durable capture wakes processing immediately and five-second timers remain recovery. Stage timing logs use a hashed trace without private content.
+
+DailyLog candidate is based on actual505e612e full28 modules, preserving27 original module bytes and current Assets via keep_assets. Adds task-speed and patches the original issue function/current outer wrapper only; collaboration, timeline, image preview and assignment list remain. No schema/identity/grants/business writes. Formal deployment and natural speed verification pending.

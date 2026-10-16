@@ -55,3 +55,8 @@ test('group readiness reads native actors and live membership without changing i
 });
 
 test('group helper freezes same legacy intake identity and preserves source requester and mentions',async()=>{const f=await fixture();const e=event();assert.deepEqual((await f.service.groupServices()).map(t=>t.key),['fixture']);const ids=[sender,recipient];const people=await Promise.all(ids.map(id=>f.service.resolveGroupIdentity(id,tenant,group)));await f.service.submitGroupTask(tenant,e,people);await f.service.capture([e]);await f.service.drain();assert.equal(f.counts().issues,1);assert.equal(f.paths.filter(p=>p==='intake').length,2);});
+test('combined group extraction uses original mention indices and does not call AI again; malformed indices cannot enter intake',async()=>{
+ const f=await fixture(),e=event(),people=await Promise.all([sender,recipient].map(id=>f.service.resolveGroupIdentity(id,tenant,group))),judgment={policy:'line-task-fast-notice-v1',assignments:[{title:'整理清單',description:'整理本週客訴清單',recipientIndices:[0]}]};
+ await assert.rejects(f.service.submitGroupTask(tenant,e,people,{...judgment,assignments:[{...judgment.assignments[0],recipientIndices:[1]}]}),/invalid_task_judgment/);
+ assert(!f.paths.includes('intake'));await f.service.submitGroupTask(tenant,e,people,judgment);await f.service.drain();assert.deepEqual(f.counts(),{judgments:0,issues:1,notices:1});
+});

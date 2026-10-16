@@ -22,7 +22,7 @@ async function fixture(){
  const line={lineGet:async path=>{const id=path.split('/').at(-1);if(!names.has(id))throw Error('not_member');return {userId:id,displayName:names.get(id)};}};
  const llm={available:true,completeJson:async input=>{const data=JSON.parse(input.userContent);if(input.schema.properties.kind)return {kind:data.text.includes('會議')?'meeting':data.text.includes('整理清單')?'task':'none'};
    return {events:[{topic:'專案會議',date:'2026-10-14',time:data.text.includes('時間未定')?'':'15:00',location:'漫漫回嘉附近的咖啡廳',content:'討論進度',...(data.existing||{}),...(data.existing?{time:'16:00',needsClarification:[]}:{} )}]};}};
- const tasks={groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p)=>{submissions.push({t,e,p});return {ok:true};}};
+ const tasks={groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p,judgment)=>{submissions.push({t,e,p,judgment});return {ok:true};}};
  const calendar={writeGroupEvent:async(t,account,event)=>{attempts.push({t,account,event});if(disconnected.has(account))throw Object.assign(Error('connect'),{code:'GOOGLE_NOT_CONNECTED'});
    if(!writes.has(event.requestId))writes.set(event.requestId,{id:'saved-'+writes.size});if(uncertain){uncertain=false;throw Object.assign(Error('timeout'),{code:'NETWORK_UNCERTAIN'});}return writes.get(event.requestId);}};
  const platform={llmForTenant:()=>llm,pushLineMessage:async(to,message,_,options)=>{if(failSummary&&typeof message==='string'&&message.startsWith('活動：')){failSummary=false;throw Error('delivery');}pushes.push({to,message,options});}};
@@ -41,6 +41,11 @@ test('replied-image explanation reaches task submission even when semantic model
 test('quoted question, progress and cancellation do not use the explicit explanation override',async()=>{const f=await fixture();try{
  for(const text of ['@同仁甲 你覺得這張圖片如何？','@同仁甲 這張圖片的說明進度如何？','@同仁甲 不用說明這張圖片的目的。']){const e=f.message(text,[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();}
  assert.equal(f.submissions.length,0);assert((await f.rows()).every(p=>p.mode==='none'&&p.phase==='ignored'));
+}finally{await f.close();}});
+test('one semantic decision freezes validated task extraction with the original message and unique mention ordering',async()=>{const f=await fixture();try{
+ let calls=0;f.options.llm.completeJson=async opts=>{calls++;assert(opts.schema.properties.assignments);return {kind:'task',assignments:[{title:'整理清單',description:'整理本週清單',recipientIndices:[0,1]}]};};
+ const e=f.message('@甲 @乙 整理清單',[a,b,a]);await f.capture(e);await f.drain();assert.equal(calls,1);assert.equal(f.submissions.length,1);assert.equal(f.submissions[0].judgment.policy,'line-task-fast-notice-v1');assert.deepEqual(f.submissions[0].judgment.assignments[0].recipientIndices,[0,1]);assert.equal(f.submissions[0].e.message.text,e.message.text);const row=(await f.rows())[0];assert.deepEqual(row.taskJudgment,f.submissions[0].judgment);
+ await f.capture(e);f.restart();await f.drain();assert.equal(calls,1);assert.equal(f.submissions.length,1);
 }finally{await f.close();}});
 test('meeting requires original organizer confirmation; fanout deduplicates native mentions and replay',async()=>{const f=await fixture();try{
  const e=f.message();await f.capture(e);await f.drain();assert.equal(f.writes.size,0);let p=(await f.rows())[0];assert.equal(p.phase,'confirmation');

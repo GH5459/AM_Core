@@ -1,0 +1,7 @@
+{
+ "id":"AM-IMP-2026.1016.05","name":"Immediate task notice with durable background quoted photo","type":"LINE task latency","portable":true,"status":"Ready","createdAt":"2026-10-16",
+ "installTargets":["AM_PLATFORM","DailyLog"],"requiresDatabases":["Existing central archive, intake and work tables; no schema migration"],"requiresEnv":["Original OA and existing task service"],
+ "requiresScripts":["node --experimental-vm-modules --test tools/test-leaf-groups.mjs tools/test-leaf-tasks.mjs tools/test-leaf-task-edit.mjs","node --test scripts/task-speed.worker.test.cjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Notice precedes photo download after persisted task","Photo lease survives restart with bounded retry and no notification replay","Combined extraction keeps source and recipient guards","Latest full DailyLog modules/assets/configuration retained","Reviewed AM main deployed and formal policy verified","Human speed test remains separate"]
+}

@@ -3,6 +3,7 @@ import {createCalendarStore} from './leaf-calendar/store.js';
 import {parseAttachmentRequest} from './attachment-retrieval.js';
 import {createTaskPhotos,taskEditNotice,PHOTO_CONTRACT,TASK_EDIT_CONTRACT} from './leaf-task-photos.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
+import {checkedAssignments,TASK_SPEED_POLICY} from './task-judgment.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -14,7 +15,7 @@ function encrypt(value,secret,tenant){const iv=crypto.randomBytes(12),c=crypto.c
 function decrypt(value,secret,tenant){const c=crypto.createDecipheriv('aes-256-gcm',key(secret),Buffer.from(value.iv,'base64'));c.setAAD(Buffer.from(tenant));c.setAuthTag(Buffer.from(value.tag,'base64'));return Buffer.concat([c.update(Buffer.from(value.data,'base64')),c.final()]).toString('utf8');}
 export function mentionCandidate(e){return e?.type==='message'&&e.message?.type==='text'&&e.source?.type==='group'&&/^C[0-9a-f]{32}$/i.test(e.source.groupId||'')&&idPattern.test(e.source.userId||'')&&typeof e.message.text==='string'&&e.message.text.trim()&&Array.isArray(e.message.mention?.mentionees)&&e.message.mention.mentionees.some(m=>m.type==='user'&&m.isSelf!==true&&idPattern.test(m.userId||''));}
 export function createLeafTasks({env=process.env,tenants=[],platform,router,line,llm,resolveIdentity,logger=console,fetchImpl=fetch,store:injectedStore}){
- const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running;
+ const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running,photoRunning,wakePending=false;
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
  async function photoCall(ctx,path,input={}){
@@ -32,36 +33,38 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  }
  const photos=createTaskPhotos({platform,context:photoContext,call:photoCall,logger});
  async function groupServices(){const available=[];for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{if(await config(t))available.push(t);}catch{}}return available;}
- async function submitGroupTask(t,event,participants){
+ async function submitGroupTask(t,event,participants,groupJudgment){
   const c=await config(t);if(!c)throw Error('task_service_not_configured');
   if(!participants.length||participants[0].userId!==event.source.userId)throw Error('task_sender_required');
   const id=hash(t.tenantId+':'+event.source.groupId+':'+event.message.id);
   const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
   const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))];
   const mentions=ids.map(id=>participants.find(p=>p.userId===id));if(mentions.some(p=>!p))throw Error('task_recipient_required');
-  return call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
-   sender:clean(participants[0]),mentions:mentions.map(clean),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});
+  const result=await call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
+   sender:clean(participants[0]),mentions:mentions.map(clean),...(groupJudgment?.policy===TASK_SPEED_POLICY?{groupJudgment:{policy:TASK_SPEED_POLICY,assignments:checkedAssignments(groupJudgment.assignments,mentions.length)}}:{}),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});return result;
  }
  // Tasks use confirmed work identities, independently of a group's project routing.
  // Never register the group under another business tenant or grant personal access.
- async function route(groupId,userIds=[]){
+ async function route(groupId,userIds=[],snapshot){
   const eligible=[];
   for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){
    let c;try{c=await config(t);}catch{continue;}if(!c)continue;
    let valid=userIds.length>0;
-   for(const id of userIds)if(!await identity(id,t,groupId,{readOnly:true})){valid=false;break;}
+   const unique=[...new Set(userIds)],people=[];for(let i=0;i<unique.length;i+=4)people.push(...await Promise.all(unique.slice(i,i+4).map(id=>identity(id,t,groupId,{readOnly:true},c))));
+   if(people.some(p=>!p))valid=false;
+   if(valid&&snapshot)snapshot.set(t.key,people);
    if(valid)eligible.push({tenant:t,binding:{status:'啟用'},resolution:'verified_group_task_service'});
   }
   // Multiple confirmed task-service identities are ambiguous; never guess a tenant.
   return eligible.length===1?eligible[0]:null;
  }
- async function identity(userId,t,groupId,options){
+ async function identity(userId,t,groupId,options,serviceConfig){
   let who=await resolveIdentity(userId,t.key,options);
   if(!who?.bindingId&&idPattern.test(env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID||'')){
-   const c=await config(t);if(c){const r=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
+   const c=serviceConfig||await config(t);if(c){const r=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
     if(r.identity?.userId===userId&&r.identity.identityId)who={tenantKey:t.key,account:r.identity.account,bindingId:r.identity.identityId};}
   }
-  if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};
+  if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId,...(p.displayName?{name:String(p.displayName).slice(0,120)}:{})};
  }
  async function loginEntry(event,action){
   const userId=event.source?.userId;
@@ -92,6 +95,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  }}
  async function judge(t,job){
   const source=job.input,explicit=quotedExplanationTask(source,source.mentions.length);
+  if(source.groupJudgment?.policy===TASK_SPEED_POLICY)return checkedAssignments(source.groupJudgment.assignments,source.mentions.length).map(({recipientIndices,...a})=>({...a,recipientAccounts:recipientIndices.map(i=>source.mentions[i].account)}));
   if(explicit)return [{...explicit,recipientAccounts:[source.mentions[0].account]}];
   const engine=platform.llmForTenant?.(t)||llm;
   if(!engine?.completeJson||engine.available===false)throw Error('task_judgment_unavailable');
@@ -101,33 +105,40 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   if(!data||!Array.isArray(data.assignments)||data.assignments.length>5)throw Error('invalid_task_judgment');
   return data.assignments.map(a=>{if(!a||typeof a.title!=='string'||!a.title.trim()||a.title.length>200||typeof a.description!=='string'||!a.description.trim()||a.description.length>4000||!Array.isArray(a.recipientIndices)||!a.recipientIndices.length||new Set(a.recipientIndices).size!==a.recipientIndices.length||a.recipientIndices.some(i=>!Number.isInteger(i)||i<0||i>=source.mentions.length))throw Error('invalid_task_judgment');return {title:a.title.trim(),description:a.description.trim(),recipientAccounts:a.recipientIndices.map(i=>source.mentions[i].account)};});
  }
- async function validate(t,job){const participants=[job.input.sender,...job.input.mentions],r=await route(job.input.groupId,participants.map(p=>p.userId));if(r?.tenant.key!==t.key)return false;for(const prior of participants){const current=await identity(prior.userId,t,job.input.groupId,{readOnly:true});if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)return false;}return true;}
+ async function validate(t,job){const participants=[job.input.sender,...job.input.mentions],snapshot=new Map(),r=await route(job.input.groupId,participants.map(p=>p.userId),snapshot);if(r?.tenant.key!==t.key)return false;return participants.every(prior=>{const current=snapshot.get(t.key)?.find(p=>p.userId===prior.userId);return current&&current.account===prior.account&&current.bindingId===prior.bindingId;});}
  async function work(t,c,job){if(job.state==='issued'){
    // A scoped group notice has no private task text; never resend a task creation.
    if(!await validate(t,job))return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
    const h=hash('leaf-task-notice:'+job.id),retryKey=[h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20,32)].join('-');
    let notice=job.result.notice;
-   try{const enabled=await call(t,c,'photos/enabled',{groupId:job.input.groupId});if(enabled.enabled&&enabled.contract===PHOTO_CONTRACT&&Number.isFinite(enabled.since)&&job.input.timestamp>=enabled.since){
-    let detail='可在任務卡補充說明、期限及多張照片。';
-    if(job.input.quotedMessageId){
-     let complete=true;for(const taskId of job.result.taskIds){try{
-      if(enabled.editContract!==TASK_EDIT_CONTRACT)throw Error('task_edit_target_required');
-      const e={source:{type:'group',groupId:job.input.groupId,userId:job.input.sender.userId}},ctx={t,c,id:job.id,groupId:job.input.groupId,who:job.input.sender,source:job.input,taskId};
-      const saved=await photos.attachQuoted(e,ctx,async()=>{if(!await validate(t,job))throw Error('photo_identity_changed');});
-      if(!saved.imported)complete=false;
-     }catch{complete=false;logger.warn?.('[leaf-tasks] quoted image unavailable; issued task retained');}}
-     detail=complete?'引用的照片已附入。可在任務卡補充說明及更多照片。':'引用的照片未自動加入，請在任務卡上傳；任務已交辦，不需要在群組繼續選照片。';
-    }
-    notice=taskEditNotice(c.base,job.result.taskIds,job.result.notice+'\n'+detail);
-   }}catch{logger.warn?.('[leaf-tasks] edit-card notice unavailable; original notice retained');}
-   if(!await validate(t,job))return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
+   // The issue receipt persists the photo job atomically with the work. No download gates this notice.
+   if(job.result.speedPolicy===TASK_SPEED_POLICY){
+    if(job.result.editEnabled)notice=taskEditNotice(c.base,job.result.taskIds,'已交辦，受交辦同仁可在今天的工作任務查看。'+(job.result.photo?.state==='pending'?'\n引用照片正在背景附入，可先編輯任務；稍後重新開啟任務查看照片。':'\n可在任務卡補充說明、期限及多張照片。'));
+   }else{
+    // Compatibility for issued receipts from the previous release: preserve their existing workflow.
+    try{const enabled=await call(t,c,'photos/enabled',{groupId:job.input.groupId});if(enabled.enabled&&enabled.contract===PHOTO_CONTRACT&&Number.isFinite(enabled.since)&&job.input.timestamp>=enabled.since){
+     let detail='可在任務卡補充說明、期限及多張照片。';
+     if(job.input.quotedMessageId){let complete=true;for(const taskId of job.result.taskIds){try{if(enabled.editContract!==TASK_EDIT_CONTRACT)throw Error('task_edit_target_required');const ctx={t,c,id:job.id,groupId:job.input.groupId,who:job.input.sender,source:job.input,taskId},e={source:{type:'group',groupId:ctx.groupId,userId:ctx.who.userId}};const saved=await photos.attachQuoted(e,ctx,async()=>{if(!await validate(t,job))throw Error('photo_identity_changed');});if(!saved.imported)complete=false;}catch{complete=false;}}
+      detail=complete?'引用的照片已附入。可在任務卡補充說明及更多照片。':'引用的照片未自動加入，請在任務卡上傳；任務已交辦。';}
+     notice=taskEditNotice(c.base,job.result.taskIds,job.result.notice+'\n'+detail);
+    }}catch{logger.warn?.('[leaf-tasks] edit-card notice unavailable; original notice retained');}
+    if(!await validate(t,job))return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
+   }
    await platform.pushLineMessage(job.input.groupId,notice,null,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});return call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});
   }
-  if(!await validate(t,job)){if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:[],ruleVersion:LEAF_TASK_CONTRACT});throw Error('binding_changed');}
+  // A frozen combined judgment only stores extraction here; current authority is checked at issue and notice.
+  if(!(job.state==='queued'&&job.input.groupJudgment?.policy===TASK_SPEED_POLICY)&&!await validate(t,job)){if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:[],ruleVersion:LEAF_TASK_CONTRACT});throw Error('binding_changed');}
   if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:await judge(t,job),ruleVersion:LEAF_TASK_CONTRACT});
   return call(t,c,'issue',{id:job.id,leaseToken:job.leaseToken});
  }
- function drain(){if(running)return running;running=(async()=>{for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{const c=await config(t);if(!c)continue;for(let i=0;i<12;i++){const {job}=await call(t,c,'next',{});if(!job)break;try{await work(t,c,job);}catch{await call(t,c,'defer',{id:job.id,leaseToken:job.leaseToken}).catch(()=>{});logger.warn?.('[leaf-tasks] processing deferred; durable request retained');}}}catch{logger.warn?.('[leaf-tasks] tenant unavailable; other task services continue');}}})().finally(()=>running=null);return running;}
+ function drain(){if(running)return running;wakePending=false;running=(async()=>{for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{const c=await config(t);if(!c)continue;for(let i=0;i<12;i++){const {job}=await call(t,c,'next',{});if(!job)break;try{const started=Date.now();try{await work(t,c,job);}finally{logger.info?.('[leaf-tasks] stage '+JSON.stringify({trace:hash(job.id).slice(0,12),state:job.state,durationMs:Date.now()-started,sourceAgeMs:Date.now()-job.input.timestamp,speedPolicy:job.result?.speedPolicy||job.input.groupJudgment?.policy||null}));}}catch{await call(t,c,'defer',{id:job.id,leaseToken:job.leaseToken}).catch(()=>{});logger.warn?.('[leaf-tasks] processing deferred; durable request retained');}}}catch{logger.warn?.('[leaf-tasks] tenant unavailable; other task services continue');}}})().finally(()=>{running=null;drainPhotos().catch(()=>{});if(wakePending)wake();});return running;}
+ function wake(){wakePending=true;queueMicrotask(()=>drain().catch(()=>logger.warn?.('[leaf-tasks] immediate processing deferred')));}
+ function drainPhotos(){if(photoRunning)return photoRunning;photoRunning=(async()=>{for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{const c=await config(t);if(!c)continue;for(let i=0;i<5;i++){const {job}=await call(t,c,'photo-next',{});if(!job)break;try{
+    if(!await validate(t,job))throw Error('photo_identity_changed');
+    let state='complete';for(const taskId of job.result.taskIds){const ctx={t,c,id:job.id,groupId:job.input.groupId,who:job.input.sender,source:job.input,taskId},e={source:{type:'group',groupId:ctx.groupId,userId:ctx.who.userId}};
+     const saved=await photos.attachQuoted(e,ctx,async()=>{if(!await validate(t,job))throw Error('photo_identity_changed');});if(!saved.imported)state='unavailable';}
+    await call(t,c,'photo-result',{id:job.id,leaseToken:job.leaseToken,state});
+   }catch{await call(t,c,'photo-defer',{id:job.id,leaseToken:job.leaseToken}).catch(()=>{});logger.warn?.('[leaf-tasks] background photo deferred; task and notice retained');}}}catch{logger.warn?.('[leaf-tasks] background photo service unavailable');}}})().finally(()=>photoRunning=null);return photoRunning;}
  async function checkJudgment({tenantKey,caseIndex}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!Number.isInteger(caseIndex)||!judgmentSamples[caseIndex])throw Error('invalid_synthetic_probe');const [name,text,expected,quoted]=judgmentSamples[caseIndex];const result=await judge(t,{input:{text,...(quoted?{quotedMessageId:'12345678901234567'}:{}),mentions:[{account:'synthetic-recipient'}]}});return {ok:true,case:name,syntheticOnly:true,expectedAssignment:expected,assignmentRecognized:result.length>0,passed:(result.length>0)===expected};}
  async function configureService({tenantKey,baseUrl,apiKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!secret)throw Error('task_tenant_unavailable');const u=new URL(baseUrl);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash||u.hostname==='localhost')throw Error('invalid_task_origin');if(typeof apiKey!=='string'||apiKey.length<32||apiKey.length>500)throw Error('invalid_task_key');const c={base:u.origin,key:apiKey},health=await call(t,c,'health');if(health.contract!==LEAF_TASK_CONTRACT||health.tenant!==t.key)throw Error('task_contract_mismatch');await store.provisionTasks(t);await store.configureTask(t,{baseUrl:u.origin,encryptedKey:encrypt(apiKey,secret,t.tenantId)});configured.add(t.key);return {ok:true,tenantKey,configured:true};}
  async function inspectSource({key,event:e}){
@@ -172,6 +183,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   catch{if(e.replyToken)await platform.replyLineMessages(e.replyToken,[{type:'text',text:'請由原交辦人從工作日誌開啟原任務，補充照片與說明。'}]).catch(()=>{});}
   return true;
  }
- return {capture,drain,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
-  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
+  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
