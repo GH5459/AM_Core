@@ -32,6 +32,9 @@ on:
       - 'core/leaf-task-photos.js'
       - 'tools/test-leaf-task-photos.mjs'
       - 'tools/test-leaf-task-edit.mjs'
+      - 'core/quoted-task-intent.js'
+      - 'tools/test-quoted-task-intent.mjs'
+      - 'versions/AM-IMP-2026.1016.03/**'
       - 'versions/AM-IMP-2026.1016.02/**'
       - 'versions/AM-IMP-2026.1016.01/**'
       - 'core/leaf-tasks.js'
@@ -118,6 +121,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs
       - run: node --test tools/test-leaf-task-edit.mjs
+      - run: node --test tools/test-quoted-task-intent.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.03
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.01
       - run: node --test tools/test-leaf-tasks.mjs

@@ -33,6 +33,15 @@ async function fixture(){
  const rows=async()=> (await db.query("SELECT payload->'groupDispatch' AS p FROM central_archive.jobs WHERE payload ? 'groupDispatch' ORDER BY event_at,key")).rows.map(r=>r.p);
  return {db,store,archive,options,identities,names,pushes,submissions,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:()=>clock+=61000,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
 }
+test('replied-image explanation reaches task submission even when semantic model would return none, with original quote and replay preserved',async()=>{const f=await fixture();try{
+ const e=f.message('@同仁甲 請說明這張圖片的目的',[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();
+ const p=(await f.rows())[0];assert.equal(p.mode,'task');assert.equal(p.phase,'done');assert.equal(f.submissions.length,1);assert.equal(f.submissions[0].e.message.quotedMessageId,e.message.quotedMessageId);assert.equal(f.writes.size,0);
+ await f.capture(e);f.restart();await f.drain();assert.equal(f.submissions.length,1);
+}finally{await f.close();}});
+test('quoted question, progress and cancellation do not use the explicit explanation override',async()=>{const f=await fixture();try{
+ for(const text of ['@同仁甲 你覺得這張圖片如何？','@同仁甲 這張圖片的說明進度如何？','@同仁甲 不用說明這張圖片的目的。']){const e=f.message(text,[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();}
+ assert.equal(f.submissions.length,0);assert((await f.rows()).every(p=>p.mode==='none'&&p.phase==='ignored'));
+}finally{await f.close();}});
 test('meeting requires original organizer confirmation; fanout deduplicates native mentions and replay',async()=>{const f=await fixture();try{
  const e=f.message();await f.capture(e);await f.drain();assert.equal(f.writes.size,0);let p=(await f.rows())[0];assert.equal(p.phase,'confirmation');
  const card=f.pushes.find(x=>x.message.type==='flex').message;assert.equal(card.contents.footer.contents.length,2);assert.match(JSON.stringify(card),/groupcal:confirm/);
