@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.1017.01",
+  "name": "Quiet ten-minute expiry for unanswered group invitation cards",
+  "type": "LINE group calendar",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-17",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "Existing central_archive.jobs JSON; no migration"
+  ],
+  "requiresEnv": [
+    "Existing OA group dispatch settings"
+  ],
+  "requiresScripts": [
+    "node --experimental-vm-modules --test tools/test-leaf-groups.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1017.01"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "files": [
+    "core/group-invite-policy.js",
+    "core/leaf-groups.js",
+    "core/leaf-groups-store.js"
+  ],
+  "definitionOfDone": [
+    "Unanswered card cancels at ten minutes without reminder",
+    "Expired controls cannot create an event",
+    "First window persists across restarts and edits",
+    "Timely confirmed invitations and task assignments retain existing behavior",
+    "Production policy is verified on actual target separately"
+  ]
+}
