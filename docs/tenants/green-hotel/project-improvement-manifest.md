@@ -2,7 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.1017.02 | Installed | 會議工作頁、共同編輯、主持人發布及同連結唯讀 | PostgreSQL、完整 Worker/D1、錄音串流與內建瀏覽器隔離驗證 | 正式發布驗證中；不重播歷史、不改既有會議開關；真人新錄音另行驗收。 |
+| AM-IMP-2026.1017.02 | Deployed | 會議工作頁、共同編輯、主持人發布及同連結唯讀 | PostgreSQL、完整 Worker/D1、錄音串流與內建瀏覽器隔離驗證 | PR317 CI 通過，AM 55478c1、兩端 Worker 100% 回讀；109 對話／77 開關及保存對應保持；真人新錄音另行驗收。 |
 | AM-IMP-2026.1013.04 | Installed | Recurring activities and 禮拜 weekday aliases | 33 isolated root checks and 15 DailyLog checks | Production pending; original owner confirmation required. |
 | AM-IMP-2026.1011.02 | Deployed | Confirmed timing with optional calendar details | 33 local tests, full CI, live main 44ae19c on both origins, LINE format and actual saved-event evidence | One requested original owner click recovered; venue preserved, success notification accepted, no other confirmation replayed. |
 | AM-IMP-2026.1011.01 | Deployed | Natural timed appointment intake | 30 local tests, full CI, live main ff62d40 on both origins and accepted original-source card | One original event replayed with unchanged source identity/time; ambiguous venue still requires clarification and owner confirmation. |

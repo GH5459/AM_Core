@@ -20,9 +20,9 @@ else if(phase==='verify'){
   assert.equal((await fetch(base+path)).status,401);assert.equal((await fetch(base+'/meetings/review/work/'+'0'.repeat(64))).status,404);
  }
  const admin=new URL(fs.readFileSync(folder+'/database-migration.private.txt','utf8').trim());
- for(const [key,value]of Object.entries(env))if(key.endsWith('_DATABASE_URL')&&value){const u=new URL(value);if(!u.hostname.includes('.')&&u.pathname===admin.pathname){u.hostname=admin.hostname;env[key]=u.toString();}}
+ for(const [key,value]of Object.entries(env))if(key.endsWith('_DATABASE_URL')&&value){const u=new URL(value);if(!u.hostname.includes('.')&&u.pathname===admin.pathname){u.hostname=admin.hostname;env[key]=u.toString();env[key.replace('_DATABASE_URL','_DATABASE_SSL')]='true';}}
  const memory=createOperationalMemory({env,logger:{warn(){}}}),tenants=loadTenants(env,{warn(){}}),tasks=createLeafTasks({env,tenants,platform:{operationalMemory:memory},resolveIdentity:async()=>null,line:{},logger:{warn(){}}});
- let directory;try{directory=await tasks.meetingDirectory();}finally{await tasks.close();}
+ let directory;try{assert((await tasks.groupServices()).length>0,'No configured work task service');directory=await tasks.meetingDirectory();}finally{await tasks.close();}
  const result={verified:true,workspaceContract:health.conversationMeetings.workspace.contract,conversations:snapshot.length,enabled:snapshot.filter(r=>r.enabled).length,settingsPreserved:true,workIdentityDirectoryRead:true,workIdentityCount:directory.length,anonymousDenied:true,at:new Date().toISOString(),realLineMessagesSent:false,realTasksCreated:false};
  fs.writeFileSync(folder+'/am-verified.private.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }else throw Error('Unknown phase');
