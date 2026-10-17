@@ -2227,14 +2227,16 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
 async function generateWorkspace({tenant,buffer,filename,contentType,settings,audioStreamFactory,loadAudio}) {
   const cfg=meetingsCfg(tenant);
   const roster={topic:settings.topic,date:settings.date,kind:'work',workspacePrompt:settings.type+'：'+settings.prompt,
-    keyterms:[],speakers:settings.speakers.filter(s=>s.name.trim()).map((s,i)=>({...s,order:i+1}))};
+    keyterms:[],speakers:settings.speakers.map((s,i)=>({...s,name:s.name.trim()||'講者'+String.fromCharCode(65+i),order:i+1}))};
   let parsed,diarized='',segments=[],warning='';
   try{
     if(!aiForTenant(tenant).assemblyKey)throw Error('primary_transcription_not_configured');
     const tr=await transcribeWithAssembly({tenant,buffer,filename,contentType,roster,cfg,audioStreamFactory});
     const legend=buildSpeakerLegend(tr.utterances,roster.speakers);
-    diarized=renderDiarized(tr,legend);
     segments=(tr.utterances||[]).map(u=>({speaker:legend.get(u.speaker)||u.speaker,start:u.start,end:u.end,text:u.text}));
+    // Preserve all utterances and timestamps, including unnamed A/B slots.
+    // The legacy renderer has a 60k truncation and must not shorten a workspace.
+    diarized=segments.length?segments.map(s=>`[${Math.floor(s.start/60000)}:${String(Math.floor(s.start/1000)%60).padStart(2,'0')}] ${s.speaker}：${s.text}`).join('\n'):String(tr.text||'');
     parsed=await summarize({tenant,diarized,roster,legend,cfg});
   }catch{
     if(!buffer&&loadAudio){const audio=await loadAudio();buffer=audio.buffer;contentType=audio.contentType;}
