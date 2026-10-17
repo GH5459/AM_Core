@@ -14,7 +14,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
  const link=id=>base()+'/meetings/review/work/'+id;
  function loginPage(row,id){
-  const configured=tenantFor(row).config.meetings.liffEndpointUrl;
+  const configured=tenantFor(row).config.meetings.liffEndpointUrl||env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL;
   const endpoint=new URL(configured||base()+'/meetings/review');
   if((configured&&endpoint.protocol!=='https:')||!['https:','http:'].includes(endpoint.protocol)||endpoint.username||endpoint.password||endpoint.pathname.replace(/\/+$/,'')!=='/meetings/review'||endpoint.search||endpoint.hash)throw failure(503,'會議登入入口設定不正確，請聯絡管理者。');
   return new URL('/meetings/review/work/'+id,endpoint.origin);
@@ -158,7 +158,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const loginUrl=loginPage(row,r.id);
    if(!match[2]&&req.method==='GET'){
     if((req.headers.host||url.host)!==loginUrl.host){res.statusCode=302;res.setHeader('Location',loginUrl.href);res.end();return true;}
-    res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row)}));return true;
+    res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row),loginUrl:loginUrl.href}));return true;
    }
    if(req.headers.origin&&![base(),loginUrl.origin].includes(req.headers.origin))throw failure(403,'請從原工作頁操作。');
    const actor=await authenticate(req,row);
