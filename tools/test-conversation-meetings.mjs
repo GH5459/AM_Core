@@ -13,6 +13,7 @@ import meetings,{__test} from '../modules/meetings/index.js';
 const pg=new PGlite();
 await pg.exec(fs.readFileSync(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
 await pg.exec(fs.readFileSync(new URL('../modules/meetings/conversations.sql',import.meta.url),'utf8'));
+await pg.exec(fs.readFileSync(new URL('../modules/meetings/workspace.sql',import.meta.url),'utf8'));
 await pg.exec(`CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void LANGUAGE SQL AS 'SELECT';
  CREATE FUNCTION pg_try_advisory_lock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true';
  CREATE FUNCTION pg_advisory_unlock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true';`);
@@ -33,7 +34,7 @@ const request=async(path,method='GET',body)=>{
 const archive={pool,config:{botId:bot},notion:{request},original:async(messageId,source)=>{assert.equal(typeof messageId,'string');assert(source.userId||source.groupId);return {file:{webViewLink:'https://drive.google.com/file/d/synthetic/view'}};}};
 const platform={registerTenantDataSource:async(t,ds)=>{assert.equal(t.parentPageId,parent);assert(ds.startsWith('source-'));},resolveSenderName:async()=> '本人'};
 const mod={isAudio:m=>m?.type==='audio',hasPending:(t,id)=>memory.has(id),onAudio:async ctx=>{calls.push({audio:ctx.groupId});memory.add(ctx.groupId);await platform.saveMeetingPending({tenant:ctx.tenant,archiveSource:ctx,filename:ctx.filename,createdAt:ctx.createdAt||Date.now()});},onMessage:async ctx=>{calls.push({roster:ctx.groupId});await platform.completeMeetingPending(ctx.tenant,'processing');memory.delete(ctx.groupId);await platform.completeMeetingPending(ctx.tenant,'completed');}};
-const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret};
+const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret,AMCORE_MEETING_WORKSPACE_CUTOVER_AT:'9999999999999'};
 let resolvedRoute={};
 const service=createConversationMeetings({env,archive,platform,router:{resolveGroupBinding:async()=>resolvedRoute},tenants:[tenant],meetingModule:mod});
 await service.store.seed();assert.equal((await service.store.list()).length,3);assert((await service.store.list()).every(r=>!r.enabled&&r.todo_mode==='record_only'));

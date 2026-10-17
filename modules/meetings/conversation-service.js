@@ -1,6 +1,7 @@
 import {createMeetingConversationStore,keyFor} from './conversation-store.js';
 import {verifyManagementRequest} from './management-auth.js';
 import {sendJson} from '../../core/util.js';
+import {createMeetingWorkspace} from './workspace-service.js';
 
 export const CONVERSATION_MEETINGS_CONTRACT='all-line-conversations-meetings-v1';
 const id=v=>String(v||'').replaceAll('-','');
@@ -18,6 +19,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
   const request=injectedRequest||((path,method='GET',body)=>archive.notion.request(path,method,body));
   let draining=null;
   const active=new Map();
+  const workspace=createMeetingWorkspace({pool,botId,platform,archive,env,context,tenantFor,getConversation:store.get,ensureDatabase,request,meetingModule,logger});
   async function limitedBody(req){let size=0;const chunks=[];for await(const chunk of req){size+=Buffer.byteLength(chunk);if(size>20000)throw Object.assign(Error('設定資料過大。'),{status:413});chunks.push(Buffer.from(chunk));}return Buffer.concat(chunks).toString('utf8');}
 
   function tenantFor(row,binding={}) {
@@ -35,8 +37,6 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
   async function validate(input,row){
     const tenant=tenants.find(t=>t.key===input.tenantKey&&t.runtimeEnabled!==false);
     if(input.tenantKey&&!tenant)throw Object.assign(Error('所屬單位不可用。'),{status:400});
-    if(input.todoMode==='review_and_create'&&(!tenant?.config?.meetings?.formalTasksEnabled||!tenant?.dataSources?.tasks))
-      throw Object.assign(Error('此單位尚未設定正式待辦服務，請先選擇僅記錄或確認待辦。'),{status:409});
     if(row.tenant_key&&row.tenant_key!==input.tenantKey)
       throw Object.assign(Error('既有對話的單位歸屬不能從會議開關變更。'),{status:409});
     if(input.enabled&&['left','blocked'].includes(row.connection_state))throw Object.assign(Error('葉小蝸目前無法接收此對話，請先重新加入。'),{status:409});
@@ -118,6 +118,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       const key=keyFor(botId,event.source);const row=await store.get(key);if(!row)continue;
       if(['join','follow','leave','unfollow'].includes(event.type))await pool.query(`UPDATE central_archive.meeting_settings SET connection_state=$2 WHERE conversation_key=$1`,
         [key,['leave','unfollow'].includes(event.type)?(event.type==='leave'?'left':'blocked'):'active']);
+      if(event.type==='postback'&&String(event.postback?.data||'').startsWith('meetingwork:')){await workspace.choice(event,key);claimed.push(event);continue;}
       if(event.type!=='message')continue;
       await pool.query(`UPDATE central_archive.meeting_settings SET connection_state='active' WHERE conversation_key=$1 AND connection_state<>'active'`,[key]);
       const pending=(await pool.query(`SELECT state FROM central_archive.meeting_pending WHERE conversation_key=$1`,[key])).rows[0];
@@ -148,6 +149,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       try{
         locked=(await db.query('SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',['conversation-meetings:'+botId])).rows[0].acquired;
         if(!locked)return;
+        await workspace.drain();
         await restore();
         const rows=(await db.query(`SELECT e.* FROM central_archive.meeting_events e JOIN central_archive.conversations c ON c.key=e.conversation_key
           WHERE e.state='pending' AND c.bot_id=$1 ORDER BY e.event_at,e.event_key LIMIT 10`,[botId])).rows;
@@ -157,6 +159,10 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
             if(active.has(row.key))continue;
             const prior=(await db.query('SELECT payload,state FROM central_archive.meeting_pending WHERE conversation_key=$1',[row.key])).rows[0];
             if(meetingModule.isAudio(job.payload.message)){
+              if(job.payload.timestamp>=Number(env.AMCORE_MEETING_WORKSPACE_CUTOVER_AT||'0')&&await workspace.accepts(job.payload)){
+                await workspace.offer(row,job.payload,ctx.filename,ctx.senderName);
+                await db.query(`UPDATE central_archive.meeting_events SET state='completed' WHERE event_key=$1`,[job.event_key]);continue;
+              }
               // savePending happens before the prompt. A redelivery after a crash
               // must not replace the saved wait, repeat processing or send a task.
               if(prior?.payload?.event?.message?.id!==job.payload.message.id){
@@ -184,6 +190,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
     })().finally(()=>{draining=null;});return draining;
   }
   async function handle(req,res,url){
+    if(await workspace.handle(req,res,url))return true;
     if(!url.pathname.startsWith('/integrations/meeting-management/'))return false;
     try{
       const body=req.method==='GET'?'':await limitedBody(req);
@@ -222,5 +229,5 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       await capture([event]);drain().catch(()=>logger.warn('Meeting intake deferred.'));return true;
     }});
   return {enabled,store,ensureDatabase,tenantFor,capture,drain,handle,settle:()=>Promise.all([...active.values()]),
-    health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'separate-switch-and-todo-mode'})};
+    workspace,health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'meeting-switch-only',workspace:workspace.health()})};
 }

@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspaces (
+ id text PRIMARY KEY, conversation_key text NOT NULL REFERENCES central_archive.conversations(key),
+ message_id text NOT NULL, host_id text NOT NULL, host_name text NOT NULL,
+ source jsonb NOT NULL, filename text NOT NULL, state text NOT NULL DEFAULT 'offered',
+ revision bigint NOT NULL DEFAULT 1, fields jsonb NOT NULL DEFAULT '{}', field_versions jsonb NOT NULL DEFAULT '{}',
+ result jsonb NOT NULL DEFAULT '{}', receipt jsonb NOT NULL DEFAULT '{}',
+ error_code text NOT NULL DEFAULT '', lease_until timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(conversation_key,message_id),
+ CHECK(state IN ('offered','declined','setup','processing','review','failed','publishing','published'))
+);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_edits (
+ workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id), revision bigint NOT NULL,
+ actor_id text NOT NULL, actor_name text NOT NULL, field text NOT NULL, before_value jsonb, after_value jsonb,
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,revision)
+);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_presence (
+ workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id), actor_id text NOT NULL,
+ actor_name text NOT NULL, field text NOT NULL DEFAULT '', seen_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,actor_id)
+);
+CREATE INDEX IF NOT EXISTS meeting_workspace_recovery ON central_archive.meeting_workspaces(state,lease_until);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_templates (
+ conversation_key text NOT NULL REFERENCES central_archive.conversations(key), name text NOT NULL,
+ prompt text NOT NULL, version bigint NOT NULL DEFAULT 1, updated_by text NOT NULL,
+ updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(conversation_key,name)
+);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_release (
+ contract text PRIMARY KEY, cutover_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO central_archive.meeting_workspace_release(contract) VALUES('meeting-collaboration-host-publish-v1') ON CONFLICT DO NOTHING;
