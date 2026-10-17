@@ -1,0 +1,7 @@
+{
+  "id":"AM-IMP-2026.1017.03","name":"修正會議工作頁 LINE 登入入口","type":"Meeting login fix","portable":true,"status":"Ready",
+  "requiresDatabases":[],"requiresEnv":["AMCORE_MEETINGS_LIFF_ENDPOINT_URL or tenant MEETINGS_LIFF_ENDPOINT_URL matching the existing LINE registered endpoint"],
+  "requiresScripts":["tools/test-meeting-workspace-service.mjs"],"installTargets":["AM platform"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Old workspace URL redirects to same workspace under the registered endpoint","Canonical URL does not loop","Canonical API origin accepted only after existing LINE member authentication","Foreign origins and invalid endpoint configuration refused","Production original link reaches LINE login without error400"]
+}

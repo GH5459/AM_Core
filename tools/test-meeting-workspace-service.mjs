@@ -32,8 +32,9 @@ async function request(path,method='GET',body){
  throw Error('Unexpected Notion');
 }
 const env={AMCORE_PUBLIC_BASE_URL:platform.publicBaseUrl};
+const meetingConfig={liffId:'123-fixture'};
 const service=createMeetingWorkspace({pool,botId:bot,platform,env,archive:{original:async()=>({file:{id:'file',size:3,webViewLink:'https://drive.google.com/file/d/fixture/view'}})},
- context:async()=>({tenant:{key:'fixture'}}),tenantFor:()=>({config:{meetings:{liffId:'123-fixture'}}}),getConversation:async()=>row,ensureDatabase:async()=>({dbId:'fixture-db'}),request,
+ context:async()=>({tenant:{key:'fixture'}}),tenantFor:()=>({config:{meetings:meetingConfig}}),getConversation:async()=>row,ensureDatabase:async()=>({dbId:'fixture-db'}),request,
  meetingModule:{generateWorkspace:async()=>({parsed:{highlights:['合成摘要'],minutes:[{heading:'討論',points:['保留依據']}],conclusions:['確認'],todos:[{content:'檢查資料',owner:'編輯者',due:'2026-10-25'}]},diarized:'[00:01] 主持人：請檢查資料',segments:[{start:1000,speaker:'主持人',text:'請檢查資料'}],warning:''})},logger:{warn(){}}});
 const event={source:{type:'group',groupId:group,userId:host},message:{id:'fixture-recording',type:'audio'},timestamp:Date.now()};
 let r=await service.offer(row,event,'fixture.m4a','主持人'),id=r.id;
@@ -42,6 +43,15 @@ await service.offer(row,event,'fixture.m4a','主持人');assert.equal(pushes.len
 await service.choice({source:{...event.source,userId:member},postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'offered');
 await service.choice({source:event.source,postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'setup');assert(pushes[1].message.includes('/meetings/review/work/'+id));
 async function api(input,token='host',origin=platform.publicBaseUrl){let status=200,encoded='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};const res={headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},get statusCode(){return status;},end(v){encoded=v;}};await service.handle(req,res,new URL(platform.publicBaseUrl+'/meetings/review/work/'+id+'/api'));return {status,value:JSON.parse(encoded)};}
+async function page(origin){const headers={};let status=200,html='';await service.handle({method:'GET',headers:{host:new URL(origin).host}},{writeHead(v,h){status=v;Object.assign(headers,h);},setHeader(k,v){headers[k]=v;},set statusCode(v){status=v;},get statusCode(){return status;},end(v){html=v||'';}},new URL(origin+'/meetings/review/work/'+id));return {status,headers,html};}
+assert.equal((await page(platform.publicBaseUrl)).status,200);
+meetingConfig.liffEndpointUrl='https://registered.example.test/meetings/review';
+const moved=await page(platform.publicBaseUrl);assert.equal(moved.status,302);assert.equal(moved.headers.Location,'https://registered.example.test/meetings/review/work/'+id);assert.equal(moved.headers['Cache-Control'],'no-store');
+const canonical=await page('https://registered.example.test');assert.equal(canonical.status,200);assert(canonical.html.includes('123-fixture'));assert(!canonical.headers.Location);
+assert.equal((await api({action:'read'},'host','https://registered.example.test')).status,200);
+assert.equal((await api({action:'read'},'outside','https://registered.example.test')).status,403);
+meetingConfig.liffEndpointUrl='http://unsafe.example.test/meetings/review';assert.equal((await page(platform.publicBaseUrl)).status,503);
+delete meetingConfig.liffEndpointUrl;
 assert.equal((await api({action:'read'},'outside')).status,403);assert.equal((await api({action:'read'},'host','https://foreign.test')).status,403);
 let v=(await api({action:'read'})).value;const settings={...v.workspace.fields.settings,topic:'共同確認測試',projectGoal:'準確追蹤事項'};
 assert.equal((await api({action:'edit',field:'settings',value:settings,version:0},'member')).status,200);

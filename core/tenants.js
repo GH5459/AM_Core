@@ -61,6 +61,8 @@ function readConfig(rawConfig, env, prefix) {
   if (meetingsLiffId) {
     config.meetings = { ...(config.meetings || {}), liffId: meetingsLiffId };
   }
+  const meetingsEndpoint = prefixed(env, prefix, 'MEETINGS_LIFF_ENDPOINT_URL', env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL).trim();
+  if (meetingsEndpoint) config.meetings = { ...(config.meetings || {}), liffEndpointUrl: meetingsEndpoint };
   const contractsLiffId = prefixed(env, prefix, 'CONTRACTS_LIFF_ID').trim();
   const contractsConfigPresent = Boolean(config.contracts || contractsLiffId || [
     'CONTRACTS_SIGNING_ENABLED',
