@@ -124,7 +124,9 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       const pending=(await pool.query(`SELECT state FROM central_archive.meeting_pending WHERE conversation_key=$1`,[key])).rows[0];
       const audio=meetingModule.isAudio(event.message);
       const queuedAudio=(await pool.query(`SELECT 1 FROM central_archive.meeting_events WHERE conversation_key=$1 AND state='pending' AND payload->'message'->>'type' IN ('audio','file') LIMIT 1`,[key])).rows.length>0;
-      const roster=event.message?.type==='text'&&(pending?.state==='waiting'||queuedAudio);
+      // New workspaces collect settings on the web. Do not consume subsequent
+      // group discussion as a legacy roster reply while an audio job is queued.
+      const roster=event.message?.type==='text'&&(pending?.state==='waiting'||queuedAudio&&!(event.timestamp>=Number(env.AMCORE_MEETING_WORKSPACE_CUTOVER_AT||'0')&&await workspace.accepts(event)));
       if(!audio&&!roster)continue;
       claimed.push(event);
       if(!row.enabled)continue;
