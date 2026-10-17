@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1017.03 | Deployed | 修正會議工作頁 LINE 登入入口與回傳 | 完整 CI、共用回傳入口、原連結本人登入後工作頁及正式設定只讀比對 | PR320／321；AM 0ccefe0 兩入口確認，已從原連結登入並開啟同一場設定頁；109 對話設定保持，未改內容或開始辨識／發布。 |
 | AM-IMP-2026.1017.02 | Deployed | 會議工作頁、共同編輯、主持人發布及同連結唯讀 | PostgreSQL、完整 Worker/D1、錄音串流與內建瀏覽器隔離驗證 | PR317 CI 通過，AM 55478c1、兩端 Worker 100% 回讀；109 對話／77 開關及保存對應保持；真人新錄音另行驗收。 |
 | AM-IMP-2026.1013.04 | Installed | Recurring activities and 禮拜 weekday aliases | 33 isolated root checks and 15 DailyLog checks | Production pending; original owner confirmation required. |
 | AM-IMP-2026.1011.02 | Deployed | Confirmed timing with optional calendar details | 33 local tests, full CI, live main 44ae19c on both origins, LINE format and actual saved-event evidence | One requested original owner click recovered; venue preserved, success notification accepted, no other confirmation replayed. |
