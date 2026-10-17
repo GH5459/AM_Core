@@ -16,7 +16,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  function loginPage(row,id){
   const configured=tenantFor(row).config.meetings.liffEndpointUrl;
   const endpoint=new URL(configured||base()+'/meetings/review');
-  if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.pathname.replace(/\/+$/,'')!=='/meetings/review'||endpoint.search||endpoint.hash)throw failure(503,'會議登入入口設定不正確，請聯絡管理者。');
+  if((configured&&endpoint.protocol!=='https:')||!['https:','http:'].includes(endpoint.protocol)||endpoint.username||endpoint.password||endpoint.pathname.replace(/\/+$/,'')!=='/meetings/review'||endpoint.search||endpoint.hash)throw failure(503,'會議登入入口設定不正確，請聯絡管理者。');
   return new URL('/meetings/review/work/'+id,endpoint.origin);
  }
  async function conversation(r){const row=await getConversation(r.conversation_key);if(!row||row.bot_id!==botId)throw failure(404,'找不到這場會議。');return row;}
