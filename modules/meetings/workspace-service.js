@@ -13,6 +13,12 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
  const link=id=>base()+'/meetings/review/work/'+id;
+ function loginPage(row,id){
+  const configured=tenantFor(row).config.meetings.liffEndpointUrl;
+  const endpoint=new URL(configured||base()+'/meetings/review');
+  if((configured&&endpoint.protocol!=='https:')||!['https:','http:'].includes(endpoint.protocol)||endpoint.username||endpoint.password||endpoint.pathname.replace(/\/+$/,'')!=='/meetings/review'||endpoint.search||endpoint.hash)throw failure(503,'會議登入入口設定不正確，請聯絡管理者。');
+  return new URL('/meetings/review/work/'+id,endpoint.origin);
+ }
  async function conversation(r){const row=await getConversation(r.conversation_key);if(!row||row.bot_id!==botId)throw failure(404,'找不到這場會議。');return row;}
  async function assertMember(row,userId){
   if(!uid(userId))throw failure(403,'請先登入。');
@@ -143,12 +149,18 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   }
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>800000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
- async function handle(req,res,url){const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio))?$/);if(!match)return false;
+ async function handle(req,res,url){
+  const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(?:[?#].*)?$/):null;
+  const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio))?$/)||(primary?[primary[0],primary[1],undefined]:null);if(!match)return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');
   try{
    const r=await store.get(match[1]);if(!r)throw failure(404,'找不到這場會議。');const row=await conversation(r);
-   if(!match[2]&&req.method==='GET'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row)}));return true;}
-   if(req.headers.origin&&req.headers.origin!==base())throw failure(403,'請從原工作頁操作。');
+   const loginUrl=loginPage(row,r.id);
+   if(!match[2]&&req.method==='GET'){
+    if((req.headers.host||url.host)!==loginUrl.host){res.statusCode=302;res.setHeader('Location',loginUrl.href);res.end();return true;}
+    res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row)}));return true;
+   }
+   if(req.headers.origin&&![base(),loginUrl.origin].includes(req.headers.origin))throw failure(403,'請從原工作頁操作。');
    const actor=await authenticate(req,row);
    if(match[2]==='audio'&&req.method==='GET'){
     const file=await original(r,row),token=await platform.drive.getAccessToken();const range=String(req.headers.range||'');if(range&&!/^bytes=\d*-\d*$/.test(range))throw failure(416,'無效的播放範圍。');
