@@ -149,7 +149,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   }
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>800000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
- async function handle(req,res,url){const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio))?$/);if(!match)return false;
+ async function handle(req,res,url){
+  const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(?:[?#].*)?$/):null;
+  const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio))?$/)||(primary?[primary[0],primary[1],undefined]:null);if(!match)return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');
   try{
    const r=await store.get(match[1]);if(!r)throw failure(404,'找不到這場會議。');const row=await conversation(r);
