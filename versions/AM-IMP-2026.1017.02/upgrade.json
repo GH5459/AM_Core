@@ -1,0 +1,9 @@
+{
+ "id":"AM-IMP-2026.1017.02","name":"會議工作頁、共同確認與主持人發布鎖定","type":"Meeting workflow","portable":true,"status":"Ready","createdAt":"2026-10-17",
+ "installTargets":["AM platform","UOF shared management","DailyLog task service"],
+ "requiresDatabases":["Existing deployment-local central_archive PostgreSQL","Existing DailyLog D1"],
+ "requiresEnv":["Existing OA, Drive, Notion, LIFF and task service configuration; no shared production identifiers"],
+ "requiresScripts":["tools/inspect-meeting-workspace.mjs","tools/build-meeting-workspace-workers.cjs","tools/release-meeting-workspace.cjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Existing meeting switches preserved; only new recordings offered","Uploader is immutable host; current source-conversation members can edit","Reusable conversation-local type prompts and A/B/C speaker settings","Streaming original Drive audio; draft production has no publication side effects","Shared review with named colored presence, field conflicts and audit history","Unassigned todos retained; assigned tasks require verified owner and due date","Host confirms the latest revision; same URL locks permanently on publication","Notion and task receipts survive lost responses without duplicate records","Latest full production modules/settings/assets/schedules preserved and read back","Real-user new recording acceptance reported separately"]
+}

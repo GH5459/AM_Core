@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS meeting_task_receipts (
+ id TEXT PRIMARY KEY, tenant TEXT NOT NULL, input_hash TEXT NOT NULL,
+ result TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

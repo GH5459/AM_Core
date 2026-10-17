@@ -533,17 +533,17 @@ async function fetchRetry(url, opts, { tries = 3, label = 'request', baseDelay =
 // 上傳音檔到 AssemblyAI /v2/upload,回傳 upload_url。
 // buffer 有值 → 整包上傳(可重試);否則 → 串流 LINE 內容直灌(整檔不進記憶體)。
 // 串流 body 不可重放,失敗時重新開一條串流再試(最多 3 次)。
-async function uploadToAssembly({ buffer, audioMessageId, auth }) {
+async function uploadToAssembly({ buffer, audioMessageId, auth, audioStreamFactory }) {
   if (buffer) {
     const up = await fetchRetry('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: buffer }, { tries: 4, label: 'AssemblyAI upload' });
     return JSON.parse(await up.text()).upload_url;
   }
-  if (!audioMessageId || typeof platform.streamLineContent !== 'function') throw new Error('no audio source for AssemblyAI upload');
+  if (!audioStreamFactory && (!audioMessageId || typeof platform.streamLineContent !== 'function')) throw new Error('no audio source for AssemblyAI upload');
   let last;
   for (let i = 0; i < 3; i += 1) {
     try {
-      const { stream } = await platform.streamLineContent(audioMessageId);
-      const up = await fetch('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: stream, duplex: 'half' });
+      const { stream } = await (audioStreamFactory ? audioStreamFactory() : platform.streamLineContent(audioMessageId));
+      const up = await fetch('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: stream, duplex: 'half', signal:AbortSignal.timeout(300000) });
       if (!up.ok) throw new Error(`AssemblyAI upload ${up.status}: ${(await up.text()).slice(0, 160)}`);
       return JSON.parse(await up.text()).upload_url;
     } catch (e) {
@@ -556,14 +556,14 @@ async function uploadToAssembly({ buffer, audioMessageId, auth }) {
 }
 
 // ── AssemblyAI 轉寫(預錄音,universal-3-5-pro + 講者分離)───────
-async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG, audioStreamFactory }) {
   const auth = { Authorization: aiForTenant(tenant).assemblyKey }; // 原始 key,不加 Bearer
 
   // 1. 上傳原始位元組到 AssemblyAI /v2/upload。
   //    - buffer 路徑(相容):整包上傳,偶發 422/5xx 自動重試。
   //    - 串流路徑(大檔友善):streamLineContent 邊下載邊灌給 AssemblyAI,整檔不進記憶體。
   //      串流的 body 不可重放,失敗時重新開一條串流再試(最多 3 次)。
-  const uploadUrl = await uploadToAssembly({ buffer, audioMessageId, auth });
+  const uploadUrl = await uploadToAssembly({ buffer, audioMessageId, auth, audioStreamFactory });
 
   // 2. 提交(keyterms=人名+該租戶的專有名詞;prompt=領域提示+主題+與會者;省略 language_code 讓中英夾雜原生切換)
   const names = roster.speakers.map((s) => s.name);
@@ -571,7 +571,7 @@ async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename
   const libraryTerms = await platform.meetingTerms?.enabledTerms?.(tenant) || [];
   const keyterms = [...new Set([...names, ...roster.keyterms, ...cfg.keyterms, ...libraryTerms])]
     .filter((t) => t && t.length <= 24).slice(0, 100);
-  const who = roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
+  const who = roster.speakers.map((s) => `${s.name}${s.gender ? `(${s.gender})` : ''}${s.role ? `(${s.role})` : ''}`).join('、');
   const promptText = [
     cfg.transcriptionHint,
     roster.topic ? `會議主題:${roster.topic}。` : '',
@@ -652,7 +652,7 @@ const SUMMARY_SCHEMA = {
 async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
   const j = await llmForTenant(tenant).completeJson({
-    system: meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind, cfg }),
+    system: meetingPrompt({ who, topic: roster.topic, today: roster.date || todayStr(), kind: roster.kind, cfg }) + (roster.workspacePrompt ? `\n本場類型與整理要求：${roster.workspacePrompt}\n忠實引用來源，不可捏造決議、負責人或日期。不確定內容標示待確認。` : ''),
     userContent: `逐字稿:\n${diarized}`,
     schema: SUMMARY_SCHEMA,
     profile: 'quality',
@@ -2120,7 +2120,7 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, s
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
-  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind, cfg })
+  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: roster?.date || todayStr(), kind: roster?.kind, cfg }) + (roster?.workspacePrompt ? `\n本場整理要求：${roster.workspacePrompt}\n勿捏造負責人、期限或決議。` : '')
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
   const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${ai.meetingModel || 'gemini-2.5-flash'}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': 'application/json' },
@@ -2223,9 +2223,33 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
 }
 
 // ── 模組契約:預設匯出 ─────────────────────────────────────
+// Workspace generation deliberately has no Notion/LINE/task side effects.
+async function generateWorkspace({tenant,buffer,filename,contentType,settings,audioStreamFactory,loadAudio}) {
+  const cfg=meetingsCfg(tenant);
+  const roster={topic:settings.topic,date:settings.date,kind:'work',workspacePrompt:settings.type+'：'+settings.prompt,
+    keyterms:[],speakers:settings.speakers.map((s,i)=>({...s,name:s.name.trim()||'講者'+String.fromCharCode(65+i),order:i+1}))};
+  let parsed,diarized='',segments=[],warning='';
+  try{
+    if(!aiForTenant(tenant).assemblyKey)throw Error('primary_transcription_not_configured');
+    const tr=await transcribeWithAssembly({tenant,buffer,filename,contentType,roster,cfg,audioStreamFactory});
+    const legend=buildSpeakerLegend(tr.utterances,roster.speakers);
+    segments=(tr.utterances||[]).map(u=>({speaker:legend.get(u.speaker)||u.speaker,start:u.start,end:u.end,text:u.text}));
+    // Preserve all utterances and timestamps, including unnamed A/B slots.
+    // The legacy renderer has a 60k truncation and must not shorten a workspace.
+    diarized=segments.length?segments.map(s=>`[${Math.floor(s.start/60000)}:${String(Math.floor(s.start/1000)%60).padStart(2,'0')}] ${s.speaker}：${s.text}`).join('\n'):String(tr.text||'');
+    parsed=await summarize({tenant,diarized,roster,legend,cfg});
+  }catch{
+    if(!buffer&&loadAudio){const audio=await loadAudio();buffer=audio.buffer;contentType=audio.contentType;}
+    parsed=await geminiTranscribeParsed({tenant,buffer,filename,contentType,sourceIsVideo:false,roster,cfg});
+    warning='本次使用備援整理，沒有完整署名逐字稿，請對照原始錄音確認。';
+  }
+  return {parsed,diarized,segments,warning};
+}
+
 export default {
   name: 'meetings',
   init,
+  generateWorkspace,
   isAudio,             // (message) → bool:此訊息是否為會議音檔
   rosterPrompt,        // (filename) → string:反問與會者/主題的文字
   hasPending,          // (tenant, groupId) → bool

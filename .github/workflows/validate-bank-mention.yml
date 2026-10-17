@@ -127,6 +127,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: node tools/test-conversation-meetings.mjs
+      - run: node tools/test-meeting-workspace.mjs
+      - run: node tools/test-meeting-workspace-service.mjs
+      - run: node tools/test-meeting-workspace-generation.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.02
       - run: node tools/test-meeting-personnel.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.07
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.06

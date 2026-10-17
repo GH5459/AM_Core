@@ -183,6 +183,23 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   catch{if(e.replyToken)await platform.replyLineMessages(e.replyToken,[{type:'text',text:'請由原交辦人從工作日誌開啟原任務，補充照片與說明。'}]).catch(()=>{});}
   return true;
  }
- return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,
+ async function meetingIdentity(userId){
+  if(!idPattern.test(userId||''))return null;const found=[];
+  for(const t of await groupServices()){
+   const c=await config(t);let who=await resolveIdentity(userId,t.key,{readOnly:true});
+   const current=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
+   if(current.identity?.userId===userId&&current.identity.identityId)who={tenantKey:t.key,account:current.identity.account,bindingId:current.identity.identityId};
+   if(who?.tenantKey===t.key&&who.bindingId){const valid=await call(t,c,'meeting-person',{account:who.account});if(valid.person)found.push({userId,account:who.account,bindingId:who.bindingId,name:valid.person.name,tenantKey:t.key});}
+  }return found.length===1?found[0]:null;
+ }
+ async function meetingDirectory(){const list=[];for(const t of await groupServices()){const c=await config(t),r=await call(t,c,'meeting-directory',{});list.push(...r.people);}return list;}
+ async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId}){
+  const assigned=Object.entries(fields).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId);
+  if(!assigned.length)return {tasks:[]};const host=await meetingIdentity(hostId);if(!host)throw Error('meeting_host_work_identity_required');
+  const tasks=[];for(const [key,t]of assigned){const owner=await meetingIdentity(t.ownerId);if(!owner||owner.tenantKey!==host.tenantKey)throw Error('meeting_task_identity_mismatch');tasks.push({id:key,content:t.content,due:t.due,evidence:t.evidence,owner});}
+  const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t);
+  return call(t,c,'meeting-publish',{id,host,tasks,url,notionId,date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});
+ }
+ return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,meetingIdentity,meetingDirectory,publishMeetingTasks,
   resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
