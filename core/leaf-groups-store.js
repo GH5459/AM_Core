@@ -3,6 +3,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {Pool} from 'pg';
 import {archiveDatabaseConfig} from './central-archive/index.js';
 import {digest} from './central-archive/store.js';
+import {invitationTimedOut,cancelTimedOutInvitation} from './group-invite-policy.js';
 const marker='groupDispatch';
 const canonical=(bot,e)=>`in:${digest(`${bot}:${e.type}:${e.message?.id||e.webhookEventId}`)}`;
 export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
@@ -44,11 +45,17 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
     AND j.payload->'${marker}'->>'id'=$3 AND j.payload->'event'->'source'->>'userId'=$4`,[bot,group,id,user])).rows[0]||null);}
   async function drafts(group,user,topic=''){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group'
     AND j.payload->'event'->'source'->>'userId'=$3 AND j.payload->'${marker}'->>'mode'='meeting'
-    AND j.payload->'${marker}'->>'phase' IN ('preview','confirmation') AND ($4='' OR j.payload->'${marker}'->'prepared'->'event'->>'topic'=$4)`,[bot,group,user,topic])).rows);}
+    AND j.payload->'${marker}'->>'phase' IN ('preview','confirmation') AND ($4='' OR j.payload->'${marker}'->'prepared'->'event'->>'topic'=$4)`,[bot,group,user,topic])).rows.filter(row=>!invitationTimedOut(row,row.dispatch,now())));}
   async function control(id,event,action,revision,prepared){return tx(async c=>{
     const row=(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_kind='group' AND c.source_id=$2 AND j.payload->'${marker}'->>'id'=$3 FOR UPDATE OF j`,[bot,event.source.groupId,id])).rows[0];
     if(!row||row.event.source.userId!==event.source.userId)return {code:'owner'};const p=row.dispatch;
     if(p.leaseUntil>now())return {code:'busy'};
+    if(p.closedReason)return {code:'expired'};
+    if(invitationTimedOut(row,p,now())){
+      const next={...cancelTimedOutInvitation(p,now()),availableAt:now(),leaseUntil:0,lease:null};
+      await c.query(`UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{${marker}}',$2::jsonb,true) WHERE key=$1`,[row.key,JSON.stringify(next)]);
+      return {code:'expired'};
+    }
     if(p.revision!==revision)return {code:'changed'};
     if(!['preview','confirmation'].includes(p.phase))return {code:'closed'};
     if(action==='confirm'&&(p.prepared.missing.length||p.promptedRevision!==p.revision))return {code:p.prepared.missing.length?'timing':'changed'};

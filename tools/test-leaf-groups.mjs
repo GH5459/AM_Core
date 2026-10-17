@@ -31,7 +31,7 @@ async function fixture(){
  const button=(id,revision=1,sender=owner,g=group,action='confirm')=>({type:'postback',webhookEventId:'button-'+(++serial),timestamp:clock,source:{type:'group',groupId:g,userId:sender},postback:{data:`groupcal:${action}:${id}:${revision}`}});
  const capture=async e=>{await archive.capture([e]);return service.capture([e]);};
  const rows=async()=> (await db.query("SELECT payload->'groupDispatch' AS p FROM central_archive.jobs WHERE payload ? 'groupDispatch' ORDER BY event_at,key")).rows.map(r=>r.p);
- return {db,store,archive,options,identities,names,pushes,submissions,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:()=>clock+=61000,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
+ return {db,store,archive,options,identities,names,pushes,submissions,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:(ms=61000)=>clock+=ms,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
 }
 test('replied-image explanation reaches task submission even when semantic model would return none, with original quote and replay preserved',async()=>{const f=await fixture();try{
  const e=f.message('@同仁甲 請說明這張圖片的目的',[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();
@@ -122,4 +122,50 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
  const e=f.message(),raw=JSON.stringify({events:[e]});const denied={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':'wrong'}},denied);assert.equal(denied.status,401);assert.equal((await f.rows()).length,0);
  const res={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':sign(raw)}},res);assert.equal(res.status,200);assert.equal((await f.rows()).length,1);assert.equal(legacy.length,0);assert.equal(f.writes.size,0);
  await new Promise(resolve=>setImmediate(resolve));assert.equal(business.length,1);await live.drain();assert.equal(f.writes.size,0);assert.ok(f.pushes.some(x=>x.message.type==='flex'));
+}finally{await f.close();}});
+
+
+test('unanswered group invitation silently cancels at ten minutes and old buttons cannot revive it',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();let p=(await f.rows()).find(x=>x.mode==='meeting');const count=f.pushes.length;
+ assert.match(JSON.stringify(f.pushes),/10 分鐘/);assert.equal(f.options.now(),p.confirmationStartedAt);assert.equal(f.options.store, f.store);
+ f.advance(599999);await f.drain();assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'confirmation');
+ f.advance(1);f.restart();await f.capture(f.button(p.id));await f.drain();p=(await f.rows()).find(x=>x.id===p.id);
+ assert.equal(p.phase,'cancelled');assert.equal(p.closedReason,'group-invite-silent-timeout-10m-v1');assert.equal(f.pushes.length,count);assert.equal(f.writes.size,0);assert.equal(f.attempts.length,0);
+ for(const action of ['confirm','cancel']){await f.capture(f.button(p.id,1,owner,group,action));await f.drain();}assert.equal(f.pushes.length,count);assert.equal(f.writes.size,0);
+ assert.deepEqual(await f.store.drafts(group,owner),[]);f.advance(31*86400000);await f.drain();assert.equal(f.pushes.length,count);
+}finally{await f.close();}});
+test('background timeout works without clicks, identity lookup or reminders and stays cancelled after restart',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();const p=(await f.rows()).find(x=>x.mode==='meeting'),count=f.pushes.length;
+ f.options.tasks.resolveGroupIdentity=async()=>{throw Error('must_not_resolve_expired_invite');};f.advance(600000);f.restart();await f.drain();
+ assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'cancelled');assert.equal(f.pushes.length,count);assert.equal(f.writes.size,0);
+ f.restart();f.advance();await f.drain();assert.equal(f.pushes.length,count);
+}finally{await f.close();}});
+test('confirmation just before deadline still finishes and participant connection retries retain existing policy',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();const p=(await f.rows()).find(x=>x.mode==='meeting');f.disconnected.add('a');f.advance(599999);
+ await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,2);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'fanout');
+ f.advance(600000);f.disconnected.clear();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'done');
+}finally{await f.close();}});
+test('editing cards does not renew deadline; legacy cards expire silently; task waiting unaffected',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();let p=(await f.rows()).find(x=>x.mode==='meeting');const started=p.confirmationStartedAt;
+ f.advance(300000);await f.capture(f.message('補充活動：明天下午四點',[a]));await f.drain();p=(await f.rows()).find(x=>x.id===p.id);assert.equal(p.revision,2);assert.equal(p.confirmationStartedAt,started);
+ const count=f.pushes.length;f.advance(300000);await f.capture(f.button(p.id,2));await f.drain();assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'cancelled');assert.equal(f.pushes.length,count);
+ await f.capture(f.message());await f.drain();const legacy=(await f.rows()).find(x=>x.phase==='confirmation');
+ await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{groupDispatch}',(payload->'groupDispatch')-'confirmationStartedAt') WHERE payload->'groupDispatch'->>'id'=$1",[legacy.id]);
+ f.advance(600000);await f.drain();assert.equal((await f.rows()).find(x=>x.id===legacy.id).phase,'cancelled');
+ f.identities.delete(a);await f.capture(f.message('@甲 請整理清單',[a]));await f.drain();f.advance(600000);f.identities.set(a,{account:'a',bindingId:'a-binding'});await f.drain();assert.equal(f.submissions.length,1);
+}finally{await f.close();}});
+
+
+test('store rejects expired confirmation atomically before background cancellation and delivery retries cannot reset clock',async()=>{const f=await fixture();try{
+ const push=f.options.platform.pushLineMessage;let first=true;f.options.platform.pushLineMessage=async(...args)=>{if(first&&args[1]?.type==='flex'){first=false;throw Error('uncertain_card_delivery');}return push(...args);};
+ f.restart();await f.capture(f.message());await f.drain();let p=(await f.rows()).find(x=>x.mode==='meeting');const started=p.confirmationStartedAt;assert.equal(p.phase,'preview');
+ f.advance(61000);await f.drain();p=(await f.rows()).find(x=>x.id===p.id);assert.equal(p.phase,'confirmation');assert.equal(p.confirmationStartedAt,started);
+ const count=f.pushes.length;f.advance(539000);const result=await f.store.control(p.id,f.button(p.id),'confirm',1);assert.equal(result.code,'expired');
+ assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'cancelled');await f.drain();assert.equal(f.writes.size,0);assert.equal(f.pushes.length,count);
+}finally{await f.close();}});
+test('new card timer starts at first delivery rather than old source time; slow corrections cannot confirm after deadline',async()=>{const f=await fixture();try{
+ const event=f.message();await f.capture(event);f.advance(3600000);await f.drain();let p=(await f.rows()).find(x=>x.mode==='meeting');assert.equal(p.phase,'confirmation');assert.equal(p.confirmationStartedAt,f.options.now());
+ const started=p.confirmationStartedAt;f.advance(599000);const resolve=f.options.tasks.resolveGroupIdentity;let once=true;f.options.tasks.resolveGroupIdentity=async(...args)=>{if(once){once=false;f.advance(1000);}return resolve(...args);};
+ await f.capture(f.button(p.id));await f.drain();p=(await f.rows()).find(x=>x.id===p.id);assert.equal(p.phase,'cancelled');assert.equal(p.confirmationStartedAt,started);assert.equal(f.writes.size,0);
+ assert.equal(f.options.now(),started+600000);assert.equal(f.options.store, f.store);
 }finally{await f.close();}});

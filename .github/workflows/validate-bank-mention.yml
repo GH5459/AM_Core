@@ -8,6 +8,8 @@ on:
       - 'versions/AM-IMP-2026.1016.06/**'
       - 'tools/test-conversation-meetings.mjs'
       - 'core/leaf-groups*.js'
+      - 'core/group-invite-policy.js'
+      - 'versions/AM-IMP-2026.1017.01/**'
       - 'core/task-judgment.js'
       - 'versions/AM-IMP-2026.1016.05/**'
       - 'tools/test-leaf-groups.mjs'
@@ -128,6 +130,7 @@ jobs:
       - run: node tools/test-meeting-personnel.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.07
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.06
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.01
       - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs

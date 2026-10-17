@@ -1,0 +1,13 @@
+{
+  "id": "group-invite-silent-timeout-10m-v1",
+  "scope": "all-groups-on-this-leaf-oa",
+  "confirmationTimeoutSeconds": 600,
+  "startsAt": "first-card-delivery-attempt-persisted-before-send",
+  "resetOnEdit": false,
+  "timeoutAction": "cancelled",
+  "timeoutNotification": false,
+  "expiredButtonAction": "ignore",
+  "legacyCardFallback": "original-source-timestamp",
+  "confirmedFanoutUnaffected": true,
+  "taskAssignmentsUnaffected": true
+}
