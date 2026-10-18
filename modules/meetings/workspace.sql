@@ -29,3 +29,15 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_release (
  contract text PRIMARY KEY, cutover_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO central_archive.meeting_workspace_release(contract) VALUES('meeting-collaboration-host-publish-v1') ON CONFLICT DO NOTHING;
+
+ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS sharing_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS sharing_version bigint NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_revisions (
+ workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id), revision bigint NOT NULL,
+ base_revision bigint NOT NULL, fields jsonb NOT NULL, owner_names jsonb NOT NULL DEFAULT '{}',
+ actor_id text NOT NULL, actor_name text NOT NULL, state text NOT NULL DEFAULT 'pending',
+ receipt jsonb NOT NULL DEFAULT '{}', error_code text NOT NULL DEFAULT '', lease_until timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now(), applied_at timestamptz,
+ PRIMARY KEY(workspace_id,revision), CHECK(state IN ('pending','applied'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_workspace_one_revision ON central_archive.meeting_workspace_revisions(workspace_id) WHERE state='pending';

@@ -193,12 +193,14 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   }return found.length===1?found[0]:null;
  }
  async function meetingDirectory(){const list=[];for(const t of await groupServices()){const c=await config(t),r=await call(t,c,'meeting-directory',{});list.push(...r.people);}return list;}
- async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId}){
+ async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId,revision,previousFields,taskTenant='',knownTaskIds=[]}){
   const assigned=Object.entries(fields).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId);
-  if(!assigned.length)return {tasks:[]};const host=await meetingIdentity(hostId);if(!host)throw Error('meeting_host_work_identity_required');
+  const removed=revision?Object.entries(previousFields||{}).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId&&!fields[k]?.ownerId).map(([k])=>k):[];
+  if(!assigned.length&&!removed.length&&!knownTaskIds.length)return {tasks:[],tenantKey:taskTenant};const host=await meetingIdentity(hostId);if(!host)throw Error('meeting_host_work_identity_required');
+  if(taskTenant&&host.tenantKey!==taskTenant)throw Error('meeting_task_service_changed');
   const tasks=[];for(const [key,t]of assigned){const owner=await meetingIdentity(t.ownerId);if(!owner||owner.tenantKey!==host.tenantKey)throw Error('meeting_task_identity_mismatch');tasks.push({id:key,content:t.content,due:t.due,evidence:t.evidence,owner});}
   const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t);
-  return call(t,c,'meeting-publish',{id,host,tasks,url,notionId,date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});
+  const result=await call(t,c,'meeting-publish',{id,host,tasks,url,notionId,...revision?{revision,removed,knownTaskIds}:{},date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});return {...result,tenantKey:host.tenantKey};
  }
  return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,meetingIdentity,meetingDirectory,publishMeetingTasks,
   resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
