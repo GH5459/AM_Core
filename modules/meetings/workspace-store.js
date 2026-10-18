@@ -31,15 +31,14 @@ export function createWorkspaceStore(pool){
  async function presence(id,actor,field=''){await pool.query(`INSERT INTO central_archive.meeting_workspace_presence(workspace_id,actor_id,actor_name,field) VALUES($1,$2,$3,$4)
   ON CONFLICT(workspace_id,actor_id) DO UPDATE SET actor_name=EXCLUDED.actor_name,field=EXCLUDED.field,seen_at=now()`,[id,actor.id,actor.name,String(field).slice(0,100)]);}
  async function people(id){return(await pool.query(`SELECT actor_id AS id,actor_name AS name,field FROM central_archive.meeting_workspace_presence WHERE workspace_id=$1 AND seen_at>now()-interval '20 seconds'`,[id])).rows;}
- async function history(id){return(await pool.query('SELECT revision,actor_name,field,before_value,after_value,created_at FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 100',[id])).rows;}
- async function share(id,actor,enabled,revision){return locked(id,async(r,db)=>{
+ async function history(id){return(await pool.query("SELECT revision,actor_name,field,before_value,after_value,created_at FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1 UNION ALL SELECT version AS revision,actor_name,'sharing' AS field,to_jsonb(before_enabled) AS before_value,to_jsonb(enabled) AS after_value,created_at FROM central_archive.meeting_workspace_access_changes WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100",[id])).rows;}
+ async function share(id,actor,enabled,revision,sharingVersion){return locked(id,async(r,db)=>{
   if(actor.id!==r.host_id)throw failure(403,'只有主持人可以設定連結分享。');
   if(!['setup','review','failed','published'].includes(r.state))throw failure(409,'目前暫時不能變更分享設定。');
-  if(typeof enabled!=='boolean'||Number(r.revision)!==revision)throw failure(409,'設定已更新，請重新讀取後再設定分享。');
-  if((await db.query("SELECT 1 FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'",[id])).rows.length)throw failure(409,'修訂正在同步，請完成後再變更分享。');
-  const next=Number(r.revision)+1;
-  await db.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=$2,sharing_version=sharing_version+1,revision=$3 WHERE id=$1',[id,enabled,next]);
-  await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'sharing',$5::jsonb,$6::jsonb)`,[id,next,actor.id,actor.name,JSON.stringify(!!r.sharing_enabled),JSON.stringify(enabled)]);
+  if(typeof enabled!=='boolean'||Number(r.revision)!==revision||Number(r.sharing_version)!==sharingVersion)throw failure(409,'設定已更新，請重新讀取後再設定分享。');
+  const next=Number(r.sharing_version)+1;
+  await db.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=$2,sharing_version=$3 WHERE id=$1',[id,enabled,next]);
+  await db.query(`INSERT INTO central_archive.meeting_workspace_access_changes(workspace_id,version,actor_id,actor_name,before_enabled,enabled) VALUES($1,$2,$3,$4,$5,$6)`,[id,next,actor.id,actor.name,!!r.sharing_enabled,enabled]);
   return get(id,db);
  });}
  async function revise(id,actor,fields,revision,ownerNames){return locked(id,async(r,db)=>{

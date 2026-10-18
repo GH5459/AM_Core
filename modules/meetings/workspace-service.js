@@ -190,7 +190,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     if(!saved.rows.length)throw failure(409,'類型已被其他人更新，請重新讀取再儲存。');
    }
    else if(input.action==='edit')current=await store.edit(r.id,actor,input);
-   else if(input.action==='sharing')current=await store.share(r.id,actor,input.enabled,input.revision);
+   else if(input.action==='sharing')current=await store.share(r.id,actor,input.enabled,input.revision,input.version);
    else if(input.action==='revise'){
     if(actor.id!==r.host_id)throw failure(403,'只有主持人可以修訂正式會議。');
     if(r.state!=='published'||Number(r.revision)!==input.revision)throw failure(409,'正式版本已更新，請先比較最新內容。');
@@ -212,7 +212,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    }else if(input.action!=='members'&&input.action!=='history')throw failure(400,'不支援此操作。');
    const templates=(await pool.query('SELECT name,prompt,version FROM central_archive.meeting_workspace_templates WHERE conversation_key=$1 ORDER BY name',[row.key])).rows;
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
-   const result={ok:true,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled},audioUrl:'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)),workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:current.result.segments||[],error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
+   const result={ok:true,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)),workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:current.result.segments||[],error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
    if(result.host)result.pendingRevision=await revisionJobs.pending(r.id);
    if(input.action==='members')result.members=await members(row,r.host_id);
    if(input.action==='history')result.history=await store.history(r.id);

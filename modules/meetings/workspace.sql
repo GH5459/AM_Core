@@ -32,6 +32,11 @@ INSERT INTO central_archive.meeting_workspace_release(contract) VALUES('meeting-
 
 ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS sharing_enabled boolean NOT NULL DEFAULT false;
 ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS sharing_version bigint NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_access_changes (
+ workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id), version bigint NOT NULL,
+ actor_id text NOT NULL, actor_name text NOT NULL, before_enabled boolean NOT NULL, enabled boolean NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,version)
+);
 CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_revisions (
  workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id), revision bigint NOT NULL,
  base_revision bigint NOT NULL, fields jsonb NOT NULL, owner_names jsonb NOT NULL DEFAULT '{}',

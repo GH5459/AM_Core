@@ -12,7 +12,7 @@ async function api(input,token='host'){
 }
 assert.equal((await api({action:'read'},'')).status,401);
 assert.equal((await api({action:'sharing',enabled:true,revision:Number(r.revision)},'member')).status,403);
-let result=await api({action:'sharing',enabled:true,revision:Number(r.revision)});assert.equal(result.status,200);assert(result.value.sharing.enabled);
+let result=await api({action:'sharing',enabled:true,revision:Number(r.revision),version:0});assert.equal(result.status,200);assert(result.value.sharing.enabled);
 const publicRead=await api({action:'read'},'');assert.equal(publicRead.status,200);assert.equal(publicRead.value.access,'public');assert(publicRead.value.reader.record);
 for(const secret of [r.host_id,r.conversation_key,r.message_id,'整理要求'])assert(!JSON.stringify(publicRead.value).includes(secret));assert(!publicRead.value.workspace.fields);assert(!publicRead.value.presence);assert(!publicRead.value.types);
 for(const action of ['members','history','sharing','edit','revise','publish'])assert.equal((await api({action},'')).status,401);
@@ -29,7 +29,8 @@ assert.equal((await nativeFetch(audioUrl,{headers:{Range:'bytes=bad'}})).status,
 assert.throws(()=>audio.verify({...snapshot,id:'b'.repeat(64)},decodeURIComponent(ticket)),/失效/);
 assert.throws(()=>audio.verify(snapshot,decodeURIComponent(ticket)+'x'),/失效/);
 const exp=audioTickets(f.platform.publicLinkSecret,()=>1000).mint(snapshot,host);assert.throws(()=>audioTickets(f.platform.publicLinkSecret,()=>1900000).verify(snapshot,exp),/失效/);
-result=await api({action:'sharing',enabled:false,revision:Number(snapshot.revision)});assert.equal(result.status,200);
+assert.equal((await api({action:'sharing',enabled:false,revision:Number(snapshot.revision),version:0})).status,409);
+result=await api({action:'sharing',enabled:false,revision:Number(snapshot.revision),version:1});assert.equal(result.status,200);
 assert.equal((await nativeFetch(audioUrl)).status,403);assert.equal(upstreamReads,1);await new Promise(resolve=>server.close(resolve));globalThis.fetch=fixtureFetch;
 assert.equal((await api({action:'read'},'')).status,401);assert.equal((await api({action:'read'},'outside')).status,403);
 assert.throws(()=>audio.verify({...snapshot,sharing_enabled:false,sharing_version:Number(snapshot.sharing_version)+1},decodeURIComponent(ticket)),/失效/);
@@ -42,7 +43,9 @@ let revisionCalls=0;f.platform.publishMeetingTasks=async input=>{assert.equal(in
 result=await api({action:'revise',fields,revision:Number(current.revision)});assert.equal(result.status,200);await f.service.drain();await f.service.settle();
 assert.equal((await f.service.store.get(id)).fields.record,current.fields.record,'Prior published content stays visible while sync is incomplete');
 const pending=await f.pg.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'",[id]);assert.equal(pending.rows.length,1);
-assert.equal((await api({action:'sharing',enabled:true,revision:Number(current.revision)})).status,409);
+assert.equal((await api({action:'sharing',enabled:true,revision:Number(current.revision),version:2})).status,200);
+assert.equal((await api({action:'sharing',enabled:false,revision:Number(current.revision),version:3})).status,200,'Revocation must work while revision synchronization is pending');
+assert.equal((await api({action:'read'},'')).status,401);
 for(let i=0;i<3;i++){await f.pg.query("UPDATE central_archive.meeting_workspace_revisions SET lease_until=NULL WHERE workspace_id=$1 AND state='pending'",[id]);await f.service.drain();await f.service.settle();}
 const revised=await f.service.store.get(id);assert.equal(revised.fields.record,fields.record);assert.equal(revised.fields[todo].due,'2026-11-01');assert.equal(Number(revised.revision),Number(current.revision)+1);assert.equal(revised.receipt.notionId,current.receipt.notionId);assert.equal(revisionCalls,2);
 assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE state='applied'")).rows[0].n,1);
