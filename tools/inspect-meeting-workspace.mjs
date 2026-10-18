@@ -15,6 +15,6 @@ try{
   const role=new URL(env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_LINE_IO_DATABASE_URL).username;if(!/^[a-z0-9_]+$/i.test(role))throw Error('Invalid runtime role');
   await pool.query(`GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_workspaces,central_archive.meeting_workspace_edits,central_archive.meeting_workspace_presence,central_archive.meeting_workspace_templates,central_archive.meeting_workspace_revisions,central_archive.meeting_workspace_access_changes TO "${role}"`);
   await pool.query(`GRANT SELECT ON central_archive.meeting_workspace_release TO "${role}"`);
-  console.log(JSON.stringify({migrated:true,newTables:5,existingConversationsUnchanged:true}));
+  console.log(JSON.stringify({migrated:true,workspaceSchemaReady:true,existingConversationsUnchanged:true}));
  }
 }finally{await pool.end();}
