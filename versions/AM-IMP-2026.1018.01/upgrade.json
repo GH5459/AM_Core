@@ -1,0 +1,6 @@
+{
+ "id":"AM-IMP-2026.1018.01","name":"發布確認提示與待辦預設日期","type":"Meeting workspace fix","portable":true,"status":"Ready",
+ "requiresDatabases":[],"requiresEnv":["Existing meeting and work identity settings"],"requiresScripts":["tools/test-meeting-workspace-service.mjs","tools/test-meeting-workspace.mjs","tools/serve-meeting-workspace-preview.mjs"],
+ "installTargets":["AM platform"],"dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Publication errors and progress visible inside confirmation dialog","Duplicate confirmation disabled during submission; status lookup remains available afterwards","Missing host and assignee identities reported without locking or publishing","Current identity validation deduplicated and bounded in parallel","New AI and manual todos default to creation day in Asia/Taipei","Existing dates, meeting content, receipts and identity links unchanged","Exact production commit and read-only original meeting state verified"]
+}

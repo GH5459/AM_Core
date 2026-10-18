@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import {Readable} from 'node:stream';
 import {createWorkspaceStore} from './workspace-store.js';
-import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText} from './workspace-model.js';
+import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,checkPublication} from './workspace-model.js';
 import {workspaceHtml} from './workspace-ui.js';
 import {sendJson} from '../../core/util.js';
 
@@ -96,16 +96,19 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const fields={...r.fields,record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:1,transcript:1};
    for(const t of (result.parsed.todos||[]).slice(0,60)){
-    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:'',evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
+    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingToday(),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }
    await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning})]);
   }catch(e){await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code=$2,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,e.status===413?e.message:'製作未完成，原始錄音及設定仍保留；主持人可重試。']);logger.warn('Meeting workspace generation failed; source retained.');}finally{clearInterval(heartbeat);}
  }
  async function validateAssignees(r,row){
-  const assigned=todos(r.fields).filter(t=>t.ownerId),identities=[];
-  for(const t of assigned){await assertMember(row,t.ownerId);const p=await platform.meetingTaskIdentity?.(t.ownerId);if(!p)throw failure(409,'部分負責人尚未連接工作日誌，請先完成本人連線或取消指派。');identities.push(p);}
-  if(assigned.length&&!await platform.meetingTaskIdentity?.(r.host_id))throw failure(409,'主持人尚未連接工作日誌，請先完成本人連線再指派任務。');
-  return identities;
+  const entries=todos(r.fields),assigned=entries.filter(t=>t.ownerId);if(!assigned.length)return [];
+  const ids=[...new Set([r.host_id,...assigned.map(t=>t.ownerId)])],results=new Map();
+  for(let i=0;i<ids.length;i+=5)await Promise.all(ids.slice(i,i+5).map(async id=>{await assertMember(row,id);results.set(id,await platform.meetingTaskIdentity?.(id));}));
+  const missing=entries.flatMap((t,i)=>t.ownerId&&!results.get(t.ownerId)?[i+1]:[]),host=results.get(r.host_id);
+  if(missing.length||!host)throw failure(409,[!host?'主持人尚未完成 LINE 與工作日誌連線。':'',missing.length?'第 '+missing.join('、')+' 項待辦的負責人尚未完成連線。':'','請相關人員在與葉小蝸的個人對話輸入「工作日誌」，完成本人登入後再發布；或取消指派，保留為會議待辦。'].filter(Boolean).join(''));
+  if(assigned.some(t=>results.get(t.ownerId).tenantKey!==host.tenantKey))throw failure(409,'負責人與主持人的工作日誌服務不同，請重新選擇同一服務的負責人。');
+  return assigned.map(t=>results.get(t.ownerId));
  }
  async function publish(r,row){
   const db=await pool.connect();let locked=false;
@@ -180,8 +183,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    else if(input.action==='edit')current=await store.edit(r.id,actor,input);
    else if(input.action==='start'||input.action==='publish'||input.action==='retry-publish'){
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉或無法接收，請聯絡管理者。');
-    if(input.action==='publish'){
+   if(input.action==='publish'&&r.state==='review'){
      if(actor.id!==r.host_id)throw failure(403,'只有主持人可以發布。');
+     if(Number(r.revision)!==input.revision)throw failure(409,'內容剛有修改，請返回檢查後再確認發布。');checkPublication(r);
      const identities=await validateAssignees(r,row);const ownerNames=Object.fromEntries(identities.map(p=>[p.userId,p.name]));
      await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{ownerNames}',$2::jsonb) WHERE id=$1 AND state='review'`,[r.id,JSON.stringify(ownerNames)]);
     }
