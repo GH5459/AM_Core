@@ -7,6 +7,7 @@ export const MEETING_TYPES=[
  {name:'月會',prompt:'整理各項目標與進度、成果、落差、風險、跨部門協作與下月計畫。'},
 ];
 export const failure=(status,message)=>Object.assign(Error(message),{status});
+export const meetingToday=(now=Date.now())=>new Date(now+8*3600000).toISOString().slice(0,10);
 const bounded=(v,n)=>typeof v==='string'&&v.length<=n;
 export function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value||'')&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;}
 export function checkField(field,value){
@@ -24,7 +25,7 @@ export function checkPublication(row){
  if(!row.fields.settings?.topic?.trim()||!row.fields.record?.trim())throw failure(409,'請先完成會議主題及會議記錄。');
  for(const t of todos(row.fields))if(!t.content.trim()||t.ownerId&&!validDate(t.due))throw failure(409,'已指定負責人的待辦必須有內容及截止日期；也可取消負責人，保留為未分派待辦。');
 }
-export function initialFields(event){return {settings:{topic:'',type:'會議',prompt:MEETING_TYPES[0].prompt,date:new Date(event.timestamp+8*3600000).toISOString().slice(0,10),projectGoal:'',speakers:Array.from({length:3},()=>({name:'',gender:'',role:''}))},record:'',transcript:''};}
+export function initialFields(event){return {settings:{topic:'',type:'會議',prompt:MEETING_TYPES[0].prompt,date:meetingToday(event.timestamp),projectGoal:'',speakers:Array.from({length:3},()=>({name:'',gender:'',role:''}))},record:'',transcript:''};}
 export function recordText(parsed){return [
  '重點摘要',...(parsed.highlights||[]).map(s=>'• '+s),'','會議內容',...(parsed.minutes||[]).flatMap(s=>[s.heading,...(s.points||[]).map(p=>'• '+p),'']),
  '結論與決議',...(parsed.conclusions||[]).map(s=>'• '+s),...(parsed.nextMeeting?['','下次會議：'+parsed.nextMeeting]:[])

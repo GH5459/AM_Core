@@ -3,6 +3,7 @@ import http from 'node:http';
 process.env.MEETING_WORKSPACE_PREVIEW='1';
 const {fixture:f}=await import('./test-meeting-workspace-service.mjs');
 f.env.AMCORE_PUBLIC_BASE_URL='http://127.0.0.1:8841';f.resetMembership();
+if(process.env.MEETING_WORKSPACE_PREVIEW_UNLINKED==='1')f.platform.meetingTaskIdentity=async()=>{await new Promise(resolve=>setTimeout(resolve,1500));return null;};
 const event={...f.event,message:{id:'preview-recording',type:'audio'}};
 const r=await f.service.offer(f.row,event,'會議錄音範例.m4a','主持人');
 await f.service.choice({source:event.source,postback:{data:'meetingwork:yes:'+r.id}},f.row.key);
