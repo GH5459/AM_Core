@@ -52,6 +52,7 @@ assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meetin
 const text=f.pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].text.content);assert.equal(text.filter(s=>s.startsWith('會議修訂 ')).length,1);assert(text.includes(current.fields.record));assert(text.includes(fields.record));
 assert.equal((await api({action:'revise',fields,revision:Number(current.revision)})).status,409);assert.equal(f.taskIds.size,1);
 assert.equal(readerData(revised).todos[0].owner,'編輯者');
+const history=(await api({action:'history'})).value.history;assert(history.some(h=>h.field==='sharing'&&h.before_value===true&&h.after_value===false));assert(history.some(h=>h.field==='published_revision'&&h.after_value.record===fields.record));
 // Public opt-in never exposes setup or in-progress drafts, including personal meetings.
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='review',sharing_enabled=true WHERE id=$1",[id]);assert.equal((await api({action:'read'},'')).status,401);
 await f.pg.close();console.log('Reader sharing and revisions: default-private, host-only opt-in/revocation, public response minimization, no guest mutations, scoped expiring audio tickets, stale host edits, durable revision retry, preserved original Notion page/task IDs and prior snapshot passed.');
