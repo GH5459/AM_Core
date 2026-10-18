@@ -18,7 +18,7 @@ globalThis.fetch=async(url,opts)=>{
  throw Error('Unexpected external request');
 };
 const workId=id=>({userId:id,account:id===host?'111':'222',bindingId:'binding-'+id,name:id===host?'主持人':'編輯者',tenantKey:'fixture'});
-const platform={publicBaseUrl:'https://meeting.example.test',drive:{getAccessToken:async()=> 'fixture'},lineGet:async path=>{
+const platform={publicBaseUrl:'https://meeting.example.test',publicLinkSecret:'synthetic-audio-secret-not-production',drive:{getAccessToken:async()=> 'fixture'},lineGet:async path=>{
  if(path.includes('/members/ids')){if(idsUnavailable)throw Error('unavailable');return {memberIds:[host,member]};}
  const userId=path.split('/').at(-1);if(userId===outsider||foreign&&userId===member)throw Error('not_member');return {userId,displayName:userId===host?'主持人':'編輯者'};
 },pushLineMessage:async(to,message,mention,delivery)=>pushes.push({to,message,key:delivery.retryKey}),meetingTaskIdentity:async id=>{identityCalls.push(id);return missingIdentity?null:workId(id);},meetingTaskDirectory:async()=>[{userId:member},{userId:outsider}],publishMeetingTasks:async input=>{
@@ -50,9 +50,9 @@ meetingConfig.liffEndpointUrl='https://registered.example.test/meetings/review';
 const moved=await page(platform.publicBaseUrl);assert.equal(moved.status,302);assert.equal(moved.headers.Location,'https://registered.example.test/meetings/review/work/'+id);assert.equal(moved.headers['Cache-Control'],'no-store');
 const canonical=await page('https://registered.example.test');assert.equal(canonical.status,200);assert(canonical.html.includes('123-fixture'));assert(!canonical.headers.Location);
 assert(canonical.html.includes('"loginUrl":"https://registered.example.test/meetings/review/work/'+id+'"'));
-assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('await liff.init('));
+assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('if(!BOOT.publicAvailable&&!await login())'));
 const primary=await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id));assert.equal(primary.handled,true);assert.equal(primary.status,200);assert.equal(primary.html,canonical.html);assert(!primary.headers.Location);
-assert(primary.html.includes("'/meetings/review/work/'+BOOT.id+'/api'"));assert(primary.html.includes("'/meetings/review/work/'+BOOT.id+'/audio'"));assert(!primary.html.includes("location.pathname+'/api'"));
+assert(primary.html.includes("'/meetings/review/work/'+BOOT.id+'/api'"));assert(primary.html.includes('preload="metadata"'));assert(!primary.html.includes("location.pathname+'/api'"));
 assert.equal((await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id+'/api'))).handled,false);
 assert.equal((await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('//foreign.test/work/'+id))).handled,false);
 assert.equal((await api({action:'read'},'host','https://registered.example.test')).status,200);
@@ -87,5 +87,5 @@ const blocks=pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].
 assert.equal((await api({action:'edit',field:'record',value:'舊頁偷改',version:1})).status,409);
 foreign=true;assert.equal((await api({action:'read'},'member')).status,403);
 if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
-export const fixture={service,pool,pg,platform,row,event,env,resetMembership:()=>{foreign=false;}};
+export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,resetMembership:()=>{foreign=false;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');
