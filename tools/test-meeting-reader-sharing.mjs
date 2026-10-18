@@ -37,6 +37,7 @@ assert.throws(()=>audio.verify({...snapshot,sharing_enabled:false,sharing_versio
 
 let current=await f.service.store.get(id),fields=structuredClone(current.fields);delete fields.settings;fields.record='主持人修訂後的完整內容\n保留來源證據';const todo=Object.keys(fields).find(k=>k.startsWith('todo:'));fields[todo].content='修訂後的同一項任務';fields[todo].due='2026-11-01';
 assert.equal((await api({action:'revise',fields,revision:Number(current.revision)},'member')).status,403);
+f.row.enabled=false;assert.equal((await api({action:'revise',fields,revision:Number(current.revision)})).status,409);f.row.enabled=true;
 assert.equal((await api({action:'revise',fields,revision:Number(current.revision)-1})).status,409);
 assert.equal((await api({action:'revise',fields:{record:'缺少完整內容'},revision:Number(current.revision)})).status,400);
 let revisionCalls=0;f.platform.publishMeetingTasks=async input=>{assert.equal(input.id,id);assert.equal(input.previousFields.record,current.fields.record);assert.equal(input.fields[todo].due,'2026-11-01');revisionCalls++;if(revisionCalls===1)throw Error('reply_lost_after_task_commit');return {tasks:[{id:'same-task',owner:'222',due:'2026-11-01'}]};};

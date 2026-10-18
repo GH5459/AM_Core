@@ -193,6 +193,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    else if(input.action==='sharing')current=await store.share(r.id,actor,input.enabled,input.revision,input.version);
    else if(input.action==='revise'){
     if(actor.id!==r.host_id)throw failure(403,'只有主持人可以修訂正式會議。');
+    if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能儲存修訂；仍可關閉對外分享。');
     if(r.state!=='published'||Number(r.revision)!==input.revision)throw failure(409,'正式版本已更新，請先比較最新內容。');
     if(!input.fields||typeof input.fields!=='object'||Array.isArray(input.fields)||Object.keys(input.fields).length>62||typeof input.fields.record!=='string'||typeof input.fields.transcript!=='string')throw failure(400,'修訂內容格式不正確。');
     for(const [key,value]of Object.entries(input.fields)){if(key==='settings')throw failure(400,'正式會議的來源設定保持不變。');checkField(key,value);}
