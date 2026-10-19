@@ -29,7 +29,10 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       if(action){await store.insert(e,'control',{action:action[1],target:action[2],targetRevision:Number(action[3])});claimed.push(e);continue;}
       if(supplement||taskEdit){const edit=taskEdit||supplement;const matches=await store.drafts(e.source.groupId,e.source.userId,edit.topic,taskEdit?'selftask':'meeting');
         if(matches.length===1&&edit.text){await store.insert(e,'control',{action:'edit',target:matches[0].dispatch.id,targetRevision:matches[0].dispatch.revision,correction:edit.text});claimed.push(e);}continue;}
-      const quick=quickCreateIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
+      const proposed=quickCreateIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
+      // A bot mention must not turn a colleague assignment into a self-task
+      // preview and bypass the all-recipient eligibility gate.
+      const quick=proposed?.kind==='selftask'&&peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1?null:proposed;
       if((!quick&&!mentionCandidate(e))||parseAttachmentRequest(e)?.explicitSelf)continue;
       const mentions=e.message.mention.mentionees;
       if(mentions.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!user.test(m.userId||''))||peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>21||e.message.text.length>10000)continue;
@@ -92,6 +95,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     if(text)await notify(row,p,text,'control');p.phase='done';
   }
   async function work(row){const p={...row.dispatch};
+    if((p.quickKind==='selftask'||p.mode==='selftask')&&peers(row.event,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1)return store.save(row,ignoreTask({...p,mode:'task'}));
     if(wasWaitingForTaskIdentity(p))return store.save(row,ignoreTask(p));
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
     if(p.expiresAt<=now()){if(p.mode==='task'||!p.mode&&!p.quickKind)return store.save(row,ignoreTask(p));await notify(row,p,'這則交辦／活動等待設定已超過 30 天，請重新發送。','expired');p.phase='expired';return store.save(row,p);}

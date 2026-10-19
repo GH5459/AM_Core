@@ -197,3 +197,14 @@ test('new card timer starts at first delivery rather than old source time; slow 
  await f.capture(f.button(p.id));await f.drain();p=(await f.rows()).find(x=>x.id===p.id);assert.equal(p.phase,'cancelled');assert.equal(p.confirmationStartedAt,started);assert.equal(f.writes.size,0);
  assert.equal(f.options.now(),started+600000);assert.equal(f.options.store, f.store);
 }finally{await f.close();}});
+
+test('mentioning the bot alongside internal and unknown people cannot bypass eligibility through self-task quick create',async()=>{const f=await fixture();try{
+ f.identities.delete(b);const e=f.message('@葉小蝸 幫我建立任務：@甲 @乙 整理清單',[bot,a,b]);e.message.mention.mentionees[0].isSelf=true;
+ await f.capture(e);await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.selfSubmissions.length,0);assert.equal(f.submissions.length,0);assert.equal((await f.rows())[0].phase,'ignored');assert.equal((await f.rows())[0].mode,'task');
+}finally{await f.close();}});
+
+test('legacy self-task draft mentioning other recipients cannot create work on a later confirmation',async()=>{const f=await fixture();try{
+ const e=f.message('@葉小蝸 幫我建立任務：@甲 @乙 整理清單',[bot,a,b]);e.message.mention.mentionees[0].isSelf=true;await f.capture(e);
+ await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{groupDispatch}',(payload->'groupDispatch') || $1::jsonb)",[JSON.stringify({quickKind:'selftask',mode:'selftask',phase:'selfissue'})]);
+ await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.selfSubmissions.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+}finally{await f.close();}});
