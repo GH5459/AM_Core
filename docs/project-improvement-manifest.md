@@ -48,4 +48,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 
 | AM-IMP-2026.1019.38 | 群組交辦登入提示只列尚未連結者 | Installed | 原來源／身分權限／公司選擇及任務等待保持；21組群組測試通過，正式發布與回讀待完成。 |
 
-| AM-IMP-2026.1019.39 | 會議錄音可靠續傳 | Installed | 95段／已存54段缺段續傳、重試與暫存保留測試通過；正式發布待核對。 |
+| AM-IMP-2026.1019.39 | 會議錄音可靠續傳 | Deployed | PR365完整CI／AM7b865f4兩站／Render42.9秒Live；95段已存54段續傳、重試／重開及保存回覆恢復通過，原8會議／113對話及54段保持；真人完整上傳待原主持人操作，DailyLog／UOF不重發。 |
