@@ -1,0 +1,106 @@
+{
+  "upgrade": "AM-IMP-2026.1019.70",
+  "baselineCommit": "ab0b92a",
+  "audio": {
+    "synthetic": true,
+    "bytes": 16777260,
+    "format": "16kHz mono PCM WAV",
+    "sha256": "bd9d0b6b0a694ee92ac110031082a1805b161a2ca524708a3b0516ae6b93993b",
+    "sameBytesInEveryRun": true
+  },
+  "method": "Same local HTTP client, same actual remote PostgreSQL and Google Drive, isolated synthetic schema/folder, synthetic LINE/personnel authorization (no latency added), sequential transfers; preparation/preview not included",
+  "limitations": [
+    "One completed baseline run per mode; two candidate runs per mode",
+    "Same local HTTP host, actual remote PostgreSQL and Google Drive, synthetic identity checks with no artificial latency",
+    "Excludes local recording, IndexedDB staging/cleanup, browser preview and AI processing",
+    "Controlled benchmark, not a guarantee for every device/network"
+  ],
+  "verified": {
+    "cloudSizeAndMD5EveryRun": true,
+    "originalFolderEveryRun": true,
+    "noPublicPermissionsEveryRun": true,
+    "syntheticOnlyCleanup": true,
+    "productionMeetingsUntouched": true
+  },
+  "sourceBlobs": {
+    "modules/meetings/audio-stream.js": "57f0f5ac9941a03a3678dae60e6d57a70e1ce438",
+    "modules/meetings/hub-ui.js": "badb09e4a9be1b5144162ed3b72c1b21fb711a0e",
+    "modules/meetings/hub-service.js": "ea1033f5d7d786f4d39c88ac521730ad98ed7140",
+    "modules/meetings/workspace-service.js": "1b710dd8c77524a1b5523cbb8a22e0fec5dc9fdf",
+    "modules/meetings/multilingual.js": "af15a29acbf5df992230f6cd73f965c745283694"
+  },
+  "results": [
+    {
+      "runtime": "old",
+      "kind": "file",
+      "totalSeconds": 71.4819504,
+      "transferSeconds": 48.414547999999996,
+      "finalizeSeconds": 23.067394299999993,
+      "httpRequests": 11,
+      "httpBodyBytes": 22370690,
+      "databaseQueries": 117,
+      "identityLookups": 44,
+      "lineChecks": 55
+    },
+    {
+      "runtime": "new",
+      "kind": "file",
+      "totalSeconds": 16.012406300000002,
+      "transferSeconds": 13.376314899999997,
+      "finalizeSeconds": 2.6360828000000036,
+      "httpRequests": 5,
+      "httpBodyBytes": 16777561,
+      "databaseQueries": 44,
+      "identityLookups": 5,
+      "lineChecks": 15
+    },
+    {
+      "runtime": "new",
+      "kind": "recorder",
+      "totalSeconds": 13.40229449999999,
+      "transferSeconds": 10.714372799999998,
+      "finalizeSeconds": 2.6879196999999984,
+      "httpRequests": 5,
+      "httpBodyBytes": 16777569,
+      "databaseQueries": 44,
+      "identityLookups": 5,
+      "lineChecks": 15
+    },
+    {
+      "runtime": "old",
+      "kind": "recorder",
+      "totalSeconds": 160.39273810000003,
+      "transferSeconds": 133.8290552,
+      "finalizeSeconds": 26.563680900000005,
+      "httpRequests": 55,
+      "httpBodyBytes": 22374886,
+      "databaseQueries": 601,
+      "identityLookups": 220,
+      "lineChecks": 275
+    },
+    {
+      "runtime": "new",
+      "kind": "file",
+      "totalSeconds": 13.149992000000001,
+      "transferSeconds": 10.422589799999999,
+      "finalizeSeconds": 2.7273941999999987,
+      "httpRequests": 5,
+      "httpBodyBytes": 16777561,
+      "databaseQueries": 44,
+      "identityLookups": 5,
+      "lineChecks": 15
+    },
+    {
+      "runtime": "new",
+      "kind": "recorder",
+      "totalSeconds": 12.949046199999996,
+      "transferSeconds": 10.4987827,
+      "finalizeSeconds": 2.4502572999999974,
+      "httpRequests": 5,
+      "httpBodyBytes": 16777569,
+      "databaseQueries": 44,
+      "identityLookups": 5,
+      "lineChecks": 15
+    }
+  ]
+}

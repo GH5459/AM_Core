@@ -8,6 +8,6 @@ const role=new URL(env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_LINE_IO_D
 const pool=new Pool({connectionString:url.href,ssl:{rejectUnauthorized:true},max:1,connectionTimeoutMillis:15000});
 try{
  await pool.query('BEGIN');await pool.query(fs.readFileSync(new URL('../modules/meetings/audio-stream.sql',import.meta.url),'utf8'));await pool.query('GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_audio_streams TO "'+role+'"');
- const permissions=(await pool.query("SELECT has_table_privilege($1,'central_archive.meeting_audio_streams','SELECT,INSERT,UPDATE') AS allowed",[role])).rows[0];assert(permissions.allowed);await pool.query('COMMIT');
+ const permissions=(await pool.query("SELECT has_table_privilege($1,'central_archive.meeting_audio_streams','SELECT') AND has_table_privilege($1,'central_archive.meeting_audio_streams','INSERT') AND has_table_privilege($1,'central_archive.meeting_audio_streams','UPDATE') AS allowed",[role])).rows[0];assert(permissions.allowed);await pool.query('COMMIT');
  console.log(JSON.stringify({migrated:true,receiptTableReady:true,runtimePermissionsVerified:true,legacyAudioUntouched:true}));
 }catch(e){await pool.query('ROLLBACK');throw e;}finally{await pool.end();}
