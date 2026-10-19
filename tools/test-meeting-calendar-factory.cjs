@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const [beforeFile,afterFile]=process.argv.slice(2),before=fs.readFileSync(beforeFile,'utf8'),after=fs.readFileSync(afterFile,'utf8');
+const signature='function createCalendarBot({ read, write, google, canUse, serviceToken, resolveAccount,';
+const result='return { key, authorize, createEvent };';
+const repaired=before.replace(signature,signature.replace('{ read,','{ meetingDb, read,')).replace(result,'return { key, authorize, createEvent, meetingEvent:(auth,value)=>syncMeetingCalendar(auth,value,{db:meetingDb,resolveAccount,checkUser,connection,calendarFor,google}) };');
+assert.equal(after,repaired,'Full Worker must differ only in the two adapter edits; lunar and other features preserved byte-for-byte');
+const extract=s=>{const start=s.indexOf('var __lunarCalendarCore = (() => {'),end=s.indexOf('module.exports=__lunarCalendarCore;',start);assert(start>=0&&end>start);return vm.runInNewContext(s.slice(start,end)+';__lunarCalendarCore;',{TextEncoder,crypto:require('crypto').webcrypto,Intl,URLSearchParams,syncMeetingCalendar:()=>({synthetic:true})});};
+const original=extract(before),updated=extract(after),bot=updated.createCalendarBot({});assert.equal(typeof bot.meetingEvent,'function');
+const event={requestId:'fixture-lunar',topic:'合成農曆紀念日',date:'2026-11-25',allDay:true,location:'',content:'',recurrence:{calendar:'chinese',frequency:'YEARLY',month:10,day:17,leapMonth:false,throughYear:2100}};
+assert.equal(JSON.stringify(updated.normalizeEvent(event)),JSON.stringify(original.normalizeEvent(event)));
+assert(JSON.stringify(updated.normalizeEvent(event)).includes('20271114'),'Lunar recurrence continues on the correct following-year solar date');
+console.log('Actual latest lunar factory: missing meeting adapter recovered, lunar 75-year recurrence unchanged, all remaining Worker bytes identical.');

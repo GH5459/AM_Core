@@ -75,11 +75,12 @@ export async function readMeetingCalendar(v,{db,resolveAccount,checkUser,connect
   if(v.calendarId!==calendarId||v.googleAccount!==connected.account)throw fail('BINDING_CHANGED','日曆或 Google 帳號已變更，請重新讀取。');
   if(typeof v.eventId!=='string'||!/^[-_a-zA-Z0-9]{1,1024}$/.test(v.eventId))throw fail('INVALID_REQUEST','行程識別不正確。',400);
   const event=await google.request(user,{path:root+'/'+encodeURIComponent(v.eventId)});
-  if(!visible(event)||Date.parse(event.end?.dateTime||event.end?.date+'T00:00:00+08:00')<=Date.now())throw fail('EVENT_UNAVAILABLE','行程已結束、取消或拒絕，請重新讀取。');items=[normalize(event)];
+  const todayStart=Date.parse(new Date(Date.now()+8*3600000).toISOString().slice(0,10)+'T00:00:00+08:00');
+  if(!visible(event)||Date.parse(event.end?.dateTime||event.end?.date+'T00:00:00+08:00')<=todayStart)throw fail('EVENT_UNAVAILABLE','行程已早於今天、取消或拒絕，請重新讀取。');items=[normalize(event)];
  }else{
   const start=Date.parse(v.start),end=Date.parse(v.end);if(!Number.isFinite(start)||!Number.isFinite(end)||end-start!==7*86400000||start<Date.now()-8*86400000||end>Date.now()+372*86400000)throw fail('INVALID_REQUEST','請選擇有效的一週。',400);
   let pageToken;for(let page=0;page<20;page++){
-   const query=new URLSearchParams({timeMin:new Date(Math.max(start,Date.now())).toISOString(),timeMax:new Date(end).toISOString(),singleEvents:'true',orderBy:'startTime',showDeleted:'false',maxResults:'250',timeZone:'Asia/Taipei',...(pageToken?{pageToken}:{})});
+   const query=new URLSearchParams({timeMin:new Date(start).toISOString(),timeMax:new Date(end).toISOString(),singleEvents:'true',orderBy:'startTime',showDeleted:'false',maxResults:'250',timeZone:'Asia/Taipei',...(pageToken?{pageToken}:{})});
    if(end<=Date.now())break;
    const result=await google.request(user,{path:root+'?'+query});items.push(...(result.items||[]).filter(visible).map(normalize));pageToken=result.nextPageToken;if(!pageToken)break;if(page===19)throw fail('CALENDAR_TOO_LARGE','本週行程過多，暫時無法完整讀取。',503);
   }

@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1019.71",
+  "name": "會議日曆連接修復與今日已結束行程",
+  "type": "Meeting Calendar recovery",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing project-local meeting and calendar stores; no migration"],
+  "requiresEnv": ["Existing private original Calendar service configuration"],
+  "requiresScripts": ["tools/build-meeting-hub-worker.cjs", "tools/test-meeting-calendar-recovery.mjs", "tools/test-meeting-calendar-factory.cjs", "tools/test-meeting-hub-worker.cjs"],
+  "installTargets": ["Root AM meeting runtime and its original DailyLog service"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Original lunar Calendar factory retains authenticated meeting adapter", "Today-ended Google events remain visible and can be explicitly filed", "Cancelled/declined events and changed account bindings remain rejected", "Latest complete Worker, other modules, settings and business data preserved", "Full CI, exact deployment and authenticated production UI verification"]
+}
