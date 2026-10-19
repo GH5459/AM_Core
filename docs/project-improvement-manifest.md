@@ -54,4 +54,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 
 | AM-IMP-2026.1019.39 | 會議錄音可靠續傳 | Deployed | PR365完整CI／AM7b865f4兩站／Render42.9秒Live；95段已存54段續傳、重試／重開及保存回覆恢復通過，原8會議／113對話及54段保持；真人完整上傳待原主持人操作，DailyLog／UOF不重發。 |
 
-| AM-IMP-2026.1019.70 | 會議錄音與音檔上傳加速 | Installed | 原始區塊直接雲端保存、錄音合併／中斷恢復／舊資料及權限測試通過；同檔實測與正式部署待核對。 |
+| AM-IMP-2026.1019.70 | 會議錄音與音檔上傳加速 | Deployed | PR378完整CI、AM2153bc1兩站／Render45.2秒Live；同檔16MiB WAV檔案71.5→13.1～16.0秒、錄音160.4→12.9～13.4秒；原9會議／113對話／54段及權限歷程保持，DailyLog／UOF不重發；真實手機網路時間另依環境。 |
