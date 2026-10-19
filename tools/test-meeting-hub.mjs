@@ -39,9 +39,9 @@ assert.equal((await hub({action:'create',calendarRef:ref+'tamper',conversationKe
 const imported=await hub({action:'create',calendarRef:ref,conversationKey:key});assert.equal(imported.status,200,JSON.stringify(imported));assert.equal(imported.id,week.items[0].workspaceId);assert.equal((await hub({action:'create',calendarRef:ref,conversationKey:key})).id,imported.id);
 assert.equal((await pg.query('SELECT calendar_enabled FROM central_archive.meeting_plans WHERE workspace_id=$1',[imported.id])).rows[0].calendar_enabled,false);
 assert.equal((await call('/meetings/review/work/'+imported.id+'/hub',{...input,action:'plan-save',version:1})).status,409);
-await pg.query("UPDATE central_archive.meeting_plans SET end_at='2020-01-01' WHERE workspace_id=$1",[imported.id]);assert(!(await hub({action:'list'})).items.some(x=>x.id===imported.id));
+await pg.query("UPDATE central_archive.meeting_plans SET end_at='2020-01-01' WHERE workspace_id=$1",[imported.id]);assert((await hub({action:'list'})).items.some(x=>x.id===imported.id),'Expired unrecorded drafts must remain discoverable');
 platform.syncMeetingCalendar=originalCalendar;
-const list=await hub({action:'list'});assert.equal(list.items[0].id,id);assert(!JSON.stringify(list).includes('僅為議程'));assert.equal((await call('/meetings/review/hub/api',{action:'list'},'host','https://other.example')).status,403);
+const list=await hub({action:'list'});assert(list.items.some(x=>x.id===id));assert(list.items.some(x=>x.id===imported.id));assert(!JSON.stringify(list).includes('僅為議程'));assert.equal((await call('/meetings/review/hub/api',{action:'list'},'host','https://other.example')).status,403);
 if(!process.env.MEETING_HUB_PREVIEW){globalThis.fetch=priorFetch;await pg.close();}console.log('Meeting hub: no-audio creation, operation replay/conflict, explicit participants/revocation, versioned preparation, separate recording and generation, resumable chunk integrity, one original Drive file, Calendar per-person reschedule/removal and private list minimization passed.');
 
 export const fixture={pg,service,platform,row,key,host,guest};

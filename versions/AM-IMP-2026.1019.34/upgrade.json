@@ -1,0 +1,18 @@
+{
+  "id": "AM-IMP-2026.1019.34",
+  "name": "過期未完成會議仍可找到",
+  "type": "Meeting visibility fix",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": ["AM platform"],
+  "requiresDatabases": [],
+  "requiresEnv": ["Existing meeting access"],
+  "requiresScripts": ["tools/test-meeting-hub.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Expired drafts remain in the authorized meeting list",
+    "Unfinished past meetings have a visible section without duplicate history rows",
+    "Original work links, preparation, permissions and Calendar records remain unchanged",
+    "Production version and signed-in read-only list verified"
+  ]
+}
