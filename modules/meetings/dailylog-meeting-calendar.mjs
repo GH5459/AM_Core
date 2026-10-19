@@ -4,7 +4,7 @@ const hash=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-25
 // the existing documents table before any Google write, including uncertain writes.
 export async function syncMeetingCalendar(auth,v,{db,resolveAccount,checkUser,connection,calendarFor,google}){
  if(auth.mode!=='service')throw fail('UNAUTHORIZED','需要原 Calendar 服務授權。',403);
- if(['calendar-week','calendar-read'].includes(v.action))return readMeetingCalendar(v,{resolveAccount,checkUser,connection,calendarFor,google});
+ if(['calendar-week','calendar-read'].includes(v.action))return readMeetingCalendar(v,{db,resolveAccount,checkUser,connection,calendarFor,google});
  if(!/^[a-f0-9]{64}$/.test(v.meetingId||'')||!/^\d{1,20}$/.test(v.account||'')||!Number.isSafeInteger(v.revision)||v.revision<1||typeof v.removed!=='boolean'||typeof v.topic!=='string'||!v.topic.trim()||v.topic.length>200||typeof v.location!=='string'||v.location.length>2000||!/^https:\/\/[^\s]+\/meetings\/review\/work\/[a-f0-9]{64}$/.test(v.url||''))throw fail('INVALID_REQUEST','會議排程資料不完整。',400);
  for(const t of [v.start,v.end])if(typeof t!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(t)||!Number.isFinite(Date.parse(t)))throw fail('INVALID_REQUEST','會議時間不正確。',400);
  if(Date.parse(v.end)<=Date.parse(v.start))throw fail('INVALID_REQUEST','會議結束時間不正確。',400);
@@ -12,11 +12,36 @@ export async function syncMeetingCalendar(auth,v,{db,resolveAccount,checkUser,co
  const connected=await connection(user),key=await hash(v.meetingId+':'+user.id),eventId='mh'+key;
  const read=async()=>{const r=await db.prepare("SELECT value FROM documents WHERE namespace='meeting-calendar-targets' AND key=?").bind(key).first();return r?JSON.parse(r.value):null;};
  let target=await read();
- if(!target){const selected=await calendarFor(user),value={userId:user.id,googleAccount:connected.account,calendarId:!selected||selected==='primary'?connected.account:selected,eventId};await db.prepare("INSERT INTO documents(namespace,key,value) VALUES('meeting-calendar-targets',?,?) ON CONFLICT(namespace,key) DO NOTHING").bind(key,JSON.stringify(value)).run();target=await read();}
+ const source=v.externalSource;
+ if(source&&(!source.iCalUID||typeof source.iCalUID!=='string'||source.iCalUID.length>1024||!Number.isFinite(Date.parse(source.start))||!Number.isFinite(Date.parse(source.end))))throw fail('INVALID_REQUEST','原日曆行程識別不完整。',400);
+ if(!target){
+  const selected=await calendarFor(user),value={userId:user.id,meetingId:v.meetingId,googleAccount:connected.account,calendarId:!selected||selected==='primary'?connected.account:selected,eventId};
+  if(source&&!v.removed){
+   // Exact iCalUID and occurrence time, never title/name guessing. Existing
+   // attendee or shared-calendar events remain owned by their original source.
+   let pageToken,matches=[];
+   for(let page=0;page<20;page++){
+    const query=new URLSearchParams({iCalUID:source.iCalUID,timeMin:new Date(Date.parse(source.start)-86400000).toISOString(),timeMax:new Date(Date.parse(source.end)+86400000).toISOString(),singleEvents:'true',showDeleted:'false',maxResults:'250',...(pageToken?{pageToken}:{})});
+    const found=await google.request(user,{path:'/calendars/'+encodeURIComponent(value.calendarId)+'/events?'+query});
+    matches.push(...(found.items||[]).filter(e=>e.status!=='cancelled'&&e.iCalUID===source.iCalUID&&Date.parse(e.start?.dateTime||e.start?.date+'T00:00:00+08:00')===Date.parse(source.start+(source.allDay?'T00:00:00+08:00':''))&&!e.attendees?.some(a=>a.self&&a.responseStatus==='declined')));
+    pageToken=found.nextPageToken;if(!pageToken)break;if(page===19)throw fail('GOOGLE_UNAVAILABLE','無法完整核對日曆，請重試。',503);
+   }
+   if(matches.length>1)throw fail('IDEMPOTENCY_CONFLICT','日曆有多筆相同行程，請先核對；不會新增副本。');
+   if(matches.length===1){value.eventId=matches[0].id;value.reused=true;value.sourceUID=source.iCalUID;value.sourceStart=source.start;}
+  }
+  await db.prepare("INSERT INTO documents(namespace,key,value) VALUES('meeting-calendar-targets',?,?) ON CONFLICT(namespace,key) DO NOTHING").bind(key,JSON.stringify(value)).run();target=await read();
+ }
  if(target.userId!==user.id||target.googleAccount!==connected.account)throw fail('BINDING_CHANGED','Google 帳號已變更，請核對原日曆；不會另建副本。');
  await checkUser(user);await connection(user,target.googleAccount);
- const path='/calendars/'+encodeURIComponent(target.calendarId)+'/events/'+eventId;
+ const path='/calendars/'+encodeURIComponent(target.calendarId)+'/events/'+encodeURIComponent(target.eventId);
  let previous;try{previous=await google.request(user,{path});}catch(e){if([404,410].includes(e.googleStatus??e.status))previous=null;else throw e;}
+ if(target.reused){
+  if(!v.removed&&(!previous||previous.status==='cancelled'||previous.iCalUID!==target.sourceUID||previous.attendees?.some(a=>a.self&&a.responseStatus==='declined')))throw fail('CALENDAR_EXTERNAL_CHANGED','原有行程已取消或變更，請核對原日曆；不會建立副本。');
+  if(Number(target.revision||0)>v.revision)return {ok:true,...target,revision:target.revision};
+  await db.prepare("UPDATE documents SET value=? WHERE namespace='meeting-calendar-targets' AND key=? AND COALESCE(json_extract(value,'$.revision'),0)<=?").bind(JSON.stringify({...target,revision:v.revision,active:!v.removed}),key,v.revision).run();
+  if(v.removed)return {ok:true,...target,revision:v.revision};
+  return {ok:true,...target,revision:v.revision};
+ }
  const payload={summary:v.topic,location:v.location,description:'會議工作頁：'+v.url,start:{dateTime:v.start,timeZone:'Asia/Taipei'},end:{dateTime:v.end,timeZone:'Asia/Taipei'}};
  const payloadHash=await hash(JSON.stringify({payload,removed:v.removed}));const marker=previous?.extendedProperties?.private;
  if(previous&&marker?.meetingHub!==v.meetingId)throw fail('IDEMPOTENCY_CONFLICT','原日曆活動的來源不同，請核對。');
@@ -37,12 +62,12 @@ export async function syncMeetingCalendar(auth,v,{db,resolveAccount,checkUser,co
  return {ok:true,calendarId:target.calendarId,eventId,googleAccount:target.googleAccount,revision:v.revision};
 }
 // Calendar browsing is read-only: no documents, event copies, invitations or Google writes.
-export async function readMeetingCalendar(v,{resolveAccount,checkUser,connection,calendarFor,google}){
+export async function readMeetingCalendar(v,{db,resolveAccount,checkUser,connection,calendarFor,google}){
  if(!/^\d{1,20}$/.test(v.account||''))throw fail('INVALID_REQUEST','本人帳號不正確。',400);
  const user=await resolveAccount(v.account);if(!user||user.account!==v.account)throw fail('ACCOUNT_NOT_FOUND','請先登入工作日誌。',404);await checkUser(user);
  const connected=await connection(user),selected=await calendarFor(user),calendarId=!selected||selected==='primary'?connected.account:selected;
  const root='/calendars/'+encodeURIComponent(calendarId)+'/events';
- const normalize=e=>({id:e.id,topic:e.summary||'未命名行程',start:e.start?.dateTime||e.start?.date,end:e.end?.dateTime||e.end?.date,allDay:!e.start?.dateTime,location:e.location||'',meetingId:/^[a-f0-9]{64}$/.test(e.extendedProperties?.private?.meetingHub||'')?e.extendedProperties.private.meetingHub:null});
+ const normalize=e=>({id:e.id,iCalUID:e.iCalUID||null,topic:e.summary||'未命名行程',start:e.start?.dateTime||e.start?.date,end:e.end?.dateTime||e.end?.date,allDay:!e.start?.dateTime,location:e.location||'',meetingId:/^[a-f0-9]{64}$/.test(e.extendedProperties?.private?.meetingHub||'')?e.extendedProperties.private.meetingHub:null});
  const visible=e=>e.status!=='cancelled'&&(!e.eventType||e.eventType==='default')&&!e.attendees?.some(a=>a.self&&a.responseStatus==='declined');
  let items=[];
  if(v.action==='calendar-read'){
@@ -59,6 +84,7 @@ export async function readMeetingCalendar(v,{resolveAccount,checkUser,connection
   }
  }
  await checkUser(user);await connection(user,connected.account);
+ if(db&&items.length){const saved=await db.prepare("SELECT value FROM documents WHERE namespace='meeting-calendar-targets' AND json_extract(value,'$.userId')=? AND json_extract(value,'$.calendarId')=?").bind(user.id,calendarId).all();for(const item of items){const matches=(saved.results||[]).map(x=>JSON.parse(x.value)).filter(x=>x.eventId===item.id&&x.googleAccount===connected.account&&x.reused&&x.active&&/^[a-f0-9]{64}$/.test(x.meetingId||''));if(matches.length===1&&!item.meetingId)item.meetingId=matches[0].meetingId;}}
  if((await calendarFor(user)||'primary')!==(selected||'primary'))throw fail('BINDING_CHANGED','日曆已變更，請重新讀取。');
  return {ok:true,calendarId,googleAccount:connected.account,items};
 }
