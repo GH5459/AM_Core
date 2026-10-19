@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1019.31",
+  "name": "會議手機精簡列表與日週切換",
+  "type": "Meeting hub interface upgrade",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing meeting and Calendar read interfaces only"
+  ],
+  "requiresEnv": [
+    "Original meeting LIFF configuration"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-calendar-week-browser.mjs",
+    "tools/test-meeting-hub.mjs"
+  ],
+  "installTargets": [
+    "Original AM runtime only"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Compact time/topic/action rows grouped by date",
+    "Day and week modes with one-day and seven-day arrows and today reset",
+    "Merge filed meetings and Calendar entries without duplicate rows",
+    "Time range and location visible; long titles wrap on mobile",
+    "Completed records and historical source reader collapsed by default",
+    "Clear stale Calendar rows while loading; reject late responses",
+    "Current source and production data retained",
+    "Chrome six widths and original hub tests pass",
+    "Reviewed main commit and both origins verified"
+  ]
+}
