@@ -37,7 +37,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }
  async function liffFor(row){return tenantFor(row).config.meetings.liffId;}
  async function namedReader(r,userId){if(r.state!=='published'||!r.shared_people?.length||!platform.meetingShareIdentity)return false;for(const tenantKey of new Set(r.shared_people.map(p=>p.tenantKey))){const who=await platform.meetingShareIdentity(userId,tenantKey);if(who&&r.shared_people.some(p=>p.tenantKey===who.tenantKey&&p.account===who.account))return true;}return false;}
- async function assertRead(r,row,userId){try{await assertMember(row,userId);}catch(e){if(!await hub.participant(r,userId)&&!await namedReader(r,userId))throw e;}}
+ async function assertRead(r,row,userId){if(r.receipt?.planInputHash&&!await platform.meetingShareIdentity?.(userId))throw failure(403,'目前沒有有效的會議使用資格。');try{await assertMember(row,userId);}catch(e){if(!await hub.participant(r,userId)&&!await namedReader(r,userId))throw e;}}
  async function authenticate(req,row,r,allowReader=false,identityOnly=false){
   const token=String(req.headers.authorization||'').match(/^Bearer ([^\s]+)$/)?.[1]||'';
   const liff=identityOnly?env.AMCORE_MEETINGS_LIFF_ID:await liffFor(row);if(!liff||!token||token.length>4096)throw failure(401,'請用 LINE 登入後再開啟。');
@@ -45,7 +45,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const v=await fetch('https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),{signal:AbortSignal.timeout(8000)}),j=await v.json();
    if(!v.ok||Number(j.expires_in)<=0||String(j.client_id)!==String(liff).split('-')[0])throw Error('invalid');
    const p=await fetch('https://api.line.me/v2/profile',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(8000)}),a=await p.json();
-   if(!p.ok||!uid(a.userId))throw Error('profile');let readOnly=false;if(!identityOnly)try{await assertMember(row,a.userId);}catch(e){if(!await hub.participant(r,a.userId)){if(!allowReader||!await namedReader(r,a.userId))throw e;readOnly=true;}}return {id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100),readOnly};
+   if(!p.ok||!uid(a.userId))throw Error('profile');if(r?.receipt?.planInputHash&&!await platform.meetingShareIdentity?.(a.userId))throw failure(403,'目前沒有有效的會議使用資格。');let readOnly=false;if(!identityOnly)try{await assertMember(row,a.userId);}catch(e){if(!await hub.participant(r,a.userId)){if(!allowReader||!await namedReader(r,a.userId))throw e;readOnly=true;}}return {id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100),readOnly};
   }catch(e){if(e.status)throw e;throw failure(401,'LINE 登入已失效或暫時無法驗證，請重新登入。');}
  }
  async function offer(row,event,filename,hostName){
