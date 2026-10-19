@@ -3,7 +3,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 process.env.MEETING_WORKSPACE_PREVIEW='1';
 const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
-f.platform.meetingOrganization=async()=>({tenantKey:'fixture',revision:1,departments:[{id:'company',parentId:null,name:'合成公司'},{id:'operations',parentId:'company',name:'營運部'},{id:'engineering',parentId:'company',name:'工程部'}],people:[{account:'111',name:'主持人',departments:['company']},{account:'222',name:'同仁乙',departments:['operations']},{account:'333',name:'外部指定夥伴',departments:['engineering']}]});
+f.platform.meetingOrganization=async()=>({tenantKey:'fixture',revision:1,departments:[{id:'company',parentId:null,name:'合成公司'},{id:'operations',parentId:'company',name:'營運部'},{id:'engineering',parentId:'company',name:'工程部'}],people:[{account:'111',name:'主持人',departments:['company']},{account:'222',name:'同仁乙',departments:['operations','engineering']},{account:'333',name:'外部指定夥伴',departments:['engineering']}]});
 f.platform.meetingShareIdentity=async(id,tenant)=>id==='U'+'3'.repeat(32)&&tenant==='fixture'?{account:'333',tenantKey:'fixture',name:'外部指定夥伴'}:null;
 f.env.AMCORE_PUBLIC_BASE_URL='http://127.0.0.1:8842';
 const row=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0];
