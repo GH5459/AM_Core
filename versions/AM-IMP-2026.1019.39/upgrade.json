@@ -1,0 +1,32 @@
+{
+  "id": "AM-IMP-2026.1019.39",
+  "name": "會議錄音可靠續傳",
+  "type": "Meeting upload recovery",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing project-local meeting upload/chunk tables"
+  ],
+  "requiresEnv": [
+    "Existing private AM runtime settings"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-hub.mjs",
+    "tools/test-meeting-upload-browser.cjs"
+  ],
+  "installTargets": [
+    "Root AM meeting runtime"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Skip verified saved chunks",
+    "Bounded retry and local data retention",
+    "Saved-response recovery without duplicate Drive file",
+    "Existing host/service access preserved",
+    "Exact production verification"
+  ]
+}

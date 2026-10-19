@@ -47,3 +47,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.14 | Original Leaf OA and DailyLog task completion | Installed | Explicit preview/confirmation, original source group/requester, real mention, original card and same-key receipt; isolated Worker/D1 + 6 widths passed; formal deployment pending |
 
 | AM-IMP-2026.1019.38 | 群組交辦登入提示只列尚未連結者 | Installed | 原來源／身分權限／公司選擇及任務等待保持；21組群組測試通過，正式發布與回讀待完成。 |
+
+| AM-IMP-2026.1019.39 | 會議錄音可靠續傳 | Installed | 95段／已存54段缺段續傳、重試與暫存保留測試通過；正式發布待核對。 |
