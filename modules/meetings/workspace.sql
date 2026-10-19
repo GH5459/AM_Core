@@ -54,3 +54,16 @@ ALTER TABLE central_archive.meeting_workspace_access_changes ADD COLUMN IF NOT E
 ALTER TABLE central_archive.meeting_workspace_access_changes ADD COLUMN IF NOT EXISTS people jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE central_archive.meeting_workspace_revisions ADD COLUMN IF NOT EXISTS patch jsonb NOT NULL DEFAULT '{}';
 DROP INDEX IF EXISTS central_archive.meeting_workspace_one_revision;
+
+-- Shared vocabulary is scoped to this service/OA, without conversation content.
+CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary (
+ bot_id text NOT NULL, id uuid NOT NULL, term text NOT NULL,
+ aliases jsonb NOT NULL DEFAULT '[]', note text NOT NULL DEFAULT '', enabled boolean NOT NULL DEFAULT true,
+ version bigint NOT NULL DEFAULT 1, updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(bot_id,id), UNIQUE(bot_id,term)
+);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary_changes (
+ bot_id text NOT NULL, term_id uuid NOT NULL, version bigint NOT NULL, actor_id text NOT NULL,
+ before_value jsonb, after_value jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(bot_id,term_id,version)
+);

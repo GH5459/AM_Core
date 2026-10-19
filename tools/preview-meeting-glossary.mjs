@@ -1,0 +1,10 @@
+import http from 'node:http';
+import {workspaceHtml} from '../modules/meetings/workspace-ui.js';
+process.env.MEETING_WORKSPACE_PREVIEW='1';
+const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
+await f.pg.exec("CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void LANGUAGE SQL AS 'SELECT';");
+const r=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0];
+await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='review' WHERE id=$1",[r.id]);
+const origin='http://127.0.0.1:43129';f.platform.publicBaseUrl=origin;f.env.AMCORE_PUBLIC_BASE_URL=origin;
+const sdk='<script>window.liff={init:async()=>{},isLoggedIn:()=>true,getAccessToken:()=>"host",getProfile:async()=>({displayName:"合成主持人"})};</script>';
+http.createServer(async(req,res)=>{try{const url=new URL(req.url,origin);if(req.method==='GET'&&!url.pathname.endsWith('/audio')){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:'123-fixture',loginUrl:origin+url.pathname,glossaryOnly:url.pathname.endsWith('/glossary')}).replace('<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>',sdk));return;}if(!await f.service.handle(req,res,url)){res.statusCode=404;res.end();}}catch(e){res.statusCode=500;res.end('synthetic preview error');}}).listen(43129,'127.0.0.1',()=>console.log('Synthetic glossary preview: '+origin+'/meetings/review/work/'+r.id));

@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.1019.10",
+  "name": "共用會議詞庫與編輯視窗",
+  "type": "Meeting vocabulary upgrade",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Project-local PostgreSQL central_archive meeting workspace and glossary tables"
+  ],
+  "requiresEnv": [
+    "Existing service-local LINE login and database settings"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-glossary.mjs",
+    "tools/inspect-meeting-workspace.mjs",
+    "tools/test-meeting-glossary-import.mjs",
+    "tools/migrate-meeting-glossary.mjs",
+    "tools/verify-meeting-glossary-database.mjs"
+  ],
+  "installTargets": [
+    "AM platform meeting runtime"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Authenticated vocabulary window and standalone web page",
+    "Canonical terms, confusing spellings and context shared across meetings in the same service",
+    "No automatic publication of private meeting or tenant dictionary contents",
+    "Primary recognition, summary and audio fallback use one vocabulary snapshot",
+    "Version conflicts, alias collisions, disable and change audit verified",
+    "Prior minutes, transcripts, recordings and task receipts preserved",
+    "Actual production verification required before Deployed",
+    "Batch import preview and atomic confirmation for 200+ words, duplicate preservation, conflicts and stale preview rejection"
+  ]
+}
