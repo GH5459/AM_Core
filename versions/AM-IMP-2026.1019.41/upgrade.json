@@ -3,7 +3,7 @@
   "name": "依帳號語言顯示與停止翻譯重試",
   "type": "Multilingual text",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "requiresDatabases": [
     "Original DailyLog D1 documents",
     "Original AM PostgreSQL, additive translation and reply tables",
@@ -35,5 +35,11 @@
     "English and Indonesian accounts display their assigned language",
     "Failed translation preserves original text without automatic retry, including reloads",
     "Meeting editing, sharing, recording and Calendar behavior preserved"
-  ]
+  ],
+  "deployment": {
+    "date": "2026-10-19",
+    "amCommit": "b9b656c87f0e6234fb23f77f891e9abfdca976cd",
+    "dailylogVersion": "615ed463-544a-4b50-ac73-84ee1ce9768b",
+    "verification": "docs/upgrades/meeting-language-no-retry-20261019.md"
+  }
 }
