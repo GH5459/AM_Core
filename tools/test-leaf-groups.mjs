@@ -65,6 +65,31 @@ test('unresolved task identity is retained, resumes after login with original ev
  assert.deepEqual(f.submissions[0].e.message,e.message);assert.equal(f.submissions[0].e.timestamp,e.timestamp);assert.deepEqual(f.submissions[0].p.map(x=>x.account),['owner','a']);
  await f.capture(e);await f.drain();assert.equal(f.submissions.length,1);assert.equal((await f.rows())[0].phase,'done');
 }finally{await f.close();}});
+
+test('unlinked sender notice excludes linked recipients without using their tenant or account',async()=>{const f=await fixture();try{
+ f.identities.delete(owner);f.identities.delete(b);const e=f.message('@甲 @乙 整理清單',[a,b]);await f.capture(e);await f.drain();
+ const notice=f.pushes.find(x=>typeof x.message==='string'&&x.message.includes('請從葉小蝸')).message;
+ assert.match(notice,/發起人、同仁乙請從/);assert(!notice.includes('同仁甲'));assert.equal(f.submissions.length,0);
+ let p=(await f.rows())[0];assert.equal(p.tenantKey,undefined);assert.deepEqual(p.people.map(x=>x.state),['login','linked','login']);assert(p.people.every(x=>!x.account&&!x.bindingId));
+ f.advance();f.restart();await f.drain();assert.equal(f.pushes.length,1,'unchanged missing list does not repeat notice');
+ f.identities.set(b,{account:'b',bindingId:'b-binding'});f.advance();await f.drain();assert.match(f.pushes.at(-1).message,/發起人請從/);assert(!f.pushes.at(-1).message.includes('同仁'));
+ f.identities.set(owner,{account:'owner',bindingId:'owner-binding'});f.advance();f.restart();await f.drain();assert.equal(f.submissions.length,1);assert.deepEqual(f.submissions[0].e,e);assert.deepEqual(f.submissions[0].p.map(x=>x.account),['owner','a','b']);
+ await f.capture(e);await f.drain();assert.equal(f.submissions.length,1);assert.equal(f.writes.size,0);
+}finally{await f.close();}});
+
+test('all identities linked but ambiguous sender tenant is not described as login or used for submission',async()=>{const f=await fixture();try{
+ f.options.tasks.groupServices=async()=>[{key:'one',tenantId:'one'},{key:'two',tenantId:'two'}];
+ f.options.tasks.resolveGroupIdentity=async(id,t)=>({...f.identities.get(id),account:t.key+'-account',bindingId:t.key+'-binding'});
+ await f.capture(f.message('@甲 整理清單',[a]));await f.drain();const p=(await f.rows())[0];
+ assert.equal(f.submissions.length,0);assert.equal(p.tenantKey,undefined);assert(p.people.every(x=>x.state==='linked'&&!x.account&&!x.bindingId));
+ assert.equal(f.pushes.length,1);assert.match(f.pushes[0].message,/無法確認對應的工作日誌/);assert(!f.pushes[0].message.includes('請從葉小蝸'));assert(!f.pushes[0].message.includes('account'));assert(!f.pushes[0].message.includes('發起人'));
+}finally{await f.close();}});
+
+test('unavailable work service and failed identity checks never label linked people as needing login',async()=>{const f=await fixture();try{
+ f.options.tasks.groupServices=async()=>[];await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.submissions.length,0);assert.match(f.pushes[0].message,/不需要重複登入/);assert((await f.rows())[0].people.every(x=>x.state==='unverified'));
+ f.options.tasks.groupServices=async()=>[{key:'fixture',tenantId:'fixture-id'}];f.options.tasks.resolveGroupIdentity=async()=>{throw Error('service_unavailable');};
+ await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.submissions.length,0);assert(f.pushes.every(x=>!String(x.message).includes('請從葉小蝸')));
+}finally{await f.close();}});
 test('partial fanout waits for work identity and Google connection and resumes only missing participants',async()=>{const f=await fixture();try{
  f.identities.delete(b);f.disconnected.add('a');await f.capture(f.message());await f.drain();const p=(await f.rows())[0];await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,1);
  f.identities.set(b,{account:'b',bindingId:'b-binding'});f.disconnected.delete('a');f.advance();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.filter(x=>x.account==='owner').length,1);
