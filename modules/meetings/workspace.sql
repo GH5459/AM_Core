@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary_changes (
  bot_id text NOT NULL, term_id uuid NOT NULL, version bigint NOT NULL, actor_id text NOT NULL,
  before_value jsonb, after_value jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(bot_id,term_id,version)
+);
 CREATE TABLE IF NOT EXISTS central_archive.meeting_plans (
  workspace_id text PRIMARY KEY REFERENCES central_archive.meeting_workspaces(id),
  tenant_key text NOT NULL, topic text NOT NULL DEFAULT '', participants jsonb NOT NULL DEFAULT '[]',
