@@ -1,3 +1,4 @@
+import {multilingualScript} from "./multilingual.js";
 import crypto from 'node:crypto';
 import {Readable} from 'node:stream';
 import {sendJson} from '../../core/util.js';
@@ -5,7 +6,7 @@ import {failure,initialFields} from './workspace-model.js';
 import {planInput,audioInput,HUB_CONTRACT} from './hub-model.js';
 import {hubHtml} from './hub-ui.js';
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
-export function meetingHub({pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request}){
+export function meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request}){
  const origin=()=>new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
  const file=r=>r.receipt?.hubAudio||null;
  const plan=async id=>(await pool.query('SELECT * FROM central_archive.meeting_plans WHERE workspace_id=$1',[id])).rows[0];
@@ -144,8 +145,8 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  }
  async function handle(req,res,url){const liffState=url.searchParams.get('liff.state')||'';if(url.pathname!=='/meetings/review/hub'&&url.pathname!=='/meetings/review/hub/api'&&!(url.pathname==='/meetings/review'&&/^\/hub(?:[?#]|$)/.test(liffState)))return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Robots-Tag','noindex, nofollow');
-  try{if(req.method==='GET'){if((req.headers.host||url.host)!==new URL(origin()).host){res.statusCode=302;res.setHeader('Location',origin()+'/meetings/review/hub');res.end();return true;}res.setHeader('Content-Type','text/html; charset=utf-8');res.end(hubHtml({liffId:env.AMCORE_MEETINGS_LIFF_ID}));return true;}
-   if(req.method!=='POST'||url.pathname!=='/meetings/review/hub/api')throw failure(405,'不支援此操作。');if(req.headers.origin&&req.headers.origin!==origin())throw failure(403,'請從原會議頁操作。');const actor=await authenticate(req,null,null,false,true),v=await body(req);sendJson(res,200,await inventory(actor,v));
+  try{if(req.method==='GET'){if((req.headers.host||url.host)!==new URL(origin()).host){res.statusCode=302;res.setHeader('Location',origin()+'/meetings/review/hub');res.end();return true;}res.setHeader('Content-Type','text/html; charset=utf-8');res.end(hubHtml({liffId:env.AMCORE_MEETINGS_LIFF_ID}).replace('<header>',multilingualScript+'<header>'));return true;}
+   if(req.method!=='POST'||url.pathname!=='/meetings/review/hub/api')throw failure(405,'不支援此操作。');if(req.headers.origin&&req.headers.origin!==origin())throw failure(403,'請從原會議頁操作。');const actor=await authenticate(req,null,null,false,true),v=await body(req),experience=await locale.profile(actor);if(v.action==='locale'){sendJson(res,200,{ok:true,experience});return true;}if(v.action==='translate'){sendJson(res,200,await locale.translate(actor,null,v));return true;}if(['create','calendar-create'].includes(v.action))await locale.guard(actor);sendJson(res,200,{...await inventory(actor,v),experience});
   }catch(e){sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議入口暫時無法使用，請保留內容後重試。'});}return true;
  }
  let draining=false;

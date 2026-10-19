@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.1019.40",
+  "name": "三語工作日誌與會議文字",
+  "type": "Multilingual text",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Original DailyLog D1 documents",
+    "Original AM PostgreSQL, additive translation and reply tables",
+    "Original shared personnel Durable Object"
+  ],
+  "requiresEnv": [
+    "Existing private service authentication and Workers AI binding",
+    "Existing shared AM LLM platform"
+  ],
+  "requiresScripts": [
+    "tools/test-multilingual-policy.mjs",
+    "tools/test-multilingual-meetings.mjs",
+    "tools/test-multilingual-dailylog.cjs",
+    "tools/test-multilingual-management.cjs",
+    "tools/test-multilingual-client.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform",
+    "Original DailyLog",
+    "Original shared employee management"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Single authoritative employee locale defaults Traditional Chinese",
+    "Original text retained with reader translation and source toggle",
+    "Foreign replies and task completion preserve original permissions and task IDs",
+    "Foreign definitions blocked including stale pages and forged locale",
+    "Exact live modules, configuration and synthetic translations verified"
+  ]
+}

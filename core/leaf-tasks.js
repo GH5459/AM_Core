@@ -215,6 +215,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    if(who?.tenantKey===t.key&&who.bindingId){const valid=await call(t,c,'meeting-person',{account:who.account});if(valid.person)found.push({userId,account:who.account,bindingId:who.bindingId,name:valid.person.name,tenantKey:t.key});}
   }return found.length===1?found[0]:null;
  }
+ async function checkMultilingual(input){const t=(await groupServices()).find(t=>t.key===input.tenantKey);if(!t||!['zh-Hant','en','id'].includes(input.locale))throw Error('multilingual_probe_input');return call(t,await config(t),'multilingual-probe',{locale:input.locale});}
  async function meetingDirectory(){const list=[];for(const t of await groupServices()){const c=await config(t),r=await call(t,c,'meeting-directory',{});list.push(...r.people);}return list;}
  async function meetingShareIdentity(userId,tenantKey){
   if(!idPattern.test(userId||''))return null;const found=[];
@@ -222,7 +223,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    if(tenantKey&&t.key!==tenantKey)continue;const c=await config(t),prior=await resolveIdentity(userId,t.key,{readOnly:true});
    const current=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
    const who=current.identity?.userId===userId&&current.identity.identityId?{account:current.identity.account,bindingId:current.identity.identityId}:prior?.tenantKey===t.key&&prior.bindingId?prior:null;
-   if(!who)continue;const v=await call(t,c,'meeting-sharing-person',{account:who.account});if(v.person)found.push({userId,tenantKey:t.key,account:who.account,name:v.person.name});
+   if(!who)continue;const v=await call(t,c,'meeting-sharing-person',{account:who.account});if(v.person)found.push({userId,tenantKey:t.key,account:who.account,name:v.person.name,experience:v.person.experience});
   }return found.length===1?found[0]:null;
  }
  async function meetingOrganization(hostId){const host=await meetingShareIdentity(hostId);if(!host)throw Error('meeting_share_host_identity_required');const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t),v=await call(t,c,'meeting-sharing-directory',{account:host.account});return {...v.organization,tenantKey:t.key};}
@@ -249,6 +250,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function commonLink(input){const available=await groupServices();if(available.length!==1)throw Error('common_identity_service_ambiguous');const t=available[0],c=await config(t);const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/common-link',c.base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},body:JSON.stringify({tenantKey:t.key,...input}),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('common_identity_service_unavailable');return r.json();}
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
 
- return {commonLink,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
+ return {commonLink,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
   resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
