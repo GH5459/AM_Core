@@ -154,6 +154,8 @@ jobs:
       - run: node tools/test-meeting-glossary.mjs
       - run: node tools/test-meeting-glossary-import.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.10
+      - run: node --check modules/meetings/organization-picker.js
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.33
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.32
       - run: node tools/test-meeting-external-invitations.mjs
       - run: node tools/test-meeting-hub.mjs

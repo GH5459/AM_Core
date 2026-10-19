@@ -1,0 +1,32 @@
+{
+  "id": "AM-IMP-2026.1019.33",
+  "name": "會議參與者與分享對象組織選人視窗",
+  "type": "Meeting UI",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM platform"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing organization and meeting permissions"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-external-invitations.mjs",
+    "tools/test-meeting-collaboration.mjs",
+    "tools/serve-meeting-invitations-preview.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Shared native modal for invitation, sharing and new meeting attendees",
+    "Real organization hierarchy, search and account deduplication",
+    "Closing applies locally and cancel discards modal edits",
+    "Original independent saves and source-version conflicts retained",
+    "Mobile view keeps actions visible and restores focus",
+    "Production verification does not save real names or send invitations"
+  ]
+}
