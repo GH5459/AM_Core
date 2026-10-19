@@ -23,6 +23,7 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
   const row=await conversation(r);if(!row.enabled||['left','blocked'].includes(row.connection_state))return;
   await assertMember(row,r.host_id);
   let q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[id])).rows[0];if(!q)return;
+  if(!q.payload&&!todos(r.fields).some(t=>t.ownerId)&&!todos(q.applied_fields).some(t=>t.ownerId)){await wait(id,'');return;}
   const identities=new Map(),resolve=async userId=>{if(!identities.has(userId)){await assertMember(row,userId);identities.set(userId,await platform.meetingTaskIdentity?.(userId));}return identities.get(userId);};
   const host=await resolve(r.host_id);
   if(!host){await wait(id,'待主持人完成 UOF／LINE 與工作日誌連線；會議已發布。');return;}

@@ -24,6 +24,7 @@ const platform={meetingTaskIdentity:async u=>ids.get(u)||null,publishMeetingTask
 const args={pool,store,botId:bot,platform,conversation:async()=>row,assertMember:async(_,u)=>assert([host,one,two].includes(u)),link:id=>'https://fixture.example.test/meetings/'+id,logger:{warn(){}}};
 let dispatch=meetingTaskDispatch(args);await dispatch.enqueue(await store.get(id));
 await dispatch.run(id);assert.equal(tasks.size,1);assert.deepEqual((await dispatch.status(await store.get(id))).items.map(x=>x.state),['delivered','pending']);
+fields[todo2].ownerId='';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb WHERE id=$1',[id,JSON.stringify(fields)]);await dispatch.run(id);assert.equal(tasks.size,1);assert.equal(calls.length,1,'Cancelling an item before its owner connects must not create it');fields[todo2].ownerId=two;
 // Edit and cancel an unconnected person's item before connection. No stale task
 // or discarded deadline may be sent later.
 fields[todo2].content='最新確認交付';fields[todo2].due='2026-11-03';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,revision=6 WHERE id=$1',[id,JSON.stringify(fields)]);
