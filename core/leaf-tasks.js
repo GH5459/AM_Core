@@ -222,7 +222,8 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const who=await meetingShareIdentity(ids[0],tenantKey);
   return who?.account===account?who:null;
  }
- async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId,revision,previousFields,taskTenant='',knownTaskIds=[]}){
+ async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId,revision,previousFields,taskTenant='',knownTaskIds=[],preparedPayload}){
+  if(preparedPayload){const t=tenants.find(t=>t.key===taskTenant&&t.runtimeEnabled!==false);if(!t||preparedPayload.host?.tenantKey!==taskTenant)throw Error('meeting_task_service_changed');return {...await call(t,await config(t),'meeting-publish',preparedPayload),tenantKey:taskTenant};}
   const assigned=Object.entries(fields).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId);
   const removed=revision?Object.entries(previousFields||{}).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId&&!fields[k]?.ownerId).map(([k])=>k):[];
   if(!assigned.length&&!removed.length&&!knownTaskIds.length)return {tasks:[],tenantKey:taskTenant};const host=await meetingIdentity(hostId);if(!host)throw Error('meeting_host_work_identity_required');

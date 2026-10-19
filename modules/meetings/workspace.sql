@@ -20,6 +20,15 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_presence (
  PRIMARY KEY(workspace_id,actor_id)
 );
 CREATE INDEX IF NOT EXISTS meeting_workspace_recovery ON central_archive.meeting_workspaces(state,lease_until);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_task_dispatches (
+ workspace_id text PRIMARY KEY REFERENCES central_archive.meeting_workspaces(id),
+ applied_fields jsonb NOT NULL DEFAULT '{}', applied_identities jsonb NOT NULL DEFAULT '{}',
+ task_tenant text NOT NULL DEFAULT '', host_identity jsonb,
+ sequence bigint NOT NULL DEFAULT 0, payload jsonb, payload_fields jsonb,
+ known_task_ids jsonb NOT NULL DEFAULT '[]', result jsonb NOT NULL DEFAULT '{}',
+ error_code text NOT NULL DEFAULT '', next_attempt_at timestamptz NOT NULL DEFAULT now(),
+ updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_templates (
  conversation_key text NOT NULL REFERENCES central_archive.conversations(key), name text NOT NULL,
  prompt text NOT NULL, version bigint NOT NULL DEFAULT 1, updated_by text NOT NULL,
