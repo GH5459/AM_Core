@@ -28,6 +28,9 @@ on:
       - 'tools/central-archive-admin.mjs'
       - 'tools/test-central-archive.mjs'
       - 'versions/AM-IMP-2026.1007.03/**'
+      - 'core/portal-command-entry.js'
+      - 'tools/test-portal-command-entry.mjs'
+      - 'versions/AM-IMP-2026.1019.07/**'
       - 'server.js'
       - 'core/work-journal-entry.js'
       - 'core/uof-setup-entry.js'
@@ -138,6 +141,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node tools/test-portal-command-entry.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-conversation-meetings.mjs
       - run: node tools/test-meeting-workspace.mjs
       - run: node tools/test-meeting-workspace-service.mjs

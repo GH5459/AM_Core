@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as workJournalEntry from '../core/work-journal-entry.js';
 import * as uofSetupEntry from '../core/uof-setup-entry.js';
 import fs from 'node:fs/promises';
@@ -76,6 +77,7 @@ const dependencies = {
     deliveryReady: () => false,
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
+  './core/portal-command-entry.js': portalCommandEntry,
   './core/work-journal-entry.js': workJournalEntry,
   './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
@@ -152,3 +154,14 @@ failCentralIntake=true;
 assert.equal((await webhook([group])).status,503,'An archive outage must not acknowledge and lose the source');
 assert.equal(centralCaptured.length,centralCount + 4);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');
+
+// Public portal navigation bypasses business handlers after signature validation.
+failCentralIntake=false;
+for(const text of ['UOF','會議']){
+ const before=Object.fromEntries(Object.entries(passed).map(([k,v])=>[k,v.length]));
+ const ev={...journal,message:{...journal.message,text},replyToken:'portal-'+text};
+ const replyCount=journalReplies.length;
+ assert.equal((await webhook([ev],false)).status,401);assert.equal(journalReplies.length,replyCount);
+ assert.equal((await webhook([ev])).status,200);assert.equal(journalReplies.length,replyCount+1);
+ for(const [k,v] of Object.entries(passed))assert.equal(v.length,before[k]);
+}
