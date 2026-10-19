@@ -1,3 +1,4 @@
+import * as usageGuideEntry from '../core/usage-guide-entry.js';
 import assert from 'node:assert/strict';
 import * as workJournalEntry from '../core/work-journal-entry.js';
 import * as uofSetupEntry from '../core/uof-setup-entry.js';
@@ -55,7 +56,8 @@ for (const fails of [false, true]) {
       capture:async(events,options)=>{ if(retrievalMode) assert.equal(options.excludeEvents(events[0]),true); },
     }),readLineIoBody:async r=>r.rawBody },
     './core/bank-line-reply-intake.js': {createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
-    './core/work-journal-entry.js': workJournalEntry,
+    './core/usage-guide-entry.js':usageGuideEntry,
+      './core/work-journal-entry.js': workJournalEntry,
     './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
     './core/leaf-calendar/index.js': leafCalendar,

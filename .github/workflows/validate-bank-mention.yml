@@ -30,6 +30,9 @@ on:
       - 'versions/AM-IMP-2026.1007.03/**'
       - 'server.js'
       - 'core/work-journal-entry.js'
+      - 'core/usage-guide-entry.js'
+      - 'tools/test-usage-guide-entry.mjs'
+      - 'versions/AM-IMP-2026.1019.12/**'
       - 'core/uof-setup-entry.js'
       - 'tools/test-uof-setup-entry.mjs'
       - 'versions/AM-IMP-2026.1013.01/**'
@@ -180,7 +183,7 @@ jobs:
       - run: node --test tools/test-archive-file-lookup.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1012.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.03
-      - run: node --test tools/test-work-journal-entry.mjs
+      - run: node --test tools/test-work-journal-entry.mjs tools/test-usage-guide-entry.mjs
       - run: node --test tools/test-uof-setup-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.02
