@@ -49,6 +49,7 @@ const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
 Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
+platform.meetingExperienceRequired=true;
 const leafGroups = createLeafGroups({ platform, line, tasks: leafTasks, calendar: leafCalendar, llm, logger });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
@@ -293,6 +294,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
+      multilingualText:{contract:'employee-three-language-text-v1',locales:['zh-Hant','en','id'],foreignTaskStatus:true,foreignDefinitionEdit:false},
       build: GROUP_ONBOARDING_BUILD,
       financeMentionRegistry: 'claims-group-members-v1',
       financeMentionReferenceContract: 'hozo-rental-finance-group-mention-v2',
@@ -604,9 +606,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health','/portal/admin/leaf-tasks/quick-create-health','/portal/admin/leaf-tasks/eligibility-health'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health','/portal/admin/leaf-tasks/quick-create-health','/portal/admin/leaf-tasks/eligibility-health','/portal/admin/leaf-tasks/multilingual-probe'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/multilingual-probe'))return sendJson(res,200,await leafTasks.checkMultilingual(input));
       if(url.pathname.endsWith('/quick-create-health'))return sendJson(res,200,await leafTasks.checkQuickCreate(input));
       if(url.pathname.endsWith('/eligibility-health'))return sendJson(res,200,await leafTasks.checkTaskEligibility(input));
       if(url.pathname.endsWith('/photo-health'))return sendJson(res,200,await leafTasks.checkPhotos(input));
