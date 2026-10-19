@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1019.37",
+  "name": "工作日誌會議與 LINE 群組來源標示",
+  "type": "Read-only task origin metadata",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": ["AM Platform", "Original DailyLog task service"],
+  "requiresDatabases": ["Existing project-local PostgreSQL", "Existing DailyLog D1"],
+  "requiresEnv": ["Existing meeting management integration signature"],
+  "requiresScripts": ["tools/test-task-origins.mjs", "tools/test-conversation-meetings.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Existing meeting and group tasks display exact source names", "Only selected names from this OA leave the source service", "Drafts and message bodies remain private", "Source lookup never writes business tasks or changes their authorization", "Existing transfers and source links survive", "Complete current production packages and original settings/assets are preserved"]
+}
