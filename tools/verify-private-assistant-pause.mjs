@@ -158,10 +158,12 @@ console.log('Private assistant pause verified: private events bypass intake, loo
 // Public portal navigation bypasses business handlers after signature validation.
 failCentralIntake=false;
 for(const text of ['UOF','會議']){
+ for(const source of [journal.source,{type:'group',userId:journal.source.userId,groupId:'C'+'2'.repeat(32)},{type:'room',userId:journal.source.userId,roomId:'R'+'3'.repeat(32)}]){
  const before=Object.fromEntries(Object.entries(passed).map(([k,v])=>[k,v.length]));
- const ev={...journal,message:{...journal.message,text},replyToken:'portal-'+text};
+ const ev={...journal,source,message:{...journal.message,text},replyToken:'portal-'+text};
  const replyCount=journalReplies.length;
  assert.equal((await webhook([ev],false)).status,401);assert.equal(journalReplies.length,replyCount);
  assert.equal((await webhook([ev])).status,200);assert.equal(journalReplies.length,replyCount+1);
  for(const [k,v] of Object.entries(passed))assert.equal(v.length,before[k]);
+ }
 }
