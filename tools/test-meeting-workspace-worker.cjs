@@ -37,7 +37,14 @@ const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
   revised.status='done';revised.completedAt='2026-10-18T00:00:00Z';revised.participantProgress=[{account:'111',status:'done',version:1,completedAt:revised.completedAt},{account:'222',status:'done',version:4,completedAt:revised.completedAt}];await db.prepare('UPDATE work_items SET value=?').bind(JSON.stringify(revised)).run();
   assert.equal((await call({...input,revision:13,removed:[]})).status,200);revised=JSON.parse((await db.prepare('SELECT value FROM work_items').first()).value);assert.equal(revised.lead.account,'222');assert.equal(revised.status,'in_progress');assert.equal(revised.completedAt,null);assert.equal(revised.participantProgress.find(p=>p.account==='222').status,'pending');assert.equal(revised.participantProgress.find(p=>p.account==='222').version,5);assert(revised.history.some(h=>h.kind==='edit'&&h.before?.status==='done'));
   assert.equal((await call({...input,revision:14,removed:[],knownTaskIds:['work-00000000-0000-4000-8000-000000000000']})).status,403);assert.equal((await db.prepare('SELECT count(*) AS n FROM work_items').first()).n,1);
-  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup']},null,2));
+  const deferred={...input,id:'d'.repeat(64),revision:1,deliverySequence:1,removed:[],knownTaskIds:[]};
+  r=await call(deferred);body=await r.json();assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.tasks.length,1);
+  assert.equal((await call(deferred)).status,200);assert.equal((await call({...deferred,goal:'altered replay'})).status,409);
+  const later={...deferred,deliverySequence:2,knownTaskIds:body.tasks.map(t=>t.id),tasks:[{...deferred.tasks[0],id:'todo:22222222-2222-4222-8222-222222222222',content:'完成連線後補派',due:'2026-10-26'}]};
+  assert.equal((await call(later)).status,200);assert.equal((await call(later)).status,200);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM work_items').first()).n,3);
+  assert.equal((await call({...later,deliverySequence:0})).status,400);
+  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup','deferred delivery sequence at same meeting revision','later connected recipient without duplicate task']},null,2));
   console.log('Complete live Worker + real workerd/D1: authenticated meeting task creation, real task model, assignee/deadline/source, atomic receipt and duplicate protection passed.');
  }finally{await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -16,6 +16,7 @@ try{
   await pool.query(`GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_workspaces,central_archive.meeting_workspace_edits,central_archive.meeting_workspace_presence,central_archive.meeting_workspace_templates,central_archive.meeting_workspace_revisions,central_archive.meeting_workspace_access_changes,central_archive.meeting_glossary,central_archive.meeting_glossary_changes TO "${role}"`);
   await pool.query(`GRANT SELECT ON central_archive.meeting_workspace_release TO "${role}"`);
   await pool.query('GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_share_notices TO '+JSON.stringify(role));
+  await pool.query('GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_task_dispatches TO '+JSON.stringify(role));
   await pool.query('GRANT SELECT,INSERT,UPDATE ON central_archive.meeting_plans,central_archive.meeting_calendar_links,central_archive.meeting_audio_uploads,central_archive.meeting_audio_chunks TO '+JSON.stringify(role));
   await pool.query('GRANT DELETE ON central_archive.meeting_audio_chunks TO '+JSON.stringify(role));
   console.log(JSON.stringify({migrated:true,workspaceSchemaReady:true,existingConversationsUnchanged:true}));

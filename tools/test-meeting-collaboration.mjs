@@ -35,7 +35,7 @@ let changed=(await api({action:'history'})).value.history;assert(changed.some(h=
 const perPart=(await api({action:'history',field:first})).value.history;assert(perPart.length&&perPart.every(h=>h.field===first),'Each paragraph can expose its complete attributed history separately');
 const diff=textChanges('A🙂原文與保留','A🙂新增與保留');assert(diff.some(d=>d.kind==='delete'&&d.text==='原文'));assert(diff.some(d=>d.kind==='add'&&d.text==='新增'));assert.equal(diff.filter(d=>d.kind!=='delete').map(d=>d.text).join(''),'A🙂新增與保留');
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[id]);
-let held=true,calls=[];f.platform.publishMeetingTasks=async input=>{calls.push(input.revision);if(held)throw Error('synthetic_lost_response');return {tasks:[{id:'original-work-task'}],tenantKey:'fixture'};};
+let held=true,calls=[];f.platform.publishMeetingTasks=async input=>{calls.push(input.preparedPayload.revision);if(held)throw Error('synthetic_lost_response');return {tasks:[{id:'original-work-task'}],tenantKey:'fixture'};};f.loseRevision();
 view=(await api({action:'read'},'member')).value;
 assert.equal((await api({action:'save-part',field:first,value:'A 正式版修訂',version:view.editing.versions[first]},'member')).status,200);await f.service.settle();
 assert.equal((await api({action:'save-part',field:second,value:'B 排隊修訂',version:view.editing.versions[second]})).status,200);await f.service.settle();

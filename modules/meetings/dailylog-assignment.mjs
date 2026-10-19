@@ -3,7 +3,7 @@
 export async function publishMeetingAssignments(value,env,{now=Date.now,directory,permission,makeService,publish,core}){
  const fail=(message,status=400)=>Object.assign(Error(message),{code:message,status});
  if(!/^[a-f0-9]{64}$/.test(value.id||'')||!/^U[a-f0-9]{32}$/i.test(value.host?.userId||'')||!value.host.account||!value.host.bindingId||!Array.isArray(value.tasks)||value.tasks.length>60||!value.source||!/^https:\/\//.test(value.url||''))throw fail('INVALID_MEETING');
- if(value.revision!==undefined)return reviseMeetingAssignments(value,env,{now,directory,permission,makeService,publish,core});
+ if(value.revision!==undefined||value.deliverySequence!==undefined)return reviseMeetingAssignments(value,env,{now,directory,permission,makeService,publish,core});
  const encoded=JSON.stringify(value),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(encoded)))).map(n=>n.toString(16).padStart(2,'0')).join('');
  const prior=await env.DB.prepare('SELECT input_hash,result FROM meeting_task_receipts WHERE id=? AND tenant=?').bind(value.id,env.LEAF_TASK_TENANT).first();
  if(prior){if(prior.input_hash!==hash)throw fail('IDEMPOTENCY_CONFLICT',409);return {ok:true,...JSON.parse(prior.result)};}
@@ -32,8 +32,9 @@ export async function publishMeetingAssignments(value,env,{now=Date.now,director
 
 async function reviseMeetingAssignments(value,env,{now,directory,permission,publish,core}){
  const fail=(code,status=409)=>Object.assign(Error(code),{code,status}),digest=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(n=>n.toString(16).padStart(2,'0')).join('');
- if(!Number.isSafeInteger(value.revision)||value.revision<2||!Array.isArray(value.removed)||value.removed.length>60||value.removed.some(id=>!/^todo:[a-f0-9-]{36}$/.test(id))||new Set([...value.removed,...value.tasks.map(t=>t.id)]).size!==value.removed.length+value.tasks.length)throw fail('INVALID_MEETING_REVISION',400);
- const operation=value.id+':revision:'+value.revision,hash=await digest(JSON.stringify(value)),db=env.DB;
+ const delivery=value.deliverySequence!==undefined;
+ if(delivery&&(!Number.isSafeInteger(value.deliverySequence)||value.deliverySequence<1)||!Number.isSafeInteger(value.revision)||value.revision<(delivery?1:2)||!Array.isArray(value.removed)||value.removed.length>60||value.removed.some(id=>!/^todo:[a-f0-9-]{36}$/.test(id))||new Set([...value.removed,...value.tasks.map(t=>t.id)]).size!==value.removed.length+value.tasks.length)throw fail('INVALID_MEETING_REVISION',400);
+ const operation=value.id+(delivery?':delivery:'+value.deliverySequence:':revision:'+value.revision),hash=await digest(JSON.stringify(value)),db=env.DB;
  if(value.knownTaskIds!==undefined&&(!Array.isArray(value.knownTaskIds)||value.knownTaskIds.length>1200||value.knownTaskIds.some(id=>!/^work-[a-f0-9-]{36}$/.test(id))))throw fail('INVALID_TASK_SOURCE',400);
  const prior=await db.prepare('SELECT input_hash,result FROM meeting_task_receipts WHERE id=? AND tenant=?').bind(operation,env.LEAF_TASK_TENANT).first();if(prior){if(prior.input_hash!==hash)throw fail('IDEMPOTENCY_CONFLICT');return {ok:true,...JSON.parse(prior.result)};}
  const roster=await directory(),map=new Map(roster.people.map(p=>[p.account,p])),active=a=>map.has(a)&&permission(a),actor=map.get(value.host.account);

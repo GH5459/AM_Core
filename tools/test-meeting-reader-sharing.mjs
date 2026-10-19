@@ -40,7 +40,7 @@ assert.equal((await api({action:'revise',fields,revision:Number(current.revision
 f.row.enabled=false;assert.equal((await api({action:'revise',fields,revision:Number(current.revision)})).status,409);f.row.enabled=true;
 assert.equal((await api({action:'revise',fields,revision:Number(current.revision)-1})).status,409);
 assert.equal((await api({action:'revise',fields:{record:'缺少完整內容'},revision:Number(current.revision)})).status,400);
-let revisionCalls=0;f.platform.publishMeetingTasks=async input=>{assert.equal(input.id,id);assert.equal(input.previousFields.record,current.fields.record);assert.equal(input.fields[todo].due,'2026-11-01');revisionCalls++;if(revisionCalls===1)throw Error('reply_lost_after_task_commit');return {tasks:[{id:'same-task',owner:'222',due:'2026-11-01'}]};};
+let revisionCalls=0;f.platform.publishMeetingTasks=async input=>{assert.equal(input.preparedPayload.id,id);assert.equal(input.preparedPayload.tasks[0].due,'2026-11-01');revisionCalls++;if(revisionCalls===1)throw Error('reply_lost_after_task_commit');return {tasks:[{id:'same-task',owner:'222',due:'2026-11-01'}]};};f.loseRevision();
 result=await api({action:'revise',fields,revision:Number(current.revision)});assert.equal(result.status,200);await f.service.drain();await f.service.settle();
 assert.equal((await f.service.store.get(id)).fields.record,current.fields.record,'Prior published content stays visible while sync is incomplete');
 const pending=await f.pg.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'",[id]);assert.equal(pending.rows.length,1);
@@ -49,7 +49,7 @@ assert.equal((await api({action:'sharing',enabled:true,revision:Number(current.r
 assert.equal((await api({action:'sharing',enabled:false,revision:Number(current.revision),version:3})).status,200,'Revocation must work while revision synchronization is pending');
 assert.equal((await api({action:'read'},'')).status,401);
 for(let i=0;i<3;i++){await f.pg.query("UPDATE central_archive.meeting_workspace_revisions SET lease_until=NULL WHERE workspace_id=$1 AND state='pending'",[id]);await f.service.drain();await f.service.settle();}
-const revised=await f.service.store.get(id);assert.equal(revised.fields.record,fields.record);assert.equal(revised.fields[todo].due,'2026-11-01');assert.equal(Number(revised.revision),Number(current.revision)+1);assert.equal(revised.receipt.notionId,current.receipt.notionId);assert.equal(revisionCalls,2);
+const revised=await f.service.store.get(id);assert.equal(revised.fields.record,fields.record);assert.equal(revised.fields[todo].due,'2026-11-01');assert.equal(Number(revised.revision),Number(current.revision)+1);assert.equal(revised.receipt.notionId,current.receipt.notionId);await f.service.taskDispatch.run(id);await f.service.taskDispatch.run(id);assert.equal(revisionCalls,2);
 assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE state='applied'")).rows[0].n,1);
 const text=f.pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].text.content);assert.equal(text.filter(s=>s.startsWith('會議修訂 ')).length,1);assert(text.includes(current.fields.record));assert(text.includes(fields.record));
 assert.equal((await api({action:'revise',fields,revision:Number(current.revision)})).status,409);assert.equal(f.taskIds.size,1);

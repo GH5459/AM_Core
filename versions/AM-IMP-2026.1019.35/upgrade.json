@@ -1,0 +1,12 @@
+{
+ "id":"AM-IMP-2026.1019.35",
+ "name":"會議先發布與未連線任務後補派",
+ "type":"Meeting publication and task delivery",
+ "portable":true,"status":"Ready",
+ "installTargets":["AM platform","Original DailyLog task service"],
+ "requiresDatabases":["Project-local PostgreSQL","Existing task-service D1"],
+ "requiresEnv":["Existing verified task service and LINE membership"],
+ "requiresScripts":["tools/test-meeting-task-dispatch.mjs","tools/test-meeting-workspace-service.mjs","tools/test-meeting-workspace-worker.cjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Unconnected owners do not block publication","Latest task content and original due/evidence survive connection delay","Lost replies/restarts never duplicate task creation","Cancellation and identity/service boundaries retain original task history","Current complete Worker, precise AM version and source preservation verified"]
+}
