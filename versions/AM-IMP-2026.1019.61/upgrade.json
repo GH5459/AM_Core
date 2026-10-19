@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1019.61",
+  "name": "農曆年度與全天行事曆",
+  "type": "Calendar runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing scoped calendar service and Google connection"
+  ],
+  "requiresScripts": [
+    "tools/test-lunar-calendar.mjs",
+    "tools/test-leaf-calendar.mjs"
+  ],
+  "installTargets": [
+    "Root Leaf OA",
+    "Configured original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Spaced dates accepted",
+    "Deterministic annual lunar and all-day Google series",
+    "Unsupported explicit requests explained",
+    "Owner confirmation and replay preserved",
+    "Full CI and both production services verified"
+  ]
+}
