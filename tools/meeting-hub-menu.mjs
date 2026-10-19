@@ -11,7 +11,20 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 async function api(p,opts={},data=false){const r=await fetch((data?'https://api-data.line.me':'https://api.line.me')+p,{...opts,headers:{Authorization:'Bearer '+token,...opts.headers},signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error('LINE menu HTTP '+r.status);return r;}
 const json=async(p,opts)=>(await api(p,opts)).json(),write=(name,v)=>fs.writeFileSync(folder+'/'+name,JSON.stringify(v,null,2)),read=name=>JSON.parse(fs.readFileSync(folder+'/'+name));
 async function current(){const bot=await json('/v2/bot/info');assert.equal(bot.userId,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,'Original OA only');const current=await json('/v2/bot/user/all/richmenu'),menu=await json('/v2/bot/richmenu/'+current.richMenuId),image=Buffer.from(await(await api('/v2/bot/richmenu/'+current.richMenuId+'/content',{},true)).arrayBuffer());return {bot:bot.userId,id:current.richMenuId,menu,imageHash:sha(image),image};}
-if(phase==='prepare'){
+if(phase==='prepare-compact'){
+ assert(!fs.existsSync(folder+'/menu-before.private.json'));const before=await current();
+ assert.equal(before.menu.size.width,2500);assert.equal(before.menu.areas.length,3);
+ write('menu-before.private.json',{...before,image:undefined});fs.writeFileSync(folder+'/menu-before.private.png',before.image);
+ const {richMenuId,...def}=structuredClone(before.menu);def.size.height=422;
+ for(const area of def.areas){assert.equal(area.bounds.y,0);area.bounds.height=422;}
+ const cards=['工作日誌','會議','UOF'];
+ const svg=`<svg width="2500" height="422" xmlns="http://www.w3.org/2000/svg"><rect width="2500" height="422" fill="#edf3ed"/>${cards.map((title,i)=>{const x=i*833,ink=i===1?'#e1e9b8':'#2d6249';return `<rect x="${x+20}" y="20" width="793" height="382" rx="30" fill="${i===1?'#20513c':'#fff'}"/><g transform="translate(${x+416} 132)" fill="none" stroke="${ink}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">${i===0?'<rect x="-53" y="-60" width="106" height="125" rx="9"/><path d="M-27 -25H27M-27 3H27M-27 31H8"/>':i===1?'<circle cx="0" cy="-36" r="24"/><circle cx="-66" cy="-8" r="18"/><circle cx="66" cy="-8" r="18"/><path d="M-40 60V38a40 40 0 0 1 80 0v22M-92 60V37a27 27 0 0 1 37-25M92 60V37a27 27 0 0 0-37-25"/>':'<rect x="-53" y="-60" width="106" height="125" rx="9"/><path d="m-28 3 19 20 37-44"/>'}</g><text x="${x+416}" y="325" text-anchor="middle" font-family="Microsoft JhengHei, sans-serif" font-size="100" font-weight="700" fill="${i===1?'#fff':'#234d39'}">${title}</text>`;}).join('')}</svg>`;
+ const image=await sharp(Buffer.from(svg)).png().toBuffer();const metadata=await sharp(image).metadata();assert.equal(metadata.height,422);assert.equal(metadata.width,2500);assert(image.length<1024*1024);
+ assert.deepEqual(def.areas.map(a=>a.action),before.menu.areas.map(a=>a.action));
+ write('menu-candidate.private.json',def);fs.writeFileSync(folder+'/menu-candidate.png',image);
+ await json('/v2/bot/richmenu/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(def)});
+ console.log(JSON.stringify({prepared:true,validated:true,width:2500,height:422,allActionsPreserved:true}));
+}else if(phase==='prepare'){
  assert(!fs.existsSync(folder+'/menu-before.private.json'));const before=await current();write('menu-before.private.json',{...before,image:undefined});fs.writeFileSync(folder+'/menu-before.private.png',before.image);const areas=before.menu.areas.toSorted((a,b)=>a.bounds.x-b.bounds.x);assert.equal(areas.length,2,'Expect current two-button menu; review changes before replacing');
  const middle=new URL('/meetings/review/hub',env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL);middle.searchParams.set('openExternalBrowser','1');
  const def={size:{width:2500,height:843},selected:before.menu.selected,name:'葉小蝸：工作日誌・會議・UOF',chatBarText:'葉小蝸選單',areas:[{bounds:{x:0,y:0,width:833,height:843},action:areas[0].action},{bounds:{x:833,y:0,width:834,height:843},action:{type:'uri',label:'會議',uri:middle.href}},{bounds:{x:1667,y:0,width:833,height:843},action:areas[1].action}]};

@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.1019.06",
+  "name": "本人 Calendar 每週會議清單",
+  "type": "Meeting calendar browse upgrade",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing meeting PostgreSQL and DailyLog user connection"
+  ],
+  "requiresEnv": [
+    "Original Calendar service and Google OAuth"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-hub.mjs",
+    "tools/test-meeting-hub-worker.cjs",
+    "tools/test-meeting-calendar-week-browser.mjs"
+  ],
+  "installTargets": [
+    "Original AM runtime",
+    "Original DailyLog Calendar module"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Personal read-only seven-day Calendar listing and weekly navigation",
+    "Recurring instances, pagination, cancelled and declined filtering",
+    "Signed actor-bound entry and fresh event verification before explicit filing",
+    "Stable original workspace without duplicate Google writes",
+    "Expired unfiled entries disappear from list without destructive deletion",
+    "Existing recording, preparation and sharing preserved",
+    "Full Worker and Chrome layout tests pass",
+    "Exact production readback verified"
+  ]
+}

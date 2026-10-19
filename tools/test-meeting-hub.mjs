@@ -30,6 +30,17 @@ const uploadId='synthetic-upload-001';assert.equal((await detail({action:'audio-
 const bytes=Buffer.from('synthetic-audio').toString('base64');assert.equal((await detail({action:'audio-part',uploadId,part:0,bytes})).status,200);assert.equal((await detail({action:'audio-part',uploadId,part:0,bytes})).status,200);assert.equal((await detail({action:'audio-part',uploadId,part:0,bytes:Buffer.from('different').toString('base64')})).status,409);
 assert.equal((await detail({action:'audio-finish',uploadId,parts:1})).status,200);assert.equal((await detail({action:'audio-finish',uploadId,parts:1})).status,200);assert.equal(drive.length,1);assert.equal((await pg.query('SELECT count(*) AS n FROM central_archive.meeting_audio_chunks')).rows[0].n,0);
 let r=await service.store.get(id);assert.equal((await work({action:'start',revision:Number(r.revision)})).status,200);await service.drain();await service.settle();assert.equal(generated.preparation,'僅為議程，不代表已決議。');r=await service.store.get(id);assert.equal(r.state,'review');assert.equal(r.result.preparationVersion,2);assert.equal(drive.length,1);
+// Read-only calendar entries are signed for one actor, then explicitly filed once.
+const originalCalendar=platform.syncMeetingCalendar;let calendarWrites=0;
+platform.syncMeetingCalendar=async(t,v)=>{assert(['calendar-week','calendar-read'].includes(v.action));calendarWrites++;return {ok:true,calendarId:'fixture-calendar',googleAccount:'fixture@example.test',items:[{id:'instance-one',topic:'Calendar合成會議',start:'2026-10-27T02:00:00Z',end:'2026-10-27T03:00:00Z',allDay:false,location:'合成',meetingId:null}]};};
+const week=await hub({action:'calendar-week',start:'2026-10-26'});assert.equal(week.status,200,JSON.stringify(week));assert.equal(week.items.length,1);const ref=week.items[0].calendarRef;
+assert.equal((await call('/meetings/review/hub/api',{action:'create',calendarRef:ref,conversationKey:key},'guest')).status,403);
+assert.equal((await hub({action:'create',calendarRef:ref+'tamper',conversationKey:key})).status,403);
+const imported=await hub({action:'create',calendarRef:ref,conversationKey:key});assert.equal(imported.status,200,JSON.stringify(imported));assert.equal(imported.id,week.items[0].workspaceId);assert.equal((await hub({action:'create',calendarRef:ref,conversationKey:key})).id,imported.id);
+assert.equal((await pg.query('SELECT calendar_enabled FROM central_archive.meeting_plans WHERE workspace_id=$1',[imported.id])).rows[0].calendar_enabled,false);
+assert.equal((await call('/meetings/review/work/'+imported.id+'/hub',{...input,action:'plan-save',version:1})).status,409);
+await pg.query("UPDATE central_archive.meeting_plans SET end_at='2020-01-01' WHERE workspace_id=$1",[imported.id]);assert(!(await hub({action:'list'})).items.some(x=>x.id===imported.id));
+platform.syncMeetingCalendar=originalCalendar;
 const list=await hub({action:'list'});assert.equal(list.items[0].id,id);assert(!JSON.stringify(list).includes('僅為議程'));assert.equal((await call('/meetings/review/hub/api',{action:'list'},'host','https://other.example')).status,403);
 if(!process.env.MEETING_HUB_PREVIEW){globalThis.fetch=priorFetch;await pg.close();}console.log('Meeting hub: no-audio creation, operation replay/conflict, explicit participants/revocation, versioned preparation, separate recording and generation, resumable chunk integrity, one original Drive file, Calendar per-person reschedule/removal and private list minimization passed.');
 
