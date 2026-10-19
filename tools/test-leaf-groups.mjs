@@ -1,3 +1,4 @@
+import * as portalCommandEntry from '../core/portal-command-entry.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -112,6 +113,7 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
   './core/leaf-groups.js':{createLeafGroups:()=>live},
   './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
   './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
+  './core/portal-command-entry.js':portalCommandEntry,
   './core/work-journal-entry.js':workJournalEntry,'./core/uof-setup-entry.js':uofSetupEntry,'./core/direct-line.js':directLine,
   './core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=> '/'},
   './core/util.js':{readBody:async req=>req.rawBody,sendJson:(res,status,body)=>{res.status=status;res.body=body;},sendText:(res,status)=>{res.status=status;acked=true;}},

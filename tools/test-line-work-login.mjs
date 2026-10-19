@@ -1,3 +1,4 @@
+import * as portalCommandEntry from '../core/portal-command-entry.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createLeafTasks} from '../core/leaf-tasks.js';
 import {createWorkJournalEntry,isWorkJournalEvent,workJournalAction} from '../core/work-journal-entry.js';
