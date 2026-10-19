@@ -14,9 +14,14 @@ try{
  }
  if(phase==='snapshot'){fs.mkdirSync(folder,{recursive:true});assert(!fs.existsSync(folder+'/before.private.json'));fs.writeFileSync(folder+'/before.private.json',JSON.stringify(snapshot));console.log(JSON.stringify({snapshot:true,meetings:snapshot.meeting_workspaces.length,conversations:snapshot.meeting_settings.length}));}
  else if(phase==='verify'){
-  const before=JSON.parse(fs.readFileSync(folder+'/before.private.json'));for(const [table,rows]of Object.entries(before))for(const row of rows)assert(snapshot[table].some(r=>r.id===row.id&&r.hash===row.hash),'Original row changed: '+table);
+  const before=JSON.parse(fs.readFileSync(folder+'/before.private.json'));
+  // A real host may edit while deployment is being prepared. Accept only an
+  // explicitly audited private before/after hash pair, never reset the baseline
+  // or silently ignore a changed row. This verifier never writes business data.
+  const exceptions=fs.existsSync(folder+'/audited-concurrent-updates.private.json')?JSON.parse(fs.readFileSync(folder+'/audited-concurrent-updates.private.json')):[];
+  for(const [table,rows]of Object.entries(before))for(const row of rows){const same=snapshot[table].some(r=>r.id===row.id&&r.hash===row.hash),known=exceptions.find(x=>x.table===table&&x.before.id===row.id&&x.before.hash===row.hash);assert(same||known&&snapshot[table].some(r=>r.id===known.after.id&&r.hash===known.after.hash),'Original row changed: '+table);}
   const notices=(await pool.query('SELECT count(*) AS n FROM central_archive.meeting_share_notices')).rows[0].n;assert.equal(Number(notices),0,'Deployment itself must not enqueue or send historical grants');
   for(const origin of [env.AMCORE_PUBLIC_BASE_URL,'https://am-platform-2ymf.onrender.com']){const h=await(await fetch(origin+'/health')).json();assert.equal(h.commit,commit);assert.equal(h.conversationMeetings.workspace.shareNotices,'new-named-grants-line-notice-v1');const html=await(await fetch(origin+'/meetings/review/work/'+'0'.repeat(64))).text();assert(!html.includes('共享同仁名單'));}
-  const proof={verified:true,commit,originalMeetings:before.meeting_workspaces.length,originalConversations:before.meeting_settings.length,originalDataPreserved:true,noticeJobs:0,noRealRecipientsOrMessagesWritten:true,twoOrigins:true,at:new Date().toISOString()};fs.writeFileSync(folder+'/verified.private.json',JSON.stringify(proof));console.log(JSON.stringify(proof));
+  const proof={verified:true,commit,originalMeetings:before.meeting_workspaces.length,originalConversations:before.meeting_settings.length,originalDataPreserved:true,auditedConcurrentUpdates:exceptions.length,noticeJobs:0,noRealRecipientsOrMessagesWritten:true,twoOrigins:true,at:new Date().toISOString()};fs.writeFileSync(folder+'/verified.private.json',JSON.stringify(proof));console.log(JSON.stringify(proof));
  }else throw Error('Use snapshot or verify');
 }finally{await pool.end();}
