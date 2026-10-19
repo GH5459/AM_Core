@@ -7,6 +7,10 @@ on:
       - 'tools/test-meeting-personnel.mjs'
       - 'versions/AM-IMP-2026.1016.06/**'
       - 'tools/test-conversation-meetings.mjs'
+      - 'core/group-quick-create.js'
+      - 'core/line-self-task-worker.mjs'
+      - 'tools/test-group-quick-create*'
+      - 'versions/AM-IMP-2026.1019.01/**'
       - 'core/leaf-groups*.js'
       - 'core/group-invite-policy.js'
       - 'versions/AM-IMP-2026.1017.01/**'
@@ -139,7 +143,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.07
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.06
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.01
-      - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs
+      - run: node --experimental-vm-modules --test tools/test-group-quick-create.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs
       - run: node --test tools/test-leaf-task-edit.mjs

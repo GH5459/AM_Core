@@ -43,6 +43,14 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const result=await call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
    sender:clean(participants[0]),mentions:mentions.map(clean),...(groupJudgment?.policy===TASK_SPEED_POLICY?{groupJudgment:{policy:TASK_SPEED_POLICY,assignments:checkedAssignments(groupJudgment.assignments,mentions.length)}}:{}),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});return result;
  }
+ async function submitSelfTask(t,event,prior,draft,confirmation,revision){
+  const c=await config(t),who=await identity(event.source.userId,t,event.source.groupId,{readOnly:true},c);
+  if(!who||who.account!==prior.account||who.bindingId!==prior.bindingId||confirmation.userId!==event.source.userId)throw Error('group_identity_changed');
+  const result=await call(t,c,'self-create',{contract:'line-group-bot-quick-create-v1',id:hash('self:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),
+   botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},
+   source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,confirmation,revision});
+  return {...result,message:taskEditNotice(c.base,result.taskIds,'已建立自己的任務，可從今天的工作任務查看。')};
+ }
  // Tasks use confirmed work identities, independently of a group's project routing.
  // Never register the group under another business tenant or grant personal access.
  async function route(groupId,userIds=[],snapshot){
@@ -173,6 +181,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    allHumanMembersObserved:current.length===summary.count,confirmedCommonTaskService:Boolean(r),tenantKey:r?.tenant.key||null,
    members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
+ async function checkQuickCreate({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('task_tenant_unavailable');const c=await config(t),r=await call(t,c,'health');if(r.selfTaskContract!=='line-group-bot-quick-create-v1')throw Error('self_task_contract_mismatch');return {ok:true,tenantKey,contract:r.selfTaskContract,noWrites:true};}
  async function checkLogin({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('work_login_service_unavailable');const c=await config(t);if(!c)throw Error('work_login_service_unavailable');const r=await call(t,c,'login-health');if(r.contract!=='line-first-work-login-v1'||r.tenant!==t.key)throw Error('work_login_contract_mismatch');return {ok:true,contract:r.contract,tenantKey:t.key,manualPairingRequired:r.manualPairingRequired,uofApprovalRequired:r.uofApprovalRequired,noTicketsOrIdentitiesWritten:true};}
  async function configurePhotos({tenantKey,groupId,enabled}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!/^C[a-f0-9]{32}$/i.test(groupId||'')||typeof enabled!=='boolean')throw Error('invalid_photo_pilot');const c=await config(t);return call(t,c,'photos/configure',{groupId,enabled});}
  async function checkPhotos({tenantKey,groupId}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('invalid_photo_tenant');const c=await config(t),health=await call(t,c,'photos/health');if(health.contract!==PHOTO_CONTRACT)throw Error('photo_contract_mismatch');const pilot=groupId?await call(t,c,'photos/enabled',{groupId}):null;return {ok:true,contract:PHOTO_CONTRACT,editContract:health.editContract||null,enabled:pilot?.enabled??false,since:pilot?.since??null};}
@@ -202,6 +211,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t);
   const result=await call(t,c,'meeting-publish',{id,host,tasks,url,notionId,...revision?{revision,removed,knownTaskIds}:{},date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});return {...result,tenantKey:host.tenantKey};
  }
- return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,meetingIdentity,meetingDirectory,publishMeetingTasks,
+ return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,publishMeetingTasks,
   resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
