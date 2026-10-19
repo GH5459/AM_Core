@@ -3,7 +3,7 @@
   "name":"工作日誌、會議與 UOF 共用首次 LINE 公司身分",
   "type":"Shared verified identity and compatible entry points",
   "portable":true,
-  "status":"Ready",
+  "status":"Deployed",
   "installTargets":["Original AM Leaf OA","Original DailyLog service","Original UOF shared management"],
   "requiresDatabases":["Existing UOF encrypted Durable Object","Existing DailyLog D1 documents"],
   "requiresEnv":["Existing meeting LINE Login channel","Existing task service authentication","Existing bidirectional named service bindings"],
