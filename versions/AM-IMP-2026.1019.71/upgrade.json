@@ -1,13 +1,13 @@
 {
-  "id":"AM-IMP-2026.1019.71",
-  "name":"會議層次主題與逐層展開",
-  "type":"Meeting record format",
-  "portable":true,
-  "status":"Ready",
-  "requiresDatabases":["Existing project-local workspace and revision tables"],
-  "requiresEnv":["Existing project-local model, Notion and member verification settings"],
-  "requiresScripts":["tools/test-meeting-topic-hierarchy.mjs","tools/test-meeting-decision-record.mjs","tools/test-meeting-workspace-generation.mjs"],
-  "installTargets":["Original AM platform"],
-  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
-  "definitionOfDone":["Three topic levels with concise outcomes and independently expandable source evidence","Original flat format remains readable","Nested Notion saves respect two-level append limit and recover partial replies without duplicate topics","Original task IDs, assignments, progress, audio, transcript, sharing and source page preserved","Exact production build and authorized single-record update verified"]
+  "id": "AM-IMP-2026.1019.71",
+  "name": "會議日曆連接修復與今日已結束行程",
+  "type": "Meeting Calendar recovery",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing project-local meeting and calendar stores; no migration"],
+  "requiresEnv": ["Existing private original Calendar service configuration"],
+  "requiresScripts": ["tools/build-meeting-hub-worker.cjs", "tools/test-meeting-calendar-recovery.mjs", "tools/test-meeting-calendar-factory.cjs", "tools/test-meeting-hub-worker.cjs"],
+  "installTargets": ["Root AM meeting runtime and its original DailyLog service"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Original lunar Calendar factory retains authenticated meeting adapter", "Today-ended Google events remain visible and can be explicitly filed", "Cancelled/declined events and changed account bindings remain rejected", "Latest complete Worker, other modules, settings and business data preserved", "Full CI, exact deployment and authenticated production UI verification"]
 }

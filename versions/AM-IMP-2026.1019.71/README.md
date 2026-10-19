@@ -1,7 +1,5 @@
-# 會議大主題、子題與對話依據
+# 會議日曆修復
 
-會議先按大主題分組，再逐層展開子題、小主題及各自對話依據。每層摘要只說該層結果、進度或未決問題，避免平鋪全部發言。簡短會議仍可只用一層。原待辦、錄音、完整逐字稿及權限獨立保留。
+Restore the meeting Calendar adapter lost when the bundled Calendar factory was replaced with lunar-capable code. Preserve that factory and all lunar recurrence logic; add only its missing meeting dependency and returned method. Read the selected calendar window from its start, including today's ended events. Existing workspaces remain linked once; unfiled events can be explicitly filed for later audio upload.
 
-契約 `meeting-topic-hierarchy-v2`，共用實作 `modules/meetings/decision-record.js`；純文字以 `##`、`###`、`####` 保留三層，沿原共同編輯與修訂。舊的一層格式及歷史一般文字仍可閱讀。Notion 同步真正巢狀 toggle，分批保存父層及內層，符合其每次附加深度限制。
-
-實際目標為原 AM 平台；獨立 HOZO_AM／SevenAM 不在本次安裝範圍。私人會議、正式識別碼、來源快照與秘密不進套件。
+No Google event, invitation, meeting record, task, recording or schema is changed by deployment. See INSTALL.md, VERIFY.md and ROLLBACK.md.

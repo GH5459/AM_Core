@@ -1,5 +1,3 @@
-# 回復
+# Rollback
 
-停止套用尚未確認的新修訂，使用受測前版程式回復。保留已存修訂、任務及來源資料，不刪除 Notion 區塊、不倒退任務進度。已發布的三層文字仍可作為一般文字閱讀；若要把本次單份正式記錄改回舊呈現，須以最新版本另建修訂，不直接覆蓋資料庫或復原整庫。
-
-不回退其他並行更新，不重發 DailyLog／UOF，不重播錄音或重建任務。
+Revert this package's AM changes on top of latest main. Re-read the latest complete DailyLog modules and reverse only the reviewed meeting adapter/calendar edits while retaining lunar and any newer updates. A direct restore of an old full Worker is allowed only after proving nothing else changed. No database rollback, record deletion, task recreation, Google event replay or LINE notification is needed. The previous missing-adapter version restores the original incident and should be used only when necessary.

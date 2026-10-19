@@ -186,6 +186,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.70
       - run: node tools/test-meeting-audio-stream.mjs
       - run: node tools/test-meeting-hub.mjs
+      - run: node tools/test-meeting-calendar-recovery.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.71
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.04
       - run: node tools/test-meeting-collaboration.mjs
       - run: node tools/test-meeting-schedule.mjs
@@ -198,6 +200,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1018.02
       - run: node tools/test-meeting-decision-record.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.72
       - run: node tools/test-meeting-topic-hierarchy.mjs
       - run: node tools/test-meeting-text-access.mjs
       - run: node tools/test-meeting-workspace-generation.mjs
