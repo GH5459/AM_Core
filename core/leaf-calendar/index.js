@@ -146,6 +146,7 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
     const prepared=prepareEvent(event,event.requestId);if(prepared.missing.length)throw Error('calendar_group_timing_required');
     return calendarRequest({...config,account,apiKey:decrypt(config.encrypted_key,secret,tenant.tenantId)},{...prepared.event,account});
   }
-  return {accepts,capture,drain,configureService,writeGroupEvent,adminAuthorized:value=>Boolean(secret)&&same(value,calendarAdminKey(secret)),
+  async function syncMeetingEvent(tenantKey,event){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!ready.some(x=>x.key===t.key))throw Error('calendar_service_unavailable');const c=await store.service(t);if(!c)throw Error('calendar_service_unavailable');const r=await fetchImpl(new URL('/api/integrations/leaf-snail/calendar/events/meetings',c.base_url),{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json',Authorization:'Bearer '+decrypt(c.encrypted_key,secret,t.tenantId)},body:JSON.stringify(event),signal:AbortSignal.timeout(30000)});const j=await r.json().catch(()=>({}));if(!r.ok||j.ok!==true)throw Object.assign(Error('calendar_sync_deferred'),{code:j.code||'GOOGLE_UNAVAILABLE'});return j;}
+  return {accepts,capture,drain,configureService,writeGroupEvent,syncMeetingEvent,adminAuthorized:value=>Boolean(secret)&&same(value,calendarAdminKey(secret)),
     health:()=>({enabled,contract:LEAF_CALENDAR_CONTRACT,provisionedTenants:ready.map(t=>t.key),configuredTenants:[...configured],recurrence:{frequencies:['DAILY','WEEKLY','MONTHLY'],contract:'structured-recurrence-v1'}}),close:()=>store.close?.()};
 }

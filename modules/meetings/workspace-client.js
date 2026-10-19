@@ -67,7 +67,7 @@ export function workspaceClient(BOOT){
   $('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));
  }
 
- function render(){if(!data)return;const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
+ function render(){if(!data)return;if(data.access==='member'&&token&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token});const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
   if(!mode||w.state==='published'&&lastState&&lastState!=='published')mode=w.state==='published'?'view':'edit';lastState=w.state;if(readOnly)mode='view';
   const reading=review&&mode==='view';document.body.classList.toggle('reader-mode',reading);document.body.classList.toggle('collaboration-mode',review&&!reading);$('#pageHeading').textContent=reading?'會議記錄':'會議工作頁';
   $('#glossaryPageLink').href='/meetings/review/work/'+BOOT.id+'/glossary';
