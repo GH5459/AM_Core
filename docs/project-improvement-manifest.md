@@ -42,3 +42,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.32 | Google來源會議內部邀請及防重複行程 | Deployed | PR351完整CI3m48s；AM eb7ff9d兩站／Live49.3s；DailyLog a9c325ce完整37模組只改Calendar，其餘36／設定／資產／秘密／排程保持。本人只讀確認蔡雅婷可選，未保存真人邀請；5會議／109對話及原1排程／0同步列核對，發布前正常真人發布已依歷程保留；UOF不重發。 |
 | AM-IMP-2026.1019.33 | 參與者與分享對象組織選人視窗 | Deployed | PR353完整CI3m46s；AM1146c1c兩站／Live41.3s；本人只讀確認兩入口、114有效同仁與原已選名單保持；合成三入口、跨單位同步勾選／去重、取消及關閉、手機與分享版本保護通過。5會議／110對話及1排程／0同步列保持，DailyLog／UOF不重發，未保存真人邀請或分享。 |
 | AM-IMP-2026.1019.34 | 過期未完成會議仍可找到 | Deployed | PR355完整CI3m45s；AMfbf3b75兩站／Live41.2s；本人原清單6場及待完成3場、原兩場目標連結可見；入口／邀請／指定分享回歸及390寬通過。6工作頁／111對話／2排程／0同步列與準備資料、參與者、分享／修訂保持；DailyLog／UOF不重發，未保存真人修改或重建行程。 |
+
+| AM-IMP-2026.1019.14 | Original Leaf OA and DailyLog task completion | Installed | Explicit preview/confirmation, original source group/requester, real mention, original card and same-key receipt; isolated Worker/D1 + 6 widths passed; formal deployment pending |
