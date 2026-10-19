@@ -17,3 +17,19 @@ const planned=meetingNotionBlocks(['會議修訂 2',record,'逐字稿','[0:04] �
 await assert.rejects(()=>appendVerifiedMeetingBlocks(request,'page',planned,'會議修訂 2'),/lost_reply/);await appendVerifiedMeetingBlocks(request,'page',planned,'會議修訂 2');await appendVerifiedMeetingBlocks(request,'page',planned,'會議修訂 2');assert.equal(writes,1);assert.equal(database.get('page').filter(b=>b.type==='toggle').length,1);
 const toggle=database.get('page').find(b=>b.type==='toggle');assert.equal(database.get(toggle.id).length,3);database.get(toggle.id)[1].paragraph.rich_text[0].text.content='外部修改';await assert.rejects(()=>appendVerifiedMeetingBlocks(request,'page',planned,'會議修訂 2'),/content_changed/);
 console.log('Merged decisions: source timestamps/speakers, deduplication, safe expandable rendering, legacy fallback, work/share prompts, independent task dates and nested Notion lost-reply/conflict protection passed.');
+// Exercise the exact maintenance path against real PostgreSQL semantics and
+// the original revision worker, rather than relying only on field helpers.
+process.env.MEETING_WORKSPACE_PREVIEW='1';
+const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
+const original=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0];
+const originalTaskIds=[...f.taskIds],originalPushes=f.pages.get('fixture-page').children.length;let remoteTaskWrites=0;
+f.platform.publishMeetingTasks=async()=>{remoteTaskWrites++;throw Error('Record-only revision must not write work tasks');};
+await f.service.store.revise(original.id,{id:original.host_id,name:'主持人授權整理'},{...original.fields,record},Number(original.revision),original.receipt.ownerNames);
+await f.service.drain();await f.service.settle();await f.service.taskDispatch.run(original.id);
+const revised=await f.service.store.get(original.id);assert.equal(revised.fields.record,record);
+for(const key of Object.keys(original.fields).filter(k=>k!=='record'))assert.deepEqual(revised.fields[key],original.fields[key]);
+for(const key of ['filename','source','result','conversation_key','sharing_enabled','shared_people','sharing_version'])assert.deepEqual(revised[key],original[key]);
+assert.equal(revised.receipt.notionId,original.receipt.notionId);assert.deepEqual([...f.taskIds],originalTaskIds);assert.equal(remoteTaskWrites,0);
+const newBlocks=f.pages.get('fixture-page').children.slice(originalPushes);assert.equal(newBlocks.filter(b=>b.type==='toggle').length,1);assert(newBlocks.some(b=>b.type==='paragraph'&&b.paragraph.rich_text[0].text.content===original.fields.transcript));
+assert((await f.service.store.history(original.id)).some(h=>h.field==='published_revision'&&h.before_value.record===original.fields.record));
+await f.pg.close();console.log('Record-only official revision: original task IDs, owners, due dates, recording, full transcript, source, sharing, Notion page and prior audit preserved; zero remote task writes.');
