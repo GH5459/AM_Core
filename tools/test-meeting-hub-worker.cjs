@@ -24,4 +24,3 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  console.log('Full latest Worker + workerd/D1: original service auth, active account/Google checks, frozen calendar target, deterministic event ID, replay/hash conflict, reschedule/cancel/restore, stale retry rejection and If-Match passed.');
  }finally{await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
-

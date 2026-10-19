@@ -27,4 +27,3 @@ try{
  await page.click('#new');await page.setViewportSize({width:390,height:844});assert((await page.locator('#calendarItems article').first().boundingBox()).height<120);if(process.argv[3])await page.screenshot({path:process.argv[3],fullPage:true});assert.deepEqual(errors,[]);
  console.log('Compact Calendar UI: day/week modes, one-day/seven-day navigation, private preview without creation, explicit source/filing, no duplicate Calendar write, preserved retry input and six widths passed.');
 }finally{await browser.close();}
-
