@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.1019.41",
+  "name": "依帳號語言顯示與停止翻譯重試",
+  "type": "Multilingual text",
+  "portable": true,
+  "status": "Installed",
+  "requiresDatabases": [
+    "Original DailyLog D1 documents",
+    "Original AM PostgreSQL, additive translation and reply tables",
+    "Original shared personnel Durable Object"
+  ],
+  "requiresEnv": [
+    "Existing private service authentication and signed AM translation origin",
+    "Existing shared AM LLM platform, optional Workers AI binding"
+  ],
+  "requiresScripts": [
+    "tools/test-multilingual-policy.mjs",
+    "tools/test-multilingual-meetings.mjs",
+    "tools/test-multilingual-dailylog.cjs",
+    "tools/test-multilingual-management.cjs",
+    "tools/test-multilingual-client.mjs",
+    "tools/test-multilingual-service.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Chinese accounts show original text with no language bar or translation requests",
+    "English and Indonesian accounts display their assigned language",
+    "Failed translation preserves original text without automatic retry, including reloads",
+    "Meeting editing, sharing, recording and Calendar behavior preserved"
+  ]
+}
