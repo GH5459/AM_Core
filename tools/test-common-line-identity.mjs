@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {commonLine} from '../versions/AM-IMP-2026.1019.40/common-line-uof.mjs';
-import {commonLineIdentity} from '../versions/AM-IMP-2026.1019.40/common-line-dailylog.mjs';
-import {commonPersonnelInventory,commonMeetingRecheck} from '../versions/AM-IMP-2026.1019.40/common-line-management.mjs';
+import {commonLine} from '../versions/AM-IMP-2026.1019.50/common-line-uof.mjs';
+import {commonLineIdentity} from '../versions/AM-IMP-2026.1019.50/common-line-dailylog.mjs';
+import {commonPersonnelInventory,commonMeetingRecheck} from '../versions/AM-IMP-2026.1019.50/common-line-management.mjs';
 import {commonLineHtml,createCommonLineEntry} from '../core/common-line-entry.js';
 const bot='U'+'a'.repeat(32),user='U'+'b'.repeat(32),other='U'+'c'.repeat(32),channel='123456',token='synthetic-owner-token';
 function fixture({legacy=[],projectFail=false,enabled=true}={}){
