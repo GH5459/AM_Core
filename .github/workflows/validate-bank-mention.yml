@@ -197,6 +197,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1018.02
       - run: node tools/test-meeting-decision-record.mjs
+      - run: node tools/test-meeting-topic-hierarchy.mjs
       - run: node tools/test-meeting-workspace-generation.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.03
