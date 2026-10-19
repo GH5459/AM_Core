@@ -39,3 +39,5 @@ test('calendar and self draft date validation preserves date-only precision and 
 });
 
 test('own-task cancellation and archived source withdrawal block later clicks and restart',async()=>{for(const kind of ['cancel','unsend']){const f=await fixture();try{model(f);const e=botMessage(f,'@葉小蝸 幫我建立任務：整理清單');await f.capture(e);await f.drain();const p=(await f.rows())[0];if(kind==='cancel')await f.capture(selfButton(f,p,owner,undefined,'cancel'));else await f.capture({type:'unsend',webhookEventId:'withdrawal',timestamp:f.options.now(),source:e.source,unsend:{messageId:e.message.id}});await f.drain();f.restart();await f.capture(selfButton(f,p));await f.drain();assert.equal(f.selfSubmissions.length,0);}finally{await f.close();}}});
+
+test('relative deadline ambiguity is never silently erased as an optional field',async()=>{const llm={available:true,completeJson:async()=>({...draft,dueDate:null,dueAt:null,missing:['請確認下週的確切截止日期。']})};const p=await extractSelfTask({text:'幫我建立任務：整理資料，下週完成',at:Date.now(),llm});assert.equal(p.missing.length,1);});

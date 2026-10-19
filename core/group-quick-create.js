@@ -5,9 +5,9 @@ export function quickCreateIntent(e,bot){
  if(e?.type!=='message'||e.source?.type!=='group'||e.message?.type!=='text')return null;
  const mentions=e.message.mention?.mentionees||[];
  if(!mentions.some(m=>m.type==='user'&&(m.isSelf===true||m.userId===bot)))return null;
- let text=e.message.text.normalize('NFKC');
+ let text=e.message.text;
  for(const m of [...mentions].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);
- text=text.trim();
+ text=text.normalize('NFKC').trim();
  if(/不要|不用|取消|如何|怎麼|能不能|可不可以|可以嗎|嗎[?？]?$|查詢|列出|查看/u.test(text))return null;
  const meeting=/(?:建立|新增|安排|預約|排|設立|設定).{0,12}(?:會議|開會)|(?:開會|會議).{0,8}(?:安排|建立)/u.test(text);
  if(meeting)return {kind:'meeting'};
@@ -26,7 +26,7 @@ export async function extractSelfTask({text,at,llm,existing}){
  if(!Array.isArray(r.missing)||r.missing.length>8||r.missing.some(x=>typeof x!=='string'||x.length>300))throw Error('invalid_self_task_draft');
  // Optional JSON fields are not unanswered user questions. Some models list
  // empty schema keys in missing despite the explicit optional-deadline policy.
- const hasDateHint=/\d{1,4}[年/月.-]\d{1,2}|\d{1,2}月|今天|明天|後天|[週星期禮拜][一二三四五六日天]|月底|期限|截止|到期|[點:：]\d/u.test(text)||!!existing?.dueDate;
+ const hasDateHint=/\d{1,4}[年/月.-]\d{1,2}|\d{1,2}月|今天|明天|後天|(?:本|這|下|上|隔|每)(?:個)?(?:週|星期|禮拜|月|年)|(?:週|星期|禮拜)[一二三四五六日天1-7]|月底|月初|年底|年初|期限|截止|到期|最晚|之前|前完成|明早|今晚|下午|上午|晚上|早上|下班|[一二三四五六七八九十\d]+(?:天|日|週|星期|禮拜|個月|小時|分鐘)(?:後|內)|[點:：]\d/u.test(text)||!!existing?.dueDate;
  if(!hasDateHint){draft.dueDate=null;draft.dueAt=null;}
  const missing=r.missing.filter(x=>!/^acceptance$|^完成條件$|^成果$/u.test(x)&&!( !hasDateHint&&/dueDate|dueAt|日期|期限|截止|時間/u.test(x)));
  if(!draft.title||!draft.description)missing.push('請補充具體工作內容。');
