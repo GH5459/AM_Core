@@ -1,3 +1,4 @@
+import {decisionRecordText} from './decision-record.js';
 export const WORKSPACE_CONTRACT='meeting-collaboration-host-publish-v1';
 export const MEETING_TYPES=[
  {name:'工作會議',prompt:'完整保留討論脈絡、工作進度、決議、未決事項與明確後續行動。'},
@@ -29,7 +30,7 @@ export function checkPublication(row){
  for(const t of todos(row.fields))if(!t.content.trim()||t.ownerId&&!validDate(t.due))throw failure(409,'已指定負責人的待辦必須有內容及截止日期；也可取消負責人，保留為未分派待辦。');
 }
 export function initialFields(event){return {settings:{topic:'',type:'工作會議',cycle:{frequency:'daily',intervalDays:7,nextDate:''},prompt:MEETING_TYPES[0].prompt,date:meetingToday(event.timestamp),projectGoal:'',speakers:Array.from({length:3},()=>({name:'',gender:'',role:''}))},record:'',transcript:''};}
-export function recordText(parsed){return [
+export function recordText(parsed){if(parsed.topics?.length)return decisionRecordText(parsed.topics,parsed.nextMeeting);return [
  '重點摘要',...(parsed.highlights||[]).map(s=>'• '+s),'','會議內容',...(parsed.minutes||[]).flatMap(s=>[s.heading,...(s.points||[]).map(p=>'• '+p),'']),
  '結論與決議',...(parsed.conclusions||[]).map(s=>'• '+s),...(parsed.nextMeeting?['','下次會議：'+parsed.nextMeeting]:[])
  ].join('\n');}

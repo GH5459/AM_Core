@@ -25,7 +25,7 @@ const results = [];
 const check = (name, ok, extra = '') => results.push([Boolean(ok), name, ok ? '' : extra]);
 
 // ── 假回應 ────────────────────────────────────────────────
-const GOOD = { title: '週會', type: '審圖', minutes: [{ heading: '區段', points: ['要點'] }], highlights: ['重點'], conclusions: ['結論'], todos: [{ content: '待辦', owner: '', due: '' }], nextMeeting: '' };
+const GOOD = { topics:[{title:'確認要點',summary:'保留討論依據',status:'待處理',evidence:[{timestamp:'',speaker:'講者A',text:'要點'}]}], title: '週會', type: '審圖', minutes: [{ heading: '區段', points: ['要點'] }], highlights: ['重點'], conclusions: ['結論'], todos: [{ content: '待辦', owner: '', due: '' }], nextMeeting: '' };
 const ROSTER = { kind: 'work', topic: '', project: '', speakers: [{ order: 1, name: 'Seven', role: '', gender: '男' }], keyterms: ['Seven'] };
 const wrap = (o) => JSON.stringify({ result: o });   // 模型多包一層
 
@@ -196,7 +196,7 @@ const ENG_TERMS = /茲心園|草悟道|葉綠宿|泥作|矽酸鈣板|工地檢�
 }
 
 // ══ 6. 🚨 模型把答案裹進 {"result":{…}} ═══════════════════
-// 這是 required:['title','minutes'] 存在的唯一理由。拿掉它,下面每一條都會紅。
+// 這是 required:['title','topics'] 存在的唯一理由。拿掉它,下面每一條都會紅。
 {
   // 6a. 鏈頭包一層 → 解析失敗 → 重試 → 換後端 → 拿到真內容
   const h = build({ llmBackends: { assemblyai: 'wrapped' } }); await assemblyPath(h);

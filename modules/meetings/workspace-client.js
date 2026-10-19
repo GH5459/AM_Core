@@ -44,7 +44,7 @@ export function workspaceClient(BOOT){
  function grow(e){e.style.height='auto';e.style.height=Math.max(60,e.scrollHeight+2)+'px';}
  function blockEditor(block){const key='record:'+block.id;let e=document.querySelector('[data-part="'+key+'"]');if(!e){e=document.createElement('div');e.className='record-part';e.innerHTML='<div class="paragraph" contenteditable="true" role="textbox" aria-multiline="true" aria-label="會議段落"></div>';partControls(key,e);const area=e.querySelector('[contenteditable]');plainEditor(area);area.oninput=()=>mark(key,area.innerText,Number(e.dataset.version));}
   const area=e.querySelector('[contenteditable]');if(!dirty.has(key)&&document.activeElement!==area){const h=latest(key);area.innerHTML=h&&h.after_value===block.text?changeText(h,true):esc(block.text);area.style.setProperty('--change-color',h?.color||color(h?.actor_id||''));e.dataset.version=editData().versions[key]||0;}
-  e.classList.toggle('empty-part',!block.text&&!dirty.has(key));area.classList.toggle('prose-heading',/^(重點摘要|會議內容|結論與決議|主要結論|下次會議)$|^#{1,3}\s/.test(block.text));area.contentEditable=String(!!editable());e.classList.toggle('dirty',dirty.has(key));e.querySelector('[data-save]').disabled=!dirty.has(key)||saving.has(key);markHistory(key,e);return e;
+  e.classList.toggle('empty-part',!block.text&&!dirty.has(key));area.classList.toggle('prose-heading',/^(重點與決議|重點摘要|會議內容|結論與決議|主要結論|下次會議)$|^#{1,3}\s/.test(block.text));area.contentEditable=String(!!editable());e.classList.toggle('dirty',dirty.has(key));e.querySelector('[data-save]').disabled=!dirty.has(key)||saving.has(key);markHistory(key,e);return e;
  }
 
  function setup(s){
@@ -71,10 +71,11 @@ export function workspaceClient(BOOT){
   e.querySelectorAll('textarea,input,select').forEach(n=>n.disabled=!editable());e.querySelector('[contenteditable]').contentEditable=String(!!editable());e.classList.toggle('dirty',dirty.has(key));e.querySelector('[data-save]').disabled=!dirty.has(key)||saving.has(key);markHistory(key,e);return e;
  }
 
- function prose(text){return String(text||'尚無會議內容。').split(/\r?\n/).map(line=>{if(!line.trim())return '';const heading=line.match(/^#{1,3}\s+(.+)$/);if(heading||['重點摘要','會議內容','結論與決議','主要結論','下次會議'].includes(line.trim()))return '<h3>'+esc(heading?heading[1]:line)+'</h3>';return '<p'+(/^[•・\-]\s/.test(line)?' class="prose-bullet"':'')+'>'+esc(line)+'</p>';}).join('');}
+ function prose(text){return String(text||'尚無會議內容。').split(/\r?\n/).map(line=>{if(!line.trim())return '';const heading=line.match(/^#{1,3}\s+(.+)$/);if(heading||['重點與決議','重點摘要','會議內容','結論與決議','主要結論','下次會議'].includes(line.trim()))return '<h3>'+esc(heading?heading[1]:line)+'</h3>';return '<p'+(/^[•・\-]\s/.test(line)?' class="prose-bullet"':'')+'>'+esc(line)+'</p>';}).join('');}
  function seek(seconds){$('#audio').currentTime=Number(seconds);$('#audio').play().catch(error);}
  function renderReader(){const r={...data.reader};if(memberList.length&&data.workspace.fields){const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v);r.todos=(r.todos||[]).map((t,i)=>({...t,owner:memberList.find(p=>p.id===ts[i]?.[1].ownerId)?.name||t.owner}));}const hash=JSON.stringify([r,data.assignment]);if(readingHash===hash)return;readingHash=hash;
-  $('#readingRecordText').innerHTML=prose(r.record);$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';
+  const openTopics=new Set(Array.from($('#readingRecordText').querySelectorAll('details[open]')).map(e=>e.dataset.decision));
+  $('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';
   const ts=r.todos||[];$('#readingTodoCount').textContent=ts.length?'（'+ts.length+' 項）':'（無）';$('#readingTodoList').innerHTML=ts.length?'<ol>'+ts.map((t,i)=>'<li><h3>任務 '+(i+1)+'</h3><p>'+esc(t.content)+'</p><dl><div><dt>負責人</dt><dd>'+esc(t.owner)+'</dd></div><div><dt>截止日期</dt><dd>'+esc(t.due)+'</dd></div></dl></li>').join('')+'</ol>':'<p class="muted">本次會議沒有待辦事項。</p>';
   $('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));
  }

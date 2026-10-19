@@ -1,3 +1,4 @@
+import {DECISION_RECORD_INSTRUCTIONS,normalizeDecisionTopics,decisionRecordText,meetingNotionBlocks} from './decision-record.js';
 import {glossaryPrompt} from './glossary.js';
 // AM Platform 模組:meetings
 // 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
@@ -110,11 +111,11 @@ function sessionCreatesFormalTasks(session) {
 
 function summaryTabBlocks(parsed, kind = 'work', { formalTasks = true } = {}) {
   const share = kind === 'share';
-  const b = [];
+  const b = parsed.topics?.length ? meetingNotionBlocks([decisionRecordText(parsed.topics,parsed.nextMeeting)]) : [];
   const highlights = (parsed.highlights || []).slice(0, 10);
-  if (highlights.length) { b.push(heading2('💡 重點摘要')); highlights.forEach((h) => b.push(bullet(h))); }
+  if (!parsed.topics?.length&&highlights.length) { b.push(heading2('💡 重點摘要')); highlights.forEach((h) => b.push(bullet(h))); }
   const conclusions = (parsed.conclusions || []).slice(0, 15);
-  if (conclusions.length) { b.push(heading2(share ? '✅ 收穫與共識' : '✅ 主議題結論')); conclusions.forEach((c) => b.push(bullet(c))); }
+  if (!parsed.topics?.length&&conclusions.length) { b.push(heading2(share ? '✅ 收穫與共識' : '✅ 主議題結論')); conclusions.forEach((c) => b.push(bullet(c))); }
   const todos = (parsed.todos || []).slice(0, 30);
   b.push(heading2(formalTasks
     ? (share ? '📅 後續行動/延伸(checkbox,已同步待辦任務資料庫)' : '📅 待辦(checkbox 即任務,已同步待辦任務資料庫)')
@@ -174,7 +175,7 @@ function meetingLineText({ parsed, legendLine, date, type, url, publicUrl, defau
   const L = [`📋 會議記錄|${date} ${parsed.title || defaultTitle}`];
   if (legendLine) L.push(`講者:${legendLine}`);
   const hi = parsed.highlights || [];
-  if (hi.length) L.push(`\n💡 重點摘要\n${hi.map((h) => `・${h}`).join('\n')}`);
+  if (hi.length) L.push(`\n💡 ${parsed.topics?.length?'重點與決議':'重點摘要'}\n${hi.map((h) => `・${h}`).join('\n')}`);
   const con = parsed.conclusions || [];
   if (con.length) L.push(`\n✅ 主議題結論\n${con.map((c) => `・${c}`).join('\n')}`);
   const todos = parsed.todos || [];
@@ -633,19 +634,24 @@ function renderDiarized(tr, legend) {
 }
 
 // ── 收斂逐字稿(署名摘要/決議/待辦)──────────────────────────
-// required 只放 title 與 minutes,不是因為它們「比較重要」,而是因為它們是
-// 「模型有照契約做事」的最低證據。模型把整包答案裹進 {"result":{…}} 是常見行為,
-// 而 extractFirstJsonObject 抓的是第一個 '{',也就是那層包裝:所有欄位一起消失,
-// normalizeParsed 照樣把它正規化成一份空白會議記錄——無錯誤、無 log,直接寫進 Notion 又推到 LINE。
-// 有了這道探針,解析失敗會重試並換後端(鏈上有三家),代價有界;實測 9/9 次成功回應這兩欄都在,
-// 偽陽性≈0。nextMeeting / todos / conclusions 一律維持選填。回歸測試見 tools/dryrun-meetings.mjs。
-const REQUIRED_SUMMARY_KEYS = ['title', 'minutes'];
+// Require the merged topics contract, so wrapped/legacy model output retries
+// through the existing model fallback instead of publishing empty notes.
+const REQUIRED_SUMMARY_KEYS = ['title', 'topics'];
 const SUMMARY_SCHEMA = {
   type: 'object',
   required: REQUIRED_SUMMARY_KEYS,
   properties: {
     title: { type: 'string' },
     type: { type: 'string' },
+    topics: { type:'array', items:{type:'object',required:['title','summary','status','evidence'],properties:{
+      title:{type:'string'},summary:{type:'string'},status:{type:'string'},
+      evidence:{
+        type:'array',items:{
+          type:'object',required:['timestamp','speaker','text'],
+          properties:{timestamp:{type:'string'},speaker:{type:'string'},text:{type:'string'}}
+        }
+      }
+    }}},
     minutes: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, points: { type: 'array', items: { type: 'string' } } } } },
     highlights: { type: 'array', items: { type: 'string' } },
     conclusions: { type: 'array', items: { type: 'string' } },
@@ -660,67 +666,31 @@ const SUMMARY_SCHEMA = {
 async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
   const j = await llmForTenant(tenant).completeJson({
-    system: meetingPrompt({ who, topic: roster.topic, today: roster.date || todayStr(), kind: roster.kind, cfg }) + (roster.workspacePrompt ? `\n本場類型與整理要求：${roster.workspacePrompt}\n忠實引用來源，不可捏造決議、負責人或日期。不確定內容標示待確認。` : ''),
+    system: meetingPrompt({ who, topic: roster.topic, today: roster.date || todayStr(), kind: roster.kind, cfg }) + (roster.workspacePrompt ? `\n本場類型與整理要求：${roster.workspacePrompt}\n忠實引用來源，不可捏造決議、負責人或日期。不確定內容標示待確認。` : '') + DECISION_RECORD_INSTRUCTIONS,
     userContent: glossaryPrompt(await vocabulary(roster)) + `逐字稿:\n${diarized}`,
     schema: SUMMARY_SCHEMA,
     profile: 'quality',
     maxTokens: 16000,
   });
-  return normalizeParsed(j);
+  const parsed=normalizeParsed(j,diarized);if(!parsed.topics.length)throw Error('Meeting summary has no supported topics');return parsed;
 }
 
 // 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)。
 // kind='work' → 工作/工程會議格式(定案、待辦);kind='share' → 分享/討論型格式(讀書會、心得分享)。
 function meetingPrompt({ who, topic, today, kind = 'work', cfg = GENERIC_MEETINGS_CONFIG }) {
-  const dateNote = `今天是 ${today}(西元年-月-日,台灣時間)。凡「下週三、明天、下個月」等相對日期,一律依今天換算成西元 YYYY-MM-DD,年份用今天的年份,不要用過去年份。`;
-  if (kind === 'share') {
-    return `這是一場「分享/討論型」聚會${who ? `(已標註講者的逐字稿)。與會/分享者:${who}` : '的錄音'}(例:讀書會、心得分享、座談)。${topic ? `主題:${topic}。` : ''}(繁體中文)
-${dateNote}
-
-請仔細聽/讀完整場,整理成適合「分享會」的記錄。要求:
-- 依「分享者」或「主題」分段,逐條記錄每個人分享的重點、觀點、舉的例子/故事、引用的書或金句。一律用真名。
-- 忠實保留每個人的個人觀點與差異,不要把大家的話合併成單一結論。寧可詳盡,不要過度濃縮。
-- highlights:整場最有價值、最打動人的精華觀點(3-6 條)。
-- conclusions:寫「共同收穫 / 共識 / 值得延伸的觀點」(分享會不一定有硬性定案,沒有就寫收穫)。
-- todos:分享會通常較少;只有「後續行動、延伸閱讀、下次主題、個人承諾」才列,沒有就空陣列。
-- 若約定了下次聚會時間,務必在 nextMeeting 寫出,並在 todos 補一條「在群組發送下次聚會提醒」。
-
-只輸出 JSON,不要任何說明文字:
-{
- "title":"主題(15字內)",
- "type":"讀書會|分享會|座談|討論會 擇一(或最貼切的短詞)",
- "minutes":[{"heading":"分享者或主題","points":["該人/該段的分享重點、例子、金句(含真名)","..."]}],
- "highlights":["整場精華觀點(3-6條)"],
- "conclusions":["共同收穫/共識/值得延伸的觀點"],
- "todos":[{"content":"後續行動/延伸閱讀/下次主題","owner":"承諾者真名或空字串","due":"YYYY-MM-DD 或空字串"}],
- "nextMeeting":"下次聚會時間(有約定才寫,否則空字串)"
-}`;
-  }
-  return `這是一場${cfg.domain}${who ? `(已標註講者的逐字稿)。與會者:${who}` : '的錄音'}。${topic ? `會議主題:${topic}。` : ''}(繁體中文)
-${dateNote}
-
-請仔細聽/讀完整場,整理成結構化、可追蹤的會議記錄。要求:
-- 逐條記錄討論脈絡與「具體細節」:${cfg.detailFocus}。寧可詳盡,不要過度濃縮。
-- 依${cfg.sectionBy}分區段${cfg.sectionExample ? `(例:${cfg.sectionExample})` : ''},每區段一個小標題。
-- 提到誰決定/負責/主張時,一律用真名。
-- 每個主議題給出明確結論(定案內容)。
-- 待辦事項要具體可追蹤,盡量指出負責人與期限。
-- 若會議中約定了下次會議或回報時間,務必在 nextMeeting 寫出,並在 todos 補一條「在群組發送下次會議提醒」。
-
-只輸出 JSON,不要任何說明文字:
-{
- "title":"會議主題(15字內)",
- "type":"${typeInstruction(cfg.types)}",
- "minutes":[{"heading":"區段小標題","points":["逐條要點(含細節與真名)","..."]}],
- "highlights":["重點摘要(整場核心,3-6條)"],
- "conclusions":["主議題結論(每個主議題一條,含定案內容)"],
- "todos":[{"content":"待辦內容","owner":"負責人真名或空字串","due":"YYYY-MM-DD 或空字串"}],
- "nextMeeting":"下次會議/回報時間(有約定才寫,否則空字串)"
-}`;
+  return `這是一場${kind==='share'?'分享／討論型聚會':cfg.domain}。${who?'與會者：'+who+'。':''}${topic?'主題：'+topic+'。':''}請用繁體中文。
+會議日期是 ${today}（台灣時間）；相對日期依本次會議日期換算，無明確依據不得捏造負責人、期限或完成狀態。
+依${cfg.sectionBy}理解議題；重要細節：${cfg.detailFocus}。每個議題先整合理解，再寫精簡結果與可追查的對話依據。
+待辦須具體可追蹤。若有明確約定下次會議或回報時間，寫入 nextMeeting，原提醒待辦規則保持。
+${DECISION_RECORD_INSTRUCTIONS}
+只輸出 JSON：
+{"title":"會議主題","type":"${kind==='share'?'讀書會|分享會|座談|討論會':typeInstruction(cfg.types)}","topics":[{"title":"具體結果或待確認問題","summary":"整合理解後的重點、決定及下一步","status":"依據來源的狀態","evidence":[{"timestamp":"原文時間或空字串","speaker":"原講者或空字串","text":"支持結果的對話摘意"}]}],"todos":[{"content":"待辦內容","owner":"負責人或空字串","due":"YYYY-MM-DD或空字串"}],"nextMeeting":"有約定才寫，否則空字串"}`;
 }
 
-function normalizeParsed(j) {
+function normalizeParsed(j,transcript='') {
+  const topics=normalizeDecisionTopics(j.topics,transcript);
   return {
+    topics,
     title: String(j.title || '').trim(),
     type: String(j.type || '').trim(),
     minutes: Array.isArray(j.minutes)
@@ -729,8 +699,8 @@ function normalizeParsed(j) {
           points: Array.isArray(s.points) ? s.points.map((p) => String(p)).filter(Boolean) : [],
         }))
       : [],
-    highlights: Array.isArray(j.highlights) ? j.highlights.map((h) => String(h)).filter(Boolean) : [],
-    conclusions: Array.isArray(j.conclusions) ? j.conclusions.map((c) => String(c)).filter(Boolean) : [],
+    highlights: topics.length?topics.map(t=>t.title+'：'+t.summary):Array.isArray(j.highlights) ? j.highlights.map((h) => String(h)).filter(Boolean) : [],
+    conclusions: topics.length?[]:Array.isArray(j.conclusions) ? j.conclusions.map((c) => String(c)).filter(Boolean) : [],
     todos: Array.isArray(j.todos) ? j.todos : [],
     nextMeeting: String(j.nextMeeting || '').trim(),
   };
@@ -1346,6 +1316,7 @@ function blocksToHtml(blocks) {
     else if (b.type === 'heading_3') html += `<h3>${txt}</h3>`;
     else if (b.type === 'to_do') html += `<div class="todo"><input type="checkbox" disabled${t?.checked ? ' checked' : ''}><span>${txt}</span></div>`;
     else if (b.type === 'paragraph' && txt) html += `<p>${txt}</p>`;
+    else if (b.type === 'toggle') html += `<details><summary style="white-space:pre-wrap">${txt}</summary>${blocksToHtml(t?.children||[])}</details>`;
   }
   closeList();
   return html;
@@ -1361,6 +1332,7 @@ async function buildPublicSections(pageId) {
   for (const tg of top.filter((b) => b.type === 'heading_2' && b.heading_2?.is_toggleable)) {
     const title = richText(tg.heading_2.rich_text);
     const kids = await readChildren(tg.id);
+    for(const child of kids)if(child.type==='toggle'&&child.has_children)child.toggle.children=await readChildren(child.id);
     if (title.includes('最終確認待辦')) {
       confirmedTodoSection = { key: 'todo', title: '📅 待辦事項（最終確認版）', blocks: kids.filter((b) => b.type === 'to_do') };
     } else if (title.includes('摘要')) {
@@ -1998,7 +1970,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   // review_and_create groups. The confirmed version is appended only after the
   // responsible owners and host finish review.
   await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, kind, { formalTasks: false }));
-  await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
+  if(!parsed.topics?.length)await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
   const transcriptBlocks = [];
   for (let i = 0; i < diarized.length; i += 1900) {
     transcriptBlocks.push(para(diarized.slice(i, i + 1900)));
@@ -2129,7 +2101,7 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, s
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: roster?.date || todayStr(), kind: roster?.kind, cfg }) + (roster?.workspacePrompt ? `\n本場整理要求：${roster.workspacePrompt}\n勿捏造負責人、期限或決議。` : '')
-    + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '') + glossaryPrompt(await vocabulary(roster));
+    + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '') + glossaryPrompt(await vocabulary(roster)) + DECISION_RECORD_INSTRUCTIONS;
   const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${ai.meetingModel || 'gemini-2.5-flash'}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: prompt }] }] }),
@@ -2141,7 +2113,7 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, s
   // 寧可讓 finalizeMeeting 的 catch 誠實報「整理失敗」(錄音留底還在),也不要靜靜產出一頁空白。
   const missing = REQUIRED_SUMMARY_KEYS.filter((k) => !(k in j));
   if (missing.length) throw new Error(`Gemini 直讀回傳缺少 ${missing.join('/')}(整包可能被裹在另一層 key 裡)`);
-  return normalizeParsed(j);
+  const parsed=normalizeParsed(j);if(!parsed.topics.length)throw Error('Meeting summary has no supported topics');return parsed;
 }
 
 // ══ 後備:Gemini 直轉流程(無 AssemblyAI key 時使用)══
@@ -2189,7 +2161,7 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
   });
   await appendChildren(meeting.id, sourceBlocks);
   await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, 'work', { formalTasks: false }));
-  await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
+  if(!parsed.topics?.length)await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
   await platform.suggestTermsFromMeeting?.({
     tenant,
     text: `${parsed.title}\n${(parsed.highlights || []).join('\n')}\n${(parsed.conclusions || []).join('\n')}\n${(parsed.minutes || []).flatMap((section) => section.points || []).join('\n')}`,
