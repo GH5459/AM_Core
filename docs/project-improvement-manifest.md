@@ -58,3 +58,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.41 | 依帳號語言顯示與停止翻譯重試 | Deployed | PR381完整CI4分8秒；AM b9b656c兩站／Live41.1秒，DailyLog615ed463完整51模組只更新2個語言模組，其餘49及原設定／資產／排程保持。本人中文無語言列／無翻譯請求，原9會議／113對話／54段保持；Calendar原讀取失敗為獨立問題。 |
 
 | AM-IMP-2026.1019.71 | 會議主題層次與逐層展開 | Installed | 三層結果與對話依據、舊格式相容、Notion 深度限制及部分保存重試通過；正式部署與單份內容回讀待完成。 |
+| AM-IMP-2026.1019.80 | 群組未連線停止重試與安靜有限退避 | Installed | 未連線停止、暫時故障最多三次且不發一般重試提示；原來源與已建立行程保留。正式版本驗證待完成。 |
