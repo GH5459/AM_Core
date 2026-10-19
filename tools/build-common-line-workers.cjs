@@ -1,5 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict');
-const root=path.resolve(process.argv[2]||''),am=path.resolve(__dirname,'..'),pkg=am+'/versions/AM-IMP-2026.1019.40';assert(process.argv[2]&&path.isAbsolute(process.argv[2]),'Pass an absolute private release root');assert(path.relative(am,root).startsWith('..'),'Release root must remain outside Git');
+const root=path.resolve(process.argv[2]||''),am=path.resolve(__dirname,'..'),pkg=am+'/versions/AM-IMP-2026.1019.40';assert(process.argv[2]&&path.isAbsolute(process.argv[2]),'Pass an absolute private release root');assert(path.relative(am,root).startsWith('..')||path.isAbsolute(path.relative(am,root)),'Release root must remain outside Git');
 const sha=x=>crypto.createHash('sha256').update(x).digest('hex');
 function replace(s,a,b,n=1){assert.equal(s.split(a).length,n+1,'Anchor: '+a.slice(0,90));return s.replaceAll(a,b);}
 (async()=>{
