@@ -44,6 +44,7 @@ let revisionCalls=0;f.platform.publishMeetingTasks=async input=>{assert.equal(in
 result=await api({action:'revise',fields,revision:Number(current.revision)});assert.equal(result.status,200);await f.service.drain();await f.service.settle();
 assert.equal((await f.service.store.get(id)).fields.record,current.fields.record,'Prior published content stays visible while sync is incomplete');
 const pending=await f.pg.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'",[id]);assert.equal(pending.rows.length,1);
+assert.equal((await api({action:'save-part',field:todo,value:current.fields[todo],version:Number(current.field_versions[todo])},'member')).status,409,'An older full-record revision must also reserve the changed task version');
 assert.equal((await api({action:'sharing',enabled:true,revision:Number(current.revision),version:2})).status,200);
 assert.equal((await api({action:'sharing',enabled:false,revision:Number(current.revision),version:3})).status,200,'Revocation must work while revision synchronization is pending');
 assert.equal((await api({action:'read'},'')).status,401);
