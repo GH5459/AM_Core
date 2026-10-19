@@ -27,4 +27,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1017.01 | Root Leaf OA group invitations | Deployed | PR314 CI passed; 39 isolated checks; Render dep-db9dse61egvs73et22d0 and both production origins a44bb04 verified with 600-second silent timeout |
 | AM-IMP-2026.1019.10 | AM shared meeting glossary and batch import | Deployed | PR327 full CI; AM b8fc4ff both origins; authenticated editor/standalone CSV200 preview, guest denial; production runtime-role isolated200 import/dedup/audit with cleanup;4 meetings/109 conversations/175 task versions preserved; UOF/DailyLog unchanged |
 
-| AM-IMP-2026.1019.04 | 會議入口、預排、會前資料與錄音整理 | Installed | 隔離驗證中，正式部署待回讀 |
+| AM-IMP-2026.1019.04 | 會議入口、預排、會前資料與錄音整理 | Deployed | PR334 CI3m35s；AM c13b935兩站／DailyLog a360859d完整37模組與原OA三格default回讀，原資料設定保持；本人清單及組織選人只讀確認，真人手機錄音另驗收 |
