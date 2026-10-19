@@ -1,7 +1,7 @@
 # 安裝
 
-1. 核對最新 AM origin/main、正式 health commit 與 DailyLog 真正最新100%完整模組。
-2. 隔離 worktree套用 core/group-quick-create.js、leaf-groups及store、leaf-tasks及只讀quick-create-health路由；保留原OA及task key。
-3. tools/release-meeting-workspace.cjs prepare 私人DailyLog固定包；tools/build-group-quick-create-worker.cjs精確加入同原任務驗證之self-create及新line-self-task.mjs，其他模組bytes／Assets／設定排程保持。
-4. 完成 PostgreSQL／完整Worker-D1／LINE validate及CI，再先DailyLog正式版本上傳／切流／回讀，AM PR檢查合併／原正式服務回讀。
-5. 不新增schema、不改grants／bindings，不全量build dirty checkout，私人回退與原資料證據留目標。
+1. 在指定專案備份最新完整正式版本、會議及設定快照。勿使用未整理的舊根目錄重建覆蓋。
+2. 安裝 meetings/workspace 系列、workspace-collaboration.js、原 leaf-tasks.js 與 server.js 的分享介面。
+3. 以專案私有遷移連線套用 workspace.sql。原欄位不重寫；新增空段落結構與空指定名單，以及修訂 patch。移除「只能一筆待同步修訂」索引，改以基準版本依序處理。
+4. 在最新完整 DailyLog 包執行 build-meeting-collaboration-worker.cjs，只改原簽章任務服務中的兩個分享路由並增加 meeting-sharing.mjs。沿用原 syncPersonnel 與組織資料；保留其餘全部模組、設定、資產、秘密及排程。
+5. 測試後各自發布 AM 與原任務服務。UOF 及獨立 HOZO／Seven 服務不必因本包重發。正式設定及證據另存，不進 Git。

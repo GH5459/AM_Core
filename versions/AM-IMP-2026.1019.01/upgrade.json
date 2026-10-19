@@ -1,39 +1,9 @@
 {
-  "id": "AM-IMP-2026.1019.01",
-  "name": "群組本人任務與明確會議入口",
-  "type": "LINE group quick creation",
-  "portable": true,
-  "status": "Ready",
-  "requiresDatabases": [
-    "Existing central archive jobs",
-    "Existing DailyLog documents/work_items"
-  ],
-  "requiresEnv": [
-    "Existing OA source identity",
-    "Existing task service key"
-  ],
-  "requiresScripts": [
-    "tools/test-group-quick-create.mjs",
-    "tools/test-group-quick-create-worker.cjs",
-    "tools/build-group-quick-create-worker.cjs"
-  ],
-  "installTargets": [
-    "Original Leaf OA AM platform",
-    "Original DailyLog task service"
-  ],
-  "dataIsolation": {
-    "canCopyCode": true,
-    "canCopyData": false,
-    "canCopySecrets": false
-  },
-  "definitionOfDone": [
-    "Native bot mention and explicit creation intent",
-    "Own actor confirmation and current identity",
-    "Source-backed self task, atomic receipt and retry-safe same Work ID",
-    "Existing colleague task and per-person calendar unchanged",
-    "Ten-minute draft timeout and revision guards",
-    "Full current Worker/D1 and PostgreSQL checks",
-    "Synthetic AI and LINE format checks",
-    "Checked PR and verified formal production versions"
-  ]
+ "id":"AM-IMP-2026.1019.01","name":"會議分段共同編輯與組織指定分享","type":"Meeting collaboration upgrade","portable":true,"status":"Ready",
+ "requiresDatabases":["Existing project-local meeting workspaces, revisions and central personnel"],
+ "requiresEnv":["Existing project-local LINE, Notion, Drive and task service configuration"],
+ "requiresScripts":["tools/test-meeting-collaboration.mjs","tools/test-meeting-sharing-worker.cjs","tools/build-meeting-collaboration-worker.cjs","tools/inspect-meeting-workspace.mjs"],
+ "installTargets":["AM meeting runtime","Original DailyLog task and personnel service"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Reading and editing share a full-content layout","Current conversation members explicitly save individual paragraphs and tasks before and after publication","Unicode additions/deletions, actor/color/time and complete audit history preserved","Same-part conflicts never silently overwrite and independent parts merge","Published revisions queue in order with durable task/Notion receipts","Host can search the authoritative organization and select multiple recipients","Named recipients can only read published content and audio after current identity/personnel checks","Removing a recipient denies new reads and audio requests","Original data, identities, services, modules, assets and configuration retained","Synthetic browser and actual full Worker/D1 tests pass","Exact production versions verified separately"]
 }
