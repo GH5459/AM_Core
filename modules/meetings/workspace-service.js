@@ -3,6 +3,7 @@ import {Readable} from 'node:stream';
 import {createWorkspaceStore} from './workspace-store.js';
 import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,checkPublication,checkField} from './workspace-model.js';
 import {workspaceHtml} from './workspace-ui.js';
+import {meetingDueDate} from './workspace-schedule.js';
 import {canReadShared,readerData,audioTickets} from './workspace-access.js';
 import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
@@ -104,7 +105,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const fields={...r.fields,record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:1,transcript:1};
    for(const t of (result.parsed.todos||[]).slice(0,60)){
-    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingToday(),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
+    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }
    await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning})]);
   }catch(e){await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code=$2,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,e.status===413?e.message:'製作未完成，原始錄音及設定仍保留；主持人可重試。']);logger.warn('Meeting workspace generation failed; source retained.');}finally{clearInterval(heartbeat);}

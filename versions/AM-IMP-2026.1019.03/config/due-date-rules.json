@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "meetingType": "工作會議",
+  "anchor": "settings.date",
+  "calendar": "Asia/Taipei calendar dates, computed without host-timezone dependence",
+  "daily": {"offsetDays": 0},
+  "weekly": {"offsetDays": 6},
+  "monthly": {"nextMeeting": "same day next calendar month, clamped to last day", "offsetDays": -1},
+  "custom": {"minIntervalDays": 1, "maxIntervalDays": 365, "offset": "intervalDays - 1"},
+  "nextDateOverride": {"mustBeAfterMeeting": true, "offsetDays": -1},
+  "applyTo": ["new generated candidates", "new manually added todos"],
+  "recalculateSavedTodos": false,
+  "migrateExistingMeetings": false
+}
