@@ -45,3 +45,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.34 | 過期未完成會議仍可找到 | Deployed | PR355完整CI3m45s；AMfbf3b75兩站／Live41.2s；本人原清單6場及待完成3場、原兩場目標連結可見；入口／邀請／指定分享回歸及390寬通過。6工作頁／111對話／2排程／0同步列與準備資料、參與者、分享／修訂保持；DailyLog／UOF不重發，未保存真人修改或重建行程。 |
 
 | AM-IMP-2026.1019.14 | Original Leaf OA and DailyLog task completion | Installed | Explicit preview/confirmation, original source group/requester, real mention, original card and same-key receipt; isolated Worker/D1 + 6 widths passed; formal deployment pending |
+
+| AM-IMP-2026.1019.38 | 群組交辦登入提示只列尚未連結者 | Installed | 原來源／身分權限／公司選擇及任務等待保持；21組群組測試通過，正式發布與回讀待完成。 |
