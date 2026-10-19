@@ -22,11 +22,11 @@ export function hubClient(BOOT){
  function render(){
   const from=atDate(weekStart),until=from+(view==='day'?1:7)*dayMs;
   const saved=items.map(x=>{const event=calendarItems.find(e=>x.id===e.meetingId||x.id===e.workspaceId);return event?{...x,start:event.start,end:event.end,allDay:event.allDay,location:event.location,inCalendar:true}:x;});
-  const entries=saved.filter(x=>!x.cancelled&&(x.kind!=='來源對話'||x.inCalendar)&&atDate(x.end||x.start)>=Date.now()&&atDate(x.start)<until&&atDate(x.end||x.start)>from);
+  const entries=saved.filter(x=>!x.cancelled&&(x.kind!=='來源對話'||x.inCalendar)&&atDate(x.start)<until&&atDate(x.end||x.start)>from);
   for(const event of calendarItems)if(!items.some(x=>x.id===event.meetingId||x.id===event.workspaceId)&&atDate(event.start)<until&&atDate(event.end)>from)entries.push({...event,calendar:true});
   entries.sort((a,b)=>atDate(a.start)-atDate(b.start));const box=$('#calendarItems');box.replaceChildren();let last='';
   for(const entry of entries){const key=dateKey(Math.max(from,atDate(entry.start)));if(view==='week'&&key!==last){const heading=document.createElement('h3');heading.className='meeting-date';heading.textContent=dateLabel(key);box.append(heading);last=key;}box.append(row(entry));}
-  if(!entries.length){const empty=document.createElement('p');empty.className='empty';empty.textContent=calendarLoading?'正在讀取行程…':calendarError?'Calendar 尚未讀取，請重新整理。':(view==='day'?'這一天':'這一週')+'沒有待開會的項目。';box.append(empty);}
+  if(!entries.length){const empty=document.createElement('p');empty.className='empty';empty.textContent=calendarLoading?'正在讀取行程…':calendarError?'Calendar 尚未讀取，請重新整理。':(view==='day'?'這一天':'這一週')+'沒有會議行程。';box.append(empty);}
   const pending=saved.filter(x=>!x.cancelled&&x.state!=='published'&&atDate(x.end||x.start)<Date.now()).sort((a,b)=>atDate(b.start)-atDate(a.start));$('#pendingMeetings').replaceChildren(...pending.map(x=>row(x,true)));$('#pendingCount').textContent=String(pending.length);$('#pendingSection').hidden=!pending.length;
   const pendingIds=new Set(pending.map(x=>x.id));
   const ended=saved.filter(x=>!pendingIds.has(x.id)&&(atDate(x.end||x.start)<Date.now()||x.cancelled)).sort((a,b)=>atDate(b.start)-atDate(a.start));$('#ended').replaceChildren(...ended.map(x=>row(x,true)));$('#endedCount').textContent=String(ended.length);
