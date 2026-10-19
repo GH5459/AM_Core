@@ -1,3 +1,1 @@
-# 驗證
-
-Chrome在360／390／430／768／1024／1440寬檢查不溢出、長標題換行、行高、已建檔與Calendar去重、時間起訖／地點、預設收合，以及日1天／週7天／今天切換。既有建檔表單、保留輸入、錄音及工作頁測試保持。發布後本人只讀切換，不提交真人會議或分享；兩站commit、原資料與原DailyLog版本回讀。
+執行 node tools/test-portal-command-entry.mjs、node --experimental-vm-modules tools/verify-private-assistant-pause.mjs。確認兩站 /healthz 的 portalCommandEntry；不發真人 LINE 或寫業務資料。

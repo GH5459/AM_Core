@@ -3,7 +3,7 @@
   "name": "會議指定分享的 LINE 通知",
   "type": "Meeting sharing notifications",
   "portable": true,
-  "status": "Ready",
+  "status": "Deprecated",
   "requiresDatabases": [
     "Project-local meeting workspaces and new share notice outbox"
   ],
