@@ -1,4 +1,5 @@
 // Public navigation only; destination sites authenticate the person opening the link.
+// Replies contain public URLs only and use the triggering reply token, never push.
 export const PORTAL_COMMAND_CONTRACT = 'line-meeting-uof-navigation-v1';
 export function portalCommand(event) {
   const s = event?.source;
