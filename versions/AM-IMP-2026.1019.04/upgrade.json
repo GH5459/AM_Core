@@ -1,0 +1,9 @@
+{
+ "id":"AM-IMP-2026.1019.04","name":"會議入口、預排會議與會前資料錄音整理","type":"Meeting hub upgrade","portable":true,"status":"Ready",
+ "requiresDatabases":["Original meeting PostgreSQL","Original DailyLog D1 documents"],
+ "requiresEnv":["Existing LINE LIFF, original OA, Drive, Calendar and personnel configuration"],
+ "requiresScripts":["tools/test-meeting-hub.mjs","tools/test-meeting-hub-worker.cjs","tools/test-meeting-hub-browser.cjs","tools/build-meeting-hub-worker.cjs","tools/inspect-meeting-workspace.mjs","tools/meeting-hub-menu.mjs"],
+ "installTargets":["Original AM runtime","Original DailyLog Calendar service","Original OA default Rich Menu"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Rich Menu work journal, meeting, UOF in order","Authorized personal meeting list includes named internal shares","Stable meeting page before audio exists","Versioned private preparation is referenced as background only","Explicit recording save before user-triggered generation","Resumable audio chunks and stable original Drive file","Per-person Calendar create/update/cancel/restore keeps original event","Existing sharing, editing, publication and tasks preserved","Synthetic browser and actual full Worker/D1 pass","Exact production and menu readback verified separately"]
+}
