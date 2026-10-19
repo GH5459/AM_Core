@@ -27,7 +27,7 @@ assert.equal((await api({action:'glossary-save',entry:{...entry,aliases:['x'.rep
 const other=createGlossaryStore(f.pool,'other-bot');assert.deepEqual(await other.list(),[]);
 await assert.rejects(()=>other.save({id:r.host_id},{...saved,version:1}),/更新/);
 assert.equal((await f.pg.query('SELECT count(*)::int AS n FROM central_archive.meeting_glossary_changes')).rows[0].n,1);
-const full=createGlossaryStore(f.pool,'full-service');await f.pg.query("INSERT INTO central_archive.meeting_glossary(bot_id,id,term) SELECT 'full-service',md5(n::text)::uuid,'term-'||n FROM generate_series(1,100) n");await assert.rejects(()=>full.save({id:r.host_id},entry),/100/);
+const full=createGlossaryStore(f.pool,'full-service');await f.pg.query("INSERT INTO central_archive.meeting_glossary(bot_id,id,term) SELECT 'full-service',md5(n::text)::uuid,'term-'||n FROM generate_series(1,1000) n");await assert.rejects(()=>full.save({id:r.host_id},entry),/1,000/);
 // Different conversations on the same service use exactly the same vocabulary.
 const second=await f.service.store.create(f.row.key,{...f.event,message:{id:'glossary-second'}},'fixture2.m4a','主持人');
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='review' WHERE id=$1",[second.id]);
@@ -41,7 +41,7 @@ assert(!glossaryPrompt([{...saved,enabled:false}]).includes(entry.term));
 assert.throws(()=>checkTerm({...entry,term:''}));
 // Both audio recognition and text summary receive the same vocabulary snapshot.
 let reads=0,submitted,summary,fallbackPrompt='';
-const platform={assemblyKey:'fixture',geminiKey:'fixture',meetingGlossary:{snapshot:async()=>{reads++;return [saved];}},llm:{completeJson:async input=>{summary=input;return {title:'合成星河館會議',minutes:[{heading:'討論',points:['檢查合成星河館']}],todos:[]};}}};
+const platform={assemblyKey:'fixture',geminiKey:'fixture',meetingGlossary:{snapshot:async()=>{reads++;return [saved,...Array.from({length:199},(_,i)=>({...saved,id:"synthetic-"+i,term:"批次詞"+(i+2),aliases:[],note:""}))];}},llm:{completeJson:async input=>{summary=input;return {title:'合成星河館會議',minutes:[{heading:'討論',points:['檢查合成星河館']}],todos:[]};}}};
 meeting.init(platform);
 globalThis.fetch=async(url,options)=>{
  if(String(url).endsWith('/v2/upload'))return Response.json({upload_url:'https://fixture/audio'});
@@ -52,8 +52,8 @@ globalThis.fetch=async(url,options)=>{
  throw Error('Unexpected test URL');
 };
 const input={tenant:{key:'synthetic'},buffer:Buffer.from('synthetic'),filename:'synthetic.m4a',contentType:'audio/mp4',settings:{topic:'詞庫校正',date:'2026-10-19',type:'一般',prompt:'忠實整理',speakers:[{name:'測試者'}]}};
-let generated=await meeting.generateWorkspace(input);assert.equal(reads,1);assert(submitted.keyterms_prompt.includes(entry.term));assert(summary.userContent.includes(entry.aliases[0]));assert(summary.userContent.includes('修改背景'));assert(generated.diarized.includes(entry.aliases[0]),'Keep original transcript evidence');
-platform.assemblyKey='';reads=0;generated=await meeting.generateWorkspace(input);assert.equal(reads,1);assert(fallbackPrompt.includes(entry.term)&&fallbackPrompt.includes(entry.aliases[0]));assert(generated.warning);
+let generated=await meeting.generateWorkspace(input);assert.equal(reads,1);assert(submitted.keyterms_prompt.includes(entry.term));assert(summary.userContent.includes(entry.aliases[0]));assert(summary.userContent.includes('修改背景'));assert(summary.userContent.includes('批次詞200'));assert(generated.diarized.includes(entry.aliases[0]),'Keep original transcript evidence');
+platform.assemblyKey='';reads=0;generated=await meeting.generateWorkspace(input);assert.equal(reads,1);assert(fallbackPrompt.includes(entry.term)&&fallbackPrompt.includes(entry.aliases[0]));assert(generated.warning);assert(fallbackPrompt.includes('批次詞200'));
 platform.meetingGlossary.snapshot=async()=>{throw Error('dictionary unavailable');};await assert.rejects(()=>meeting.generateWorkspace(input),/dictionary unavailable/);
 globalThis.fetch=originalFetch;await f.pg.close();
 console.log('Meeting glossary: auth, service isolation, cross-meeting reuse, conflicts, audit, primary recognition/summary, audio fallback and visible dictionary failures passed.');

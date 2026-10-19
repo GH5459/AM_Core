@@ -185,13 +185,16 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    try{actor=await authenticate(req,row);}catch(e){if(input.action==='read'&&canReadShared(r)){
     sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public'))});return true;
    }throw e;}
-   if(['glossary-list','glossary-save'].includes(input.action)){
+   if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published'&&actor.id===r.host_id);
-    if(input.action==='glossary-save'){
+    if(input.action!=='glossary-list'){
      if(!canEdit)throw failure(403,'目前只能由可編輯這場會議的成員修改共用詞庫。');
-     await glossary.save(actor,input.entry||{});
     }
-    sendJson(res,200,{ok:true,entries:await glossary.list(),canEdit});return true;
+    if(input.action==='glossary-preview'){sendJson(res,200,{ok:true,preview:await glossary.preview(input.text,input.format)});return true;}
+    let imported;
+    if(input.action==='glossary-import')imported=await glossary.importBatch(actor,input);
+    if(input.action==='glossary-save')await glossary.save(actor,input.entry||{});
+    sendJson(res,200,{ok:true,entries:await glossary.list(),canEdit,...imported?{imported}:{}});return true;
    }
    if(input.action==='read'){if(r.state!=='published')await store.presence(r.id,actor,input.field);}
    else if(input.action==='save-type'){

@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
+import {parseGlossaryImport} from '../modules/meetings/glossary-import.js';
+import {createGlossaryStore,glossaryPrompt} from '../modules/meetings/glossary.js';
+const originalFetch=globalThis.fetch;
+process.env.MEETING_WORKSPACE_PREVIEW='1';
+const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
+await f.pg.exec("CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void LANGUAGE SQL AS 'SELECT';");
+const r=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0],store=createGlossaryStore(f.pool,f.row.bot_id);
+async function api(input,token='host',origin=f.platform.publicBaseUrl){
+ let status=200,body='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={...(token?{authorization:'Bearer '+token}:{}),origin};
+ await f.service.handle(req,{setHeader(){},get headersSent(){return false;},writeHead(s){status=s;},set statusCode(s){status=s;},end(v){body=v;}},new URL(f.platform.publicBaseUrl+'/meetings/review/work/'+r.id+'/api'));return {status,value:JSON.parse(body)};
+}
+let parsed=parseGlossaryImport('\uFEFF正確用詞,常見錯字,背景說明\r\n合成詞,錯字一|錯字二,"背景含逗號,及""引號""\n第二行"','csv');
+assert.equal(parsed[0].line,2);assert.equal(parsed[0].entry.note,'背景含逗號,及"引號"\n第二行');assert.deepEqual(parsed[0].entry.aliases,['錯字一','錯字二']);
+assert.equal(parseGlossaryImport('\n正確用詞\t常見錯字\t背景說明\n館名\t誤字\t測試背景','tsv')[0].entry.note,'測試背景');
+assert.equal(parseGlossaryImport('\n詞一\r\n\r\n詞二\r詞三','text').length,3);
+for(const [text,format]of [['"未結束','csv'],['名詞,"欄位"錯誤','csv'],['名詞,引"號','csv'],['正確用詞,背景說明','csv'],['\uFFFD亂碼','text'],['a'.repeat(1048577),'text'],['\n\n','text'],['詞','xlsx']])assert.throws(()=>parseGlossaryImport(text,format));
+assert.throws(()=>parseGlossaryImport(Array.from({length:501},(_,i)=>'詞'+i).join('\n'),'text'),/500/);
+const text=Array.from({length:200},(_,i)=>'合成詞'+String(i+1).padStart(3,'0')).join('\n'),input={text,format:'text'};
+assert.equal((await api({action:'glossary-preview',...input},'')).status,401);
+assert.equal((await api({action:'glossary-import',...input},'outside')).status,403);
+assert.equal((await api({action:'glossary-preview',...input},'member')).status,403);
+assert.equal((await api({action:'glossary-import',...input},'host','https://foreign.test')).status,403);
+let preview=(await api({action:'glossary-preview',...input})).value.preview;assert.equal(preview.added,200);assert.equal(preview.errors,0);assert.equal((await store.list()).length,0);
+assert.equal((await api({action:'glossary-import',...input,previewHash:'invalid'})).status,409);assert.equal((await store.list()).length,0);
+let result=await api({action:'glossary-import',...input,previewHash:preview.previewHash});assert.equal(result.status,200,JSON.stringify(result.value));assert.equal(result.value.imported.added,200);assert.equal(result.value.entries.length,200);
+assert.equal((await f.pg.query('SELECT count(*)::int AS n FROM central_archive.meeting_glossary_changes')).rows[0].n,200);assert(glossaryPrompt(await store.list()).includes('合成詞200'));
+assert.equal((await api({action:'glossary-import',...input,previewHash:preview.previewHash})).status,409,'A retry must require fresh preview');
+preview=(await api({action:'glossary-preview',...input})).value.preview;assert.equal(preview.skipped,200);assert.equal(preview.added,0);
+result=await api({action:'glossary-import',...input,previewHash:preview.previewHash});assert.equal(result.value.imported.added,0);assert.equal((await store.list()).length,200);
+const duplicate=await store.preview('合成詞001,不同錯字,不應覆蓋原資料\n全新詞,全新誤字,新背景\n全新詞,另外誤字,重複列','csv');assert.equal(duplicate.skipped,2);assert.equal(duplicate.added,1);
+const bad={text:'正常新增,,測試\n有衝突,合成詞001,應阻擋',format:'csv'};preview=await store.preview(bad.text,bad.format);assert.equal(preview.errors,1);assert.equal(preview.added,1);
+await assert.rejects(()=>store.importBatch({id:r.host_id},{...bad,previewHash:preview.previewHash}),/尚未寫入/);assert.equal((await store.list()).length,200);
+preview=await store.preview('詞甲,同個錯字\n詞乙,同個錯字','csv');assert.equal(preview.errors,1);
+assert.equal((await store.preview('缺欄,錯字,背景,多餘欄位','csv')).errors,1);
+const newInput={text:'新詞條',format:'text'};preview=await store.preview(newInput.text,newInput.format);const first=(await store.list())[0];await store.save({id:r.host_id},{...first,note:'另一位使用者剛修改'});
+await assert.rejects(()=>store.importBatch({id:r.host_id},{...newInput,previewHash:preview.previewHash}),/重新預覽/);
+// An audit/database failure rolls the entire batch back, including prior rows.
+let auditCalls=0;const failingPool={...f.pool,connect:async()=>{const db=await f.pool.connect();return {...db,query:async(sql,args)=>{if(sql.startsWith('INSERT INTO central_archive.meeting_glossary_changes')&&++auditCalls===2)throw Error('synthetic audit failure');return db.query(sql,args);}};}};
+const failingStore=createGlossaryStore(failingPool,f.row.bot_id),rollbackInput={text:'交易測試甲\n交易測試乙',format:'text'};preview=await failingStore.preview(rollbackInput.text,rollbackInput.format);
+await assert.rejects(()=>failingStore.importBatch({id:r.host_id},{...rollbackInput,previewHash:preview.previewHash}),/synthetic audit failure/);assert.equal((await store.list()).length,200);
+const budgetStore=createGlossaryStore(f.pool,'budget-test');const large=Array.from({length:300},(_,i)=>'測試'+i+',,'+'字'.repeat(400)).join('\n');preview=await budgetStore.preview(large,'csv');assert(preview.errors>0,'Reject an oversized active prompt visibly rather than truncating words');
+f.row.enabled=false;assert.equal((await api({action:'glossary-import',...input,previewHash:preview.previewHash})).status,403);f.row.enabled=true;
+globalThis.fetch=originalFetch;await f.pg.close();console.log('Glossary import: 200 rows, TXT/TSV/quoted CSV, preview with no writes, duplicates, conflicts, stale preview, transaction rollback, audit, shared prompt coverage, limits and authentication passed.');

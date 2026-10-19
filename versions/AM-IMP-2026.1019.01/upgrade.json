@@ -12,7 +12,8 @@
   ],
   "requiresScripts": [
     "tools/test-meeting-glossary.mjs",
-    "tools/inspect-meeting-workspace.mjs"
+    "tools/inspect-meeting-workspace.mjs",
+    "tools/test-meeting-glossary-import.mjs"
   ],
   "installTargets": [
     "AM platform meeting runtime"
@@ -29,6 +30,7 @@
     "Primary recognition, summary and audio fallback use one vocabulary snapshot",
     "Version conflicts, alias collisions, disable and change audit verified",
     "Prior minutes, transcripts, recordings and task receipts preserved",
-    "Actual production verification required before Deployed"
+    "Actual production verification required before Deployed",
+    "Batch import preview and atomic confirmation for 200+ words, duplicate preservation, conflicts and stale preview rejection"
   ]
 }
