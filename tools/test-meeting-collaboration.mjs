@@ -3,6 +3,7 @@ import {Readable} from 'node:stream';
 import {recordBlocks,textChanges} from '../modules/meetings/workspace-collaboration.js';
 import {audioTickets} from '../modules/meetings/workspace-access.js';
 import http from 'node:http';
+import fs from 'node:fs';
 const nativeFetch=globalThis.fetch;
 process.env.MEETING_WORKSPACE_PREVIEW='1';
 const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
@@ -39,6 +40,7 @@ view=(await api({action:'read'},'member')).value;
 assert.equal((await api({action:'save-part',field:first,value:'A 正式版修訂',version:view.editing.versions[first]},'member')).status,200);await f.service.settle();
 assert.equal((await api({action:'save-part',field:second,value:'B 排隊修訂',version:view.editing.versions[second]})).status,200);await f.service.settle();
 let pending=(await f.pg.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE state='pending' ORDER BY revision")).rows;assert.equal(pending.length,2);assert.equal(Number(pending[1].base_revision),Number(pending[0].revision));assert.equal((await f.service.store.get(id)).fields.record,view.workspace.fields.record,'Readers keep the last fully synchronized version');
+await f.pg.exec(fs.readFileSync(new URL('../modules/meetings/workspace.sql',import.meta.url),'utf8'));assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE state='pending'")).rows[0].n,2,'Repeat migration preserves a multi-revision queue');
 assert.equal((await api({action:'save-part',field:first,value:'舊版本',version:view.editing.versions[first]})).status,409);
 held=false;for(let i=0;i<4;i++){await f.pg.query("UPDATE central_archive.meeting_workspace_revisions SET lease_until=NULL WHERE state='pending'");await f.service.drain();await f.service.settle();}
 r=await f.service.store.get(id);assert(r.fields.record.includes('A 正式版修訂'));assert(r.fields.record.includes('B 排隊修訂'));assert.equal(recordBlocks(r).map(b=>b.text).join('\n'),r.fields.record);assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE state='pending'")).rows[0].n,0);
