@@ -3,7 +3,7 @@
   "name": "共用會議詞庫與編輯視窗",
   "type": "Meeting vocabulary upgrade",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [
     "Project-local PostgreSQL central_archive meeting workspace and glossary tables"
   ],
