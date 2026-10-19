@@ -1,3 +1,4 @@
+import {meetingAudioStream,AUDIO_TRANSPORT} from './audio-stream.js';
 import {multilingualScript} from "./multilingual.js";
 import crypto from 'node:crypto';
 import {Readable} from 'node:stream';
@@ -9,10 +10,11 @@ const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 export function meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request}){
  const origin=()=>new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
  const file=r=>r.receipt?.hubAudio||null;
+ const audioStream=meetingAudioStream({pool,store,platform,env,check});
  const plan=async id=>(await pool.query('SELECT * FROM central_archive.meeting_plans WHERE workspace_id=$1',[id])).rows[0];
  async function identity(id,tenant){const who=await platform.meetingShareIdentity?.(id,tenant);if(!who)throw failure(403,'請先完成本人工作帳號連線，並確認仍為有效同仁。');return who;}
  async function participant(r,id){if(!r?.receipt?.planInputHash)return false;const p=await plan(r.id);if(!p)return false;const who=await identity(id,p.tenant_key);return p.participants.some(a=>a.account===who.account);}
- async function check(r,row,actor,host=false){if(!row||row.bot_id!==botId)throw failure(403,'此會議不屬於目前的服務。');await identity(actor.id);if(host&&actor.id!==r.host_id)throw failure(403,'只有主持人可管理排程及錄音。');try{await assertMember(row,actor.id);}catch(e){if(!await participant(r,actor.id))throw e;}if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'來源對話會議功能目前未開啟。');}
+ async function check(r,row,actor,host=false){if(!row||row.bot_id!==botId)throw failure(403,'此會議不屬於目前的服務。');actor.meetingIdentity??=await identity(actor.id);if(host&&actor.id!==r.host_id)throw failure(403,'只有主持人可管理排程及錄音。');if(actor.memberConversation!==row.key)try{await assertMember(row,actor.id);}catch(e){if(!await participant(r,actor.id))throw e;}if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'來源對話會議功能目前未開啟。');}
  async function body(req){let n=0,a=[];for await(const b of req){n+=b.length;if(n>3000000)throw failure(413,'內容過大。');a.push(b);}try{return JSON.parse(Buffer.concat(a).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function enqueue(db,r,p){
   const host=await identity(r.host_id,p.tenant_key),accounts=[...new Set([...(r.receipt?.externalCalendar?[]:[host.account]),...p.participants.map(x=>x.account).filter(a=>!r.receipt?.externalCalendar||a!==host.account)])];
@@ -63,11 +65,12 @@ export function meetingHub({locale,pool,botId,platform,env,store,getConversation
    await enqueue(db,current,next);return next;
   });
  }
- async function upload(r,row,actor,v){await check(r,row,actor,true);audioInput(v);if(!['setup','failed'].includes(r.state))throw failure(409,'此階段不能替換錄音。');
+ async function upload(r,row,actor,v){audioInput(v);if(!['setup','failed'].includes(r.state))throw failure(409,'此階段不能替換錄音。');
   if(v.action==='audio-begin'){await pool.query(`INSERT INTO central_archive.meeting_audio_uploads(workspace_id,upload_id,actor_id,mime,filename) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,[r.id,v.uploadId,actor.id,v.mime,v.filename]);}
   const u=(await pool.query('SELECT * FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0];if(!u||u.actor_id!==actor.id)throw failure(403,'找不到本人的錄音上傳。');
   if(v.action==='audio-begin'){if(u.mime!==v.mime||u.filename!==v.filename)throw failure(409,'上傳識別已用於其他錄音。');const received=(await pool.query('SELECT part,hash FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2 ORDER BY part',[r.id,v.uploadId])).rows;return {saved:u.state==='saved',received};}
   if(v.action==='audio-part'){
+   if((await pool.query('SELECT upload_id FROM central_archive.meeting_audio_streams WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows.length)throw failure(409,'此錄音使用新版續傳，請重新載入原頁面。');
    const bytes=Buffer.from(v.bytes,'base64');if(!bytes.length||bytes.length>2097152)throw failure(413,'錄音分段過大或空白。');
    return store.locked(r.id,async(current,db)=>{if(!['setup','failed'].includes(current.state))throw failure(409,'會議已開始整理。');const state=(await db.query('SELECT state FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2 FOR UPDATE',[r.id,v.uploadId])).rows[0];if(state.state!=='receiving')throw failure(409,'錄音已保存，不能修改分段。');const prior=(await db.query('SELECT hash FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2 AND part=$3',[r.id,v.uploadId,v.part])).rows[0];if(prior){if(prior.hash!==sha(bytes))throw failure(409,'同一分段內容不同，請重新上傳。');return {saved:true};}const total=Number((await db.query('SELECT COALESCE(sum(octet_length(bytes)),0) AS size FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0].size);if(total+bytes.length>512*1024*1024)throw failure(413,'單份錄音上限為512MB，請分場整理。');await db.query('INSERT INTO central_archive.meeting_audio_chunks VALUES($1,$2,$3,$4,$5)',[r.id,v.uploadId,v.part,bytes,sha(bytes)]);return {saved:true};});
   }
@@ -94,9 +97,11 @@ export function meetingHub({locale,pool,botId,platform,env,store,getConversation
   else if(v.action==='plan-save')await savePlan(r,row,actor,v);
   else if(v.action==='invite-save')await saveInvitations(r,row,actor,v);
   else if(v.action==='plan-organization'){const org=await platform.meetingOrganization(actor.id);return {ok:true,organization:org};}
+  else if(v.action==='audio-fast-begin')return audioStream.begin(r,row,actor,v);
+  else if(v.action==='audio-fast-finish')return audioStream.finish(r,row,actor,v);
   else if(v.action.startsWith('audio-')){const result=await upload(r,row,actor,v);if(v.action!=='audio-finish')return {ok:true,...result};}
   else if(v.action!=='plan-read')throw failure(400,'不支援此操作。');
-  const p=await plan(r.id);return {ok:true,plan:p,actorId:actor.id,host:actor.id===r.host_id,externalCalendar:!!r.receipt?.externalCalendar,audio:!!file(await store.get(r.id)),calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
+  const p=await plan(r.id);return {ok:true,audioTransport:AUDIO_TRANSPORT,plan:p,actorId:actor.id,host:actor.id===r.host_id,externalCalendar:!!r.receipt?.externalCalendar,audio:!!file(await store.get(r.id)),calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
  }
  async function calendar(actor,v){
   const who=await identity(actor.id);let query;
@@ -158,5 +163,5 @@ export function meetingHub({locale,pool,botId,platform,env,store,getConversation
     await pool.query(`UPDATE central_archive.meeting_calendar_links SET state=$4,calendar_id=$5,event_id=$6,google_account=$7,applied_revision=$3,error_code='',lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[r.id,j.account,j.desired_revision,removed?'removed':result.reused?'reused':'synced',result.calendarId,result.eventId,result.googleAccount]);
    }catch(e){const codes={SOURCE_UNAVAILABLE:'請先核對原日曆，再儲存邀請重試',IDEMPOTENCY_CONFLICT:'行程識別有衝突，請先核對；不會另建副本',CALENDAR_EXTERNAL_CHANGED:'原日曆已在外部修改，請先核對',GOOGLE_NOT_CONNECTED:'請在工作日誌連接Google後重試',ACCESS_DISABLED:'帳號目前未開通',ACCOUNT_NOT_FOUND:'請先登入工作日誌',BINDING_CHANGED:'Google帳號已變更，請核對原日曆',CALENDAR_NOT_WRITABLE:'原日曆無法編輯'};await pool.query(`UPDATE central_archive.meeting_calendar_links SET state='failed',error_code=$4,lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[j.workspace_id,j.account,j.desired_revision,codes[e.code]||'同步未完成，請儲存排程重試']);}}
  }finally{draining=false;}}
- return {handle,detail,participant,file,plan,inventory,check,drain,contract:HUB_CONTRACT};
+ return {binary:audioStream.chunk,handle,detail,participant,file,plan,inventory,check,drain,contract:HUB_CONTRACT};
 }

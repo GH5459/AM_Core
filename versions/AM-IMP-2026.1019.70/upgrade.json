@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1019.70",
+  "name": "會議錄音與音檔上傳加速",
+  "type": "Meeting binary resumable audio transport",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Project-local meeting audio stream receipts; existing uploads retained"
+  ],
+  "requiresEnv": [
+    "Original private AM database and Drive settings"
+  ],
+  "requiresScripts": [
+    "tools/migrate-meeting-audio-stream.mjs",
+    "tools/test-meeting-audio-stream.mjs",
+    "tools/test-meeting-audio-fast-browser.cjs",
+    "tools/benchmark-meeting-upload.mjs"
+  ],
+  "installTargets": [
+    "Root AM meeting runtime"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Binary batched upload without database audio bytes",
+    "One current identity lookup per audio request",
+    "Host/origin/service/locale and final Drive source checks",
+    "Resume on lost/partial replies without duplicate files",
+    "Keep legacy uploads and original recordings",
+    "Same-file measured comparison with true scope",
+    "Full CI and exact production verification"
+  ]
+}
