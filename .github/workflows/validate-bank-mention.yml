@@ -151,6 +151,8 @@ jobs:
       - run: node tools/test-meeting-schedule.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.03
       - run: node tools/test-meeting-share-notices.mjs
+      - run: node tools/test-meeting-shared-inbox.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-meeting-share-recipient.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.05
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01
