@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.1019.12",
+  "name": "LINE使用說明公共導覽",
+  "type": "LINE navigation",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing original OA identity and LINE configuration"
+  ],
+  "requiresScripts": [
+    "tools/test-usage-guide-entry.mjs",
+    "tools/verify-private-assistant-pause.mjs"
+  ],
+  "installTargets": [
+    "Original Leaf OA AM platform only"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Signed direct or native bot-mention group navigation",
+    "No business classifier, identity or AI dependency",
+    "Existing pause and independent transport retained",
+    "Reviewed main and two production health reads"
+  ]
+}
