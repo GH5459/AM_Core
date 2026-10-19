@@ -18,7 +18,7 @@ async function fixture({failFirstTenant=false,businessResolution='active',missin
  const priorIdentity=options.resolveIdentity;options.resolveIdentity=async(u,t,opts)=>missingRecipient&&u===recipient?null:priorIdentity(u,t,opts);
  if(duplicateService)options.tenants.push({...tenant,key:'duplicate'});
  let service=createLeafTasks(options);await service.configureService({tenantKey:'fixture',baseUrl:'https://dailylog.example/',apiKey:'synthetic-service-key-with-at-least-32-bytes'});
- return {service,paths,counts:()=>({judgments,issues,notices}),restart:()=>createLeafTasks(options),failNotice:()=>{failNotice=true;},revoke:()=>{revoked=true;}};}
+ return {service,paths,options,counts:()=>({judgments,issues,notices}),restart:()=>createLeafTasks(options),failNotice:()=>{failNotice=true;},revoke:()=>{revoked=true;}};}
 test('true colleague mention is required; private, bot, @all, typed @ are excluded',()=>{assert(mentionCandidate(event()));assert(!mentionCandidate({...event(),source:{type:'user',userId:sender}}));for(const mentions of [[],[{type:'all'}],[{type:'user',isSelf:true,userId:recipient}],[{type:'user'}]])assert(!mentionCandidate({...event(),message:{...event().message,mention:{mentionees:mentions}}}));});
 test('purpose-specific setup, encrypted config, persisted intake, judgment and immediate issue',async()=>{const f=await fixture();assert(f.service.adminAuthorized(taskAdminKey(secret)));assert(!f.service.adminAuthorized('wrong'));await f.service.capture([event()]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});assert(f.paths.indexOf('intake')<f.paths.indexOf('judgment'));assert(f.paths.indexOf('judgment')<f.paths.indexOf('issue'));assert.deepEqual(f.service.health().configuredTenants,['fixture']);});
 test('same-event replay does not issue again; general greeting is suppressed',async()=>{const f=await fixture(),e=event();await f.service.capture([e]);await f.service.drain();await f.service.capture([e]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});const greeting=await fixture();await greeting.service.capture([event('@同仁 早安')]);await greeting.service.drain();assert.deepEqual(greeting.counts(),{judgments:1,issues:0,notices:0});});
@@ -60,3 +60,11 @@ test('combined group extraction uses original mention indices and does not call 
  await assert.rejects(f.service.submitGroupTask(tenant,e,people,{...judgment,assignments:[{...judgment.assignments[0],recipientIndices:[1]}]}),/invalid_task_judgment/);
  assert(!f.paths.includes('intake'));await f.service.submitGroupTask(tenant,e,people,judgment);await f.service.drain();assert.deepEqual(f.counts(),{judgments:0,issues:1,notices:1});
 });
+
+ test('own-task transport uses dedicated service path with original actor and evidence, no invented mention',async()=>{
+  const f=await fixture(),e=event('@葉小蝸 幫我建立任務：整理清單');e.message.mention.mentionees=[{type:'user',isSelf:true,userId:'U'+'0'.repeat(32)}];f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);const base=f.options.fetchImpl;
+  f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/self-create')){const v=JSON.parse(init.body);assert.equal(v.actor.userId,sender);assert.equal(v.actor.account,'sender');assert.deepEqual(v.source.text,e.message.text);assert.equal(v.mentions,undefined);assert.equal(v.draft.dueAt,null);return Response.json({ok:true,taskIds:['work-fixture']});}return base(url,init);};
+  const service=f.restart(),prior={userId:sender,account:'sender',bindingId:'bound-'+sender},draft={title:'整理清單',description:'本週清單',acceptance:'',dueDate:null,dueAt:null},confirmation={userId:sender,eventId:'confirm',timestamp:Date.now()};
+  const r=await service.submitSelfTask(tenant,e,prior,draft,confirmation,1);assert.equal(r.taskIds[0],'work-fixture');assert.match(JSON.stringify(r.message),/已建立自己的任務/);assert.equal(f.counts().issues,0);
+  await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,{...confirmation,userId:recipient},1));f.revoke();await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,confirmation,1));
+ });
