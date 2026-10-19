@@ -30,6 +30,7 @@ This record does not install changes into SevenAM or other OA credentials. Their
 
 | AM-IMP-2026.1019.04 | 會議入口、預排、會前資料與錄音整理 | Deployed | PR334 CI3m35s；AM c13b935兩站／DailyLog a360859d完整37模組與原OA三格default回讀，原資料設定保持；本人清單及組織選人只讀確認，真人手機錄音另驗收 |
 
+| AM-IMP-2026.1019.07 | AM Rich Menu shared meeting inbox | Installed | Dedicated published shared list and pagination; no share push/enqueue; OA-scoped legacy sender fence; original ACL and other features retained; production verification pending |
 | AM-IMP-2026.1019.05 | Root AM named meeting shares and original DailyLog recipient resolution | Deployed | PR339 full final CI; AM69ed6f5 both origins /40.9s; DailyLog79bb857d 100% /37 modules, other35/settings/assets/secrets/cron preserved;4 meetings/109 conversations/175 task versions retained including audited concurrent host paragraph update before deployment; authenticated host read-only UI and synthetic390-width notice states verified; no real grants/notices/messages |
 
 | AM-IMP-2026.1019.12 | Original Leaf OA public usage guide navigation | Installed | Exact direct command or native bot mention in group; signed source preserved before navigation; no identity/AI/task/UOF dispatch; isolated tests and production pending |
