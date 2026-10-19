@@ -1,0 +1,19 @@
+{
+  "id": "AM-IMP-2026.1019.03",
+  "name": "工作會議週期與待辦預設到期日",
+  "type": "Meeting workspace upgrade",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing project-local meeting workspaces; no schema change"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/test-meeting-schedule.mjs", "tools/test-meeting-workspace.mjs", "tools/test-meeting-collaboration.mjs"],
+  "installTargets": ["AM Platform meeting workspace runtime"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Work meeting replaces built-in meeting and standalone monthly type; phone/discussion/seminar and custom templates remain",
+    "Daily, weekly, calendar-monthly, custom 1-365 days, and optional next-meeting date calculate defaults from meeting date",
+    "Generation and manual new tasks share one calculation; manual date edits persist",
+    "Existing records, saved dates, source evidence, permissions, sharing and task identities are preserved",
+    "Month ends, leap years, year boundaries, invalid settings, server/browser parity and isolated service regression pass"
+  ]
+}
