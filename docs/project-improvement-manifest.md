@@ -35,3 +35,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 
 | AM-IMP-2026.1019.12 | Original Leaf OA public usage guide navigation | Deployed | PR345 full CI2m37s; AM112a7ad both origins / Render Live40.4s; 52 local checks plus signed pause/group/mixed transport and LINE format200; exact guide URL public200; no real LINE tests or bulk resend, no DailyLog/UOF deployment |
 | AM-IMP-2026.1019.11 | 會議內容儲存入口與分享／歷程收合 | Deployed | PR342 完整 CI3m40s；AM37dadc0 兩站及 Render Live41.7s；固定儲存列、未存數量／狀態、分享與歷程收合；合成多人衝突及390寬通過，4會議／109對話及分享／段落／修訂保持，UOF／DailyLog不重發 |
+
+| AM-IMP-2026.1019.13 | Original root OA meeting/UOF public text navigation | Deployed | PR346 full CI3m37s; main bc1d350 both origins / Render Live43.0s; exact commands in direct/group/room; original active default meeting URI and UOF /Line/Review login; 2 LINE validate200, original UOF GET200, signature/pause/mixed transport and existing group/Calendar regressions; latest usage guide/shared inbox preserved; no real LINE or business writes. Initial 1019.07 collision renamed, original shared-inbox package preserved. |
