@@ -41,13 +41,13 @@ export function decisionRecordHtml(text){
  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  return '<h3>重點與決議</h3>'+parsed.topics.map((t,i)=>'<details class="decision-topic" data-decision="'+i+'"><summary><strong>'+esc(t.title)+'</strong><span class="decision-outcome">'+t.summary.map(esc).join('<br>')+'</span>'+(t.status?'<span class="decision-status">'+esc(t.status)+'</span>':'')+'</summary><div class="decision-evidence"><h4>對話依據 · 摘意</h4>'+t.evidence.map(e=>'<p>'+esc(e)+'</p>').join('')+'</div></details>').join('')+parsed.tail.map(t=>'<p>'+esc(t)+'</p>').join('');
 }
-const rich=content=>[{type:'text',text:{content}}];
+const rich=content=>{const parts=[];for(let i=0;i<content.length||i===0;i+=1800)parts.push({type:'text',text:{content:content.slice(i,i+1800)}});return parts;};
 export function meetingNotionBlocks(lines){
  const paragraph=text=>({object:'block',type:'paragraph',paragraph:{rich_text:rich(text)}});
  const chunks=text=>{const out=[];for(let i=0;i<text.length||i===0;i+=1800)out.push(paragraph(text.slice(i,i+1800)));return out;};
  return lines.flatMap(line=>{
   const parsed=parseDecisionRecord(line);if(!parsed)return chunks(String(line));
-  return [{object:'block',type:'heading_2',heading_2:{rich_text:rich('重點與決議')}},...parsed.topics.map(t=>({object:'block',type:'toggle',toggle:{rich_text:rich([t.title,...t.summary,t.status].filter(Boolean).join('\n').slice(0,1800)),children:[paragraph('對話依據 · 摘意'),...t.evidence.flatMap(chunks)]}})),...parsed.tail.flatMap(chunks)];
+  return [{object:'block',type:'heading_2',heading_2:{rich_text:rich('重點與決議')}},...parsed.topics.map(t=>({object:'block',type:'toggle',toggle:{rich_text:rich([t.title,...t.summary,t.status].filter(Boolean).join('\n')),children:[paragraph('對話依據 · 摘意'),...t.evidence.flatMap(chunks)]}})),...parsed.tail.flatMap(chunks)];
  });
 }
 // Prefix checks include nested evidence. A lost Notion reply resumes the same
