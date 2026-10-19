@@ -46,3 +46,16 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_revisions (
  PRIMARY KEY(workspace_id,revision), CHECK(state IN ('pending','applied'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS meeting_workspace_one_revision ON central_archive.meeting_workspace_revisions(workspace_id) WHERE state='pending';
+
+-- Shared vocabulary is scoped to this service/OA, without conversation content.
+CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary (
+ bot_id text NOT NULL, id uuid NOT NULL, term text NOT NULL,
+ aliases jsonb NOT NULL DEFAULT '[]', note text NOT NULL DEFAULT '', enabled boolean NOT NULL DEFAULT true,
+ version bigint NOT NULL DEFAULT 1, updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(bot_id,id), UNIQUE(bot_id,term)
+);
+CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary_changes (
+ bot_id text NOT NULL, term_id uuid NOT NULL, version bigint NOT NULL, actor_id text NOT NULL,
+ before_value jsonb, after_value jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(bot_id,term_id,version)
+);

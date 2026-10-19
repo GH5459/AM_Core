@@ -1,0 +1,10 @@
+# 驗證
+
+- node tools/test-meeting-glossary.mjs：實際 PostgreSQL 相容資料庫、登入與成員、跨會議共用／跨服務隔離、版本衝突、衝突詞／輸入上限／停用／歷程、詞庫網頁及 LIFF 回跳、辨識／整理／備援詞庫提示、讀取失敗明確阻擋。AI 與外部服務採合成回應，此項驗證提示內容，不宣稱實際聲音辨識品質。
+- node tools/test-meeting-workspace-generation.mjs
+- node tools/test-meeting-reader-sharing.mjs
+- node tools/test-meeting-workspace.mjs
+- node tools/test-conversation-meetings.mjs
+- node tools/dryrun-meetings.mjs
+- Browser：node tools/preview-meeting-glossary.mjs，僅在 127.0.0.1:43129 提供全合成資料，測試開啟、新增、修改、搜尋、停用及另開網頁；測試結束停止程序。
+- 生產環境後續：核對實際提交、資料表與帳號權限、本人登入可開啟詞庫及新錄音的校字結果；未執行不得稱 Deployed 或真人驗收完成。

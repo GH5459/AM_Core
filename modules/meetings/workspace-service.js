@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {createGlossaryStore} from './glossary.js';
 import {Readable} from 'node:stream';
 import {createWorkspaceStore} from './workspace-store.js';
 import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,checkPublication,checkField} from './workspace-model.js';
@@ -11,6 +12,8 @@ const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const uid=s=>/^U[a-f0-9]{32}$/i.test(s||'');
 const rich=s=>[{type:'text',text:{content:String(s).slice(0,1900)}}];
 export function createMeetingWorkspace({pool,botId,platform,archive,env,context,tenantFor,getConversation,ensureDatabase,request,meetingModule,logger=console}){
+ const glossary=createGlossaryStore(pool,botId);
+ platform.meetingGlossary={snapshot:()=>glossary.list()};
  const store=createWorkspaceStore(pool),running=new Map();let recovering=false,cutover;
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
@@ -102,7 +105,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    for(const t of (result.parsed.todos||[]).slice(0,60)){
     const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingToday(),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }
-   await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning})]);
+   await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning,glossaryUsed:result.glossaryUsed||[]})]);
   }catch(e){await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code=$2,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,e.status===413?e.message:'製作未完成，原始錄音及設定仍保留；主持人可重試。']);logger.warn('Meeting workspace generation failed; source retained.');}finally{clearInterval(heartbeat);}
  }
  async function validateAssignees(r,row){
@@ -158,15 +161,15 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
-  const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(?:[?#].*)?$/):null;
-  const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio))?$/)||(primary?[primary[0],primary[1],undefined]:null);if(!match)return false;
+  const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(\/glossary)?(?:[?#].*)?$/):null;
+  const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio|glossary))?$/)||(primary?[primary[0],primary[1],primary[2]?'glossary':undefined]:null);if(!match)return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');
   try{
    const r=await store.get(match[1]);if(!r)throw failure(404,'找不到這場會議。');const row=await conversation(r);
-   const loginUrl=loginPage(row,r.id);
-   if(!match[2]&&req.method==='GET'){
+   const loginUrl=loginPage(row,r.id);if(match[2]==='glossary')loginUrl.pathname+='/glossary';
+   if((!match[2]||match[2]==='glossary')&&req.method==='GET'){
     if((req.headers.host||url.host)!==loginUrl.host){res.statusCode=302;res.setHeader('Location',loginUrl.href);res.end();return true;}
-    res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row),loginUrl:loginUrl.href,publicAvailable:canReadShared(r)}));return true;
+    res.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');res.setHeader('Content-Type','text/html; charset=utf-8');res.end(workspaceHtml({id:r.id,liffId:await liffFor(row),loginUrl:loginUrl.href,publicAvailable:match[2]!=='glossary'&&canReadShared(r),glossaryOnly:match[2]==='glossary'}));return true;
    }
    if(req.headers.origin&&![base(),loginUrl.origin].includes(req.headers.origin))throw failure(403,'請從原工作頁操作。');
    if(match[2]==='audio'&&req.method==='GET'){
@@ -182,6 +185,14 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    try{actor=await authenticate(req,row);}catch(e){if(input.action==='read'&&canReadShared(r)){
     sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public'))});return true;
    }throw e;}
+   if(['glossary-list','glossary-save'].includes(input.action)){
+    const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published'&&actor.id===r.host_id);
+    if(input.action==='glossary-save'){
+     if(!canEdit)throw failure(403,'目前只能由可編輯這場會議的成員修改共用詞庫。');
+     await glossary.save(actor,input.entry||{});
+    }
+    sendJson(res,200,{ok:true,entries:await glossary.list(),canEdit});return true;
+   }
    if(input.action==='read'){if(r.state!=='published')await store.presence(r.id,actor,input.field);}
    else if(input.action==='save-type'){
     if(!['setup','failed'].includes(r.state)||typeof input.name!=='string'||!input.name.trim()||input.name.length>60||typeof input.prompt!=='string'||!input.prompt.trim()||input.prompt.length>6000)throw failure(400,'請填寫類型名稱與整理 Prompt。');

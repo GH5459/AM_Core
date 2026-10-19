@@ -1,6 +1,7 @@
 export function workspaceClient(BOOT){
  const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let token='',data=null,memberList=[],membersLoaded=false,settingsDirty=false,settingsVersion=0,renderedSettingsVersion=-1,busy=false,publishing=false,polling=false,audioUrl='',mode='',editSnapshot=null,readingHash='',lastState='',sharingDirty=false;
+ let glossaryEntries=[],glossaryEntry=null,glossaryDirty=false,glossaryBusy=false,glossaryCanEdit=false,glossaryOpened=false;
  const dirty=new Map(),timers=new Map(),saving=new Set(),versions=new Map();
  const statusNames={offered:'等待上傳者確認',declined:'本次不製作',setup:'設定中',processing:'製作中',review:'共同確認中',failed:'製作未完成',publishing:'發布處理中',published:'正式會議記錄'};
  const color=id=>{let n=0;for(const c of id)n=(n*31+c.charCodeAt(0))>>>0;return `hsl(${n%360} 48% 40%)`;};
@@ -47,6 +48,9 @@ export function workspaceClient(BOOT){
  function render(){if(!data)return;let w=data.workspace;const locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),publicRead=data.access==='public';
   if(!mode||w.state==='published'&&lastState&&lastState!=='published')mode=w.state==='published'?'view':'edit';lastState=w.state;if(publicRead)mode='view';
   const reading=review&&mode==='view';document.body.classList.toggle('reader-mode',reading);$('#pageHeading').textContent=reading?'會議記錄':'會議工作頁';
+  $('#glossaryPageLink').href='/meetings/review/work/'+BOOT.id+'/glossary';
+  if(BOOT.glossaryOnly&&!publicRead){document.body.classList.add('glossary-page');$('#pageHeading').textContent='共用會議詞庫';$('#pageSubtitle').textContent='管理正確用詞、同音字與背景說明';if(!glossaryOpened){glossaryOpened=true;$('#openGlossary').click();}}
+  $('#glossaryPanel').hidden=publicRead||mode!=='edit'||!['setup','failed','review','published'].includes(w.state)||w.state==='published'&&!data.host;
   $('#modeSwitch').hidden=!review||publicRead||w.state==='publishing';$('#viewMode').setAttribute('aria-pressed',String(mode==='view'));$('#editMode').setAttribute('aria-pressed',String(mode==='edit'));$('#editMode').hidden=w.state==='published'&&!data.host;$('#hostLogin').hidden=!publicRead;
   if(w.state==='published'&&mode==='edit'&&editSnapshot)w={...w,fields:editSnapshot.fields};
   $('#connection').textContent=(publicRead?'連結分享觀看':'已確認：'+data.actor.name)+' · '+statusNames[w.state];$('#title').textContent=data.reader?.topic||w.fields?.settings.topic||'會議工作頁';$('#source').textContent=(data.reader?.date||w.fields?.settings.date||'')+' · '+(data.reader?.filename||w.filename||'')+' · 主持人：'+(data.reader?.hostName||w.hostName||'');
@@ -72,6 +76,35 @@ export function workspaceClient(BOOT){
   for(const p of data.presence||[]){if(p.id===data.actor.id||!p.field)continue;const e=document.querySelector('[data-editor="'+p.field+'"] textarea')||document.querySelector('[data-todo="'+p.field+'"]');if(e){e.style.setProperty('--editor-color',color(p.id));e.classList.add('editing');}}
  }
  async function loadMembers(){membersLoaded=true;$('#membersStatus').textContent='正在讀取成員及工作日誌對應…';try{const j=await api({action:'members'});memberList=j.members.people;$('#membersStatus').textContent=j.members.complete?'已讀取來源對話成員。':'目前為已核實成員名單，尚不能確認已涵蓋所有成員；未列出者請在原群組發言後重新讀取。';render();}catch(e){membersLoaded=false;throw e;}}
+ function glossaryStatus(text){$('#glossaryStatus').textContent=text;}
+ function glossaryList(){
+  const q=$('#glossarySearch').value.trim().toLocaleLowerCase();$('#glossaryList').replaceChildren();
+  const entries=glossaryEntries.filter(e=>[e.term,...e.aliases,e.note].join(' ').toLocaleLowerCase().includes(q));
+  if(!entries.length){const p=document.createElement('p');p.textContent='尚無符合的詞條。';$('#glossaryList').append(p);}
+  for(const entry of entries){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=entry.term+(entry.enabled?'':'（停用）')+'\n'+(entry.aliases.length?'常見錯字：'+entry.aliases.join('、')+'\n':'')+entry.note;b.onclick=()=>{if(glossaryBusy||glossaryDirty&&!confirm('詞條有尚未儲存的內容，確定改看另一個詞條？'))return;glossarySelect(entry);};$('#glossaryList').append(b);}
+ }
+ function glossarySelect(entry=null){
+  glossaryEntry=entry?structuredClone(entry):null;glossaryDirty=false;
+  $('#glossaryFormTitle').textContent=entry?'修改詞條':'新增詞條';$('#glossaryTerm').value=entry?.term||'';$('#glossaryAliases').value=(entry?.aliases||[]).join('\n');$('#glossaryNote').value=entry?.note||'';$('#glossaryEnabled').checked=entry?.enabled??true;
+ }
+ async function glossaryLoad(){
+  if(glossaryBusy)return;const j=await api({action:'glossary-list'});glossaryEntries=j.entries;glossaryCanEdit=j.canEdit;
+  $('#glossaryForm').querySelectorAll('input,textarea,button').forEach(e=>e.disabled=!j.canEdit);glossaryList();
+  glossaryStatus((j.canEdit?'已讀取 '+j.entries.length+' 筆詞條。':'目前只能閱讀詞庫。')+(glossaryDirty?'你的輸入仍保留，請先比較清單中的最新版本。':''));
+ }
+ $('#openGlossary').onclick=()=>{$('#glossaryDialog').showModal();glossaryLoad().catch(e=>glossaryStatus(e.message));};
+ $('#glossarySearch').oninput=glossaryList;
+ $('#glossaryForm').oninput=()=>{glossaryDirty=true;glossaryStatus('詞條尚未儲存。');};
+ $('#newGlossary').onclick=()=>{if(!glossaryBusy&&(!glossaryDirty||confirm('確定放棄這個詞條尚未儲存的內容？')))glossarySelect();};
+ $('#reloadGlossary').onclick=()=>glossaryLoad().catch(e=>glossaryStatus(e.message));
+ $('#glossaryForm').onsubmit=async e=>{
+  e.preventDefault();if(glossaryBusy||!glossaryCanEdit)return;glossaryBusy=true;$('#glossaryForm').querySelectorAll('input,textarea,button').forEach(n=>n.disabled=true);glossaryStatus('正在儲存…');
+  try{const entry={...(glossaryEntry?{id:glossaryEntry.id}:{}),version:glossaryEntry?.version||0,term:$('#glossaryTerm').value,aliases:$('#glossaryAliases').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),note:$('#glossaryNote').value,enabled:$('#glossaryEnabled').checked};
+   const j=await api({action:'glossary-save',entry});glossaryEntries=j.entries;glossarySelect(j.entries.find(t=>t.term===entry.term.trim()));glossaryList();glossaryStatus('詞條已儲存，下一次製作會議時開始使用。');
+  }catch(e){glossaryStatus(e.message+'\n你的輸入仍保留。');}finally{glossaryBusy=false;$('#glossaryForm').querySelectorAll('input,textarea,button').forEach(n=>n.disabled=!glossaryCanEdit);}
+ };
+ function closeGlossary(e){if(glossaryBusy){e?.preventDefault();return;}if(glossaryDirty&&!confirm('詞條尚未儲存，確定關閉詞庫？')){e?.preventDefault();return;}$('#glossaryDialog').close();if(BOOT.glossaryOnly){window.close();location.href='/meetings/review/work/'+BOOT.id;}else $('#openGlossary').focus();}
+ $('#closeGlossary').onclick=closeGlossary;$('#glossaryDialog').addEventListener('cancel',e=>{e.preventDefault();closeGlossary(e);});
  $('#setupPanel').addEventListener('input',()=>{settingsDirty=true;$('#settingsStatus').textContent='尚未儲存設定';});
  $('#type').onchange=()=>{const custom=$('#type').value==='custom';$('#customTypeBox').hidden=!custom;if(!custom)$('#prompt').value=data.types.find(t=>t.name===$('#type').value).prompt;settingsDirty=true;};
  $('#addSpeaker').onclick=()=>{const s=settings().speakers;if(s.length>=40)return;s.push({name:'',gender:'',role:''});renderSpeakers(s);settingsDirty=true;};

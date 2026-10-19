@@ -1,3 +1,4 @@
+import {glossaryPrompt} from './glossary.js';
 // AM Platform 模組:meetings
 // 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
 // ─────────────────────────────────────────────────────────────────────────
@@ -556,7 +557,14 @@ async function uploadToAssembly({ buffer, audioMessageId, auth, audioStreamFacto
 }
 
 // ── AssemblyAI 轉寫(預錄音,universal-3-5-pro + 講者分離)───────
+// One vocabulary snapshot per generation, including fallback.
+async function vocabulary(roster){
+ if(!roster)return await platform.meetingGlossary?.snapshot?.()||[];
+ if(!roster.glossarySnapshot)roster.glossarySnapshot=await platform.meetingGlossary?.snapshot?.()||[];
+ return roster.glossarySnapshot;
+}
 async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG, audioStreamFactory }) {
+  const glossary=await vocabulary(roster);
   const auth = { Authorization: aiForTenant(tenant).assemblyKey }; // 原始 key,不加 Bearer
 
   // 1. 上傳原始位元組到 AssemblyAI /v2/upload。
@@ -569,7 +577,7 @@ async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename
   const names = roster.speakers.map((s) => s.name);
   // 名詞庫是 AM Platform 的租戶共用能力；未設定/暫時不可讀時安全退回既有靜態設定。
   const libraryTerms = await platform.meetingTerms?.enabledTerms?.(tenant) || [];
-  const keyterms = [...new Set([...names, ...roster.keyterms, ...cfg.keyterms, ...libraryTerms])]
+  const keyterms = [...new Set([...names, ...glossary.filter(e=>e.enabled).map(e=>e.term), ...roster.keyterms, ...cfg.keyterms, ...libraryTerms])]
     .filter((t) => t && t.length <= 24).slice(0, 100);
   const who = roster.speakers.map((s) => `${s.name}${s.gender ? `(${s.gender})` : ''}${s.role ? `(${s.role})` : ''}`).join('、');
   const promptText = [
@@ -653,7 +661,7 @@ async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETI
   const who = [...legend.values()].join('、');
   const j = await llmForTenant(tenant).completeJson({
     system: meetingPrompt({ who, topic: roster.topic, today: roster.date || todayStr(), kind: roster.kind, cfg }) + (roster.workspacePrompt ? `\n本場類型與整理要求：${roster.workspacePrompt}\n忠實引用來源，不可捏造決議、負責人或日期。不確定內容標示待確認。` : ''),
-    userContent: `逐字稿:\n${diarized}`,
+    userContent: glossaryPrompt(await vocabulary(roster)) + `逐字稿:\n${diarized}`,
     schema: SUMMARY_SCHEMA,
     profile: 'quality',
     maxTokens: 16000,
@@ -2121,7 +2129,7 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, s
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: roster?.date || todayStr(), kind: roster?.kind, cfg }) + (roster?.workspacePrompt ? `\n本場整理要求：${roster.workspacePrompt}\n勿捏造負責人、期限或決議。` : '')
-    + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
+    + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '') + glossaryPrompt(await vocabulary(roster));
   const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${ai.meetingModel || 'gemini-2.5-flash'}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: prompt }] }] }),
@@ -2228,6 +2236,7 @@ async function generateWorkspace({tenant,buffer,filename,contentType,settings,au
   const cfg=meetingsCfg(tenant);
   const roster={topic:settings.topic,date:settings.date,kind:'work',workspacePrompt:settings.type+'：'+settings.prompt,
     keyterms:[],speakers:settings.speakers.map((s,i)=>({...s,name:s.name.trim()||'講者'+String.fromCharCode(65+i),order:i+1}))};
+  await vocabulary(roster); // Fail visibly if the shared vocabulary cannot be read.
   let parsed,diarized='',segments=[],warning='';
   try{
     if(!aiForTenant(tenant).assemblyKey)throw Error('primary_transcription_not_configured');
@@ -2243,7 +2252,7 @@ async function generateWorkspace({tenant,buffer,filename,contentType,settings,au
     parsed=await geminiTranscribeParsed({tenant,buffer,filename,contentType,sourceIsVideo:false,roster,cfg});
     warning='本次使用備援整理，沒有完整署名逐字稿，請對照原始錄音確認。';
   }
-  return {parsed,diarized,segments,warning};
+  return {parsed,diarized,segments,warning,glossaryUsed:roster.glossarySnapshot.filter(e=>e.enabled).map(e=>({id:e.id,version:e.version}))};
 }
 
 export default {
