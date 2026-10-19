@@ -3,7 +3,7 @@
   "name": "三語工作日誌與會議文字",
   "type": "Multilingual text",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [
     "Original DailyLog D1 documents",
     "Original AM PostgreSQL, additive translation and reply tables",
@@ -37,5 +37,12 @@
     "Foreign replies and task completion preserve original permissions and task IDs",
     "Foreign definitions blocked including stale pages and forged locale",
     "Exact live modules, configuration and synthetic translations verified"
-  ]
+  ],
+  "deployment": {
+    "date": "2026-10-19",
+    "amCommit": "ab0b92a1e36ef354086b88e1373c79212ce62b68",
+    "dailylogVersion": "2b2a6ef4-c8bb-4c55-abed-c5e2e1a5e666",
+    "managementVersion": "0e0409d5-c044-4b15-94e2-4b31100dbaea",
+    "verification": "docs/upgrades/multilingual-text-20261019.md"
+  }
 }
