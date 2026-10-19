@@ -10,15 +10,16 @@
     "Original shared personnel Durable Object"
   ],
   "requiresEnv": [
-    "Existing private service authentication and Workers AI binding",
-    "Existing shared AM LLM platform"
+    "Existing private service authentication and signed AM translation origin",
+    "Existing shared AM LLM platform, optional Workers AI binding"
   ],
   "requiresScripts": [
     "tools/test-multilingual-policy.mjs",
     "tools/test-multilingual-meetings.mjs",
     "tools/test-multilingual-dailylog.cjs",
     "tools/test-multilingual-management.cjs",
-    "tools/test-multilingual-client.mjs"
+    "tools/test-multilingual-client.mjs",
+    "tools/test-multilingual-service.mjs"
   ],
   "installTargets": [
     "Original AM platform",
