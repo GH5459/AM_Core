@@ -1,3 +1,4 @@
+import {platformTranslation} from './core/multilingual-service.js';
 // AM Platform 伺服器入口(ESM、無框架 node:http,比照 BuildAM)
 // 一支 OA → 一個 webhook(/webhook/line)是唯一入口 → 依群組分流到各租戶 → 各租戶落自己的 Notion 頁。
 // core 只做底座 + 路由 + 租戶解析 + 隔離;功能邏輯全在 modules/。
@@ -606,6 +607,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if(['/integrations/multilingual/translate','/integrations/multilingual/probe'].includes(url.pathname)){
+    try{let bytes=0,parts=[];for await(const part of req){bytes+=part.length;if(bytes>100000)return sendJson(res,413,{error:'Too large'});parts.push(Buffer.from(part));}const raw=Buffer.concat(parts).toString('utf8'),input=JSON.parse(raw);return sendJson(res,200,await platformTranslation({req,raw,input,platform,tasks:leafTasks,env:process.env,probe:url.pathname.endsWith('/probe')}));}catch(e){return sendJson(res,e.status||503,{error:e.status?e.message:'Translation unavailable; original text is preserved.'});}
+  }
   if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health','/portal/admin/leaf-tasks/quick-create-health','/portal/admin/leaf-tasks/eligibility-health','/portal/admin/leaf-tasks/multilingual-probe'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
