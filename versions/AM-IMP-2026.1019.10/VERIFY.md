@@ -11,3 +11,5 @@
 
 - node tools/test-meeting-glossary-import.mjs：200 筆真實資料表寫入、無寫入預覽、TXT／TSV／帶引號 CSV、標題／BOM／編碼、重複與錯字衝突、預覽過期、超量、整批及歷程回退、登入與原對話成員與指定觀看者隔離。
 - 詞庫整理測試以 200 詞確認最後一詞也帶入摘要與音檔備援。瀏覽器合成資料確認 200 筆預覽與一次匯入成功，無真人詞庫匯入。
+
+正式安裝後可執行 node tools/verify-meeting-glossary-database.mjs <private-folder>：使用原執行帳號及唯一隔離的合成服務範圍驗證 200 詞預覽／匯入／去重／歷程，核對真實詞庫保持，並在 finally 清理自己建立的合成列。這不是以真人會議匯入或錄音重播代測。

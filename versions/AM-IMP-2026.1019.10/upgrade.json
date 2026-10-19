@@ -13,7 +13,9 @@
   "requiresScripts": [
     "tools/test-meeting-glossary.mjs",
     "tools/inspect-meeting-workspace.mjs",
-    "tools/test-meeting-glossary-import.mjs"
+    "tools/test-meeting-glossary-import.mjs",
+    "tools/migrate-meeting-glossary.mjs",
+    "tools/verify-meeting-glossary-database.mjs"
   ],
   "installTargets": [
     "AM platform meeting runtime"
