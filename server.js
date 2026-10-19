@@ -40,7 +40,7 @@ const conversationMeetings=createConversationMeetings({env:process.env,archive:c
 platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,taskPhotos:centralArchive.taskPhotos,taskPhoto:centralArchive.taskPhoto,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const portalCommandEntry = createPortalCommandEntry({ line, logger });
-const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
+const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>commonLineEntry.journalAction(action)||leafTasks.loginEntry(event,action) });
 const usageGuideEntry = createUsageGuideEntry({line,logger,botUserId:process.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
