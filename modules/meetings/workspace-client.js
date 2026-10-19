@@ -2,6 +2,7 @@ export function workspaceClient(BOOT){
  const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let token='',data=null,memberList=[],membersLoaded=false,settingsDirty=false,settingsVersion=0,renderedSettingsVersion=-1,busy=false,publishing=false,polling=false,audioUrl='',mode='',editSnapshot=null,readingHash='',lastState='',sharingDirty=false,organization=null,selectedPeople=[],historyOffset=0;
  const newBlocks=new Map();
+ let savingAll=false,contentSaveError='';
  let glossaryEntries=[],glossaryEntry=null,glossaryDirty=false,glossaryBusy=false,glossaryCanEdit=false,glossaryOpened=false,glossaryImportPreview=null,glossaryFileLoading=false,glossaryImportDirty=false;
  const dirty=new Map(),timers=new Map(),saving=new Set(),versions=new Map();
  const statusNames={offered:'等待上傳者確認',declined:'本次不製作',setup:'設定中',processing:'製作中',review:'共同確認中',failed:'製作未完成',publishing:'發布處理中',published:'正式會議記錄'};
@@ -12,7 +13,16 @@ export function workspaceClient(BOOT){
  const editable=()=>data?.canEdit&&mode==='edit';
  const editData=()=>data.editing||{fields:data.workspace.fields,versions:data.workspace.versions,blocks:[]};
  function fieldStatus(key,text,failed=false){const e=document.querySelector('[data-status="'+key+'"]');if(e){e.textContent=text;e.style.color=failed?'#933b2b':'';}}
- function mark(key,value,version){if(!dirty.has(key))versions.set(key,Number(version??editData().versions[key]??0));dirty.set(key,value);const e=document.querySelector('[data-part="'+key+'"]');e?.classList.add('dirty');fieldStatus(key,'尚未儲存');e?.querySelector('[data-save]')?.removeAttribute('disabled');}
+ function mark(key,value,version){if(!dirty.has(key))versions.set(key,Number(version??editData().versions[key]??0));dirty.set(key,value);const e=document.querySelector('[data-part="'+key+'"]');e?.classList.add('dirty');fieldStatus(key,'尚未儲存');e?.querySelector('[data-save]')?.removeAttribute('disabled');contentSaveError='';contentSaveState();}
+ function contentSaveState(){
+  const bar=$('#contentSaveBar');bar.hidden=!editable()||!['review','published'].includes(data?.workspace.state);if(bar.hidden)return;
+  const active=savingAll||saving.size>0;if(!dirty.size&&!active)contentSaveError='';$('#saveContent').disabled=!dirty.size||active;
+  const message=contentSaveError||(active?'正在儲存內容，請稍候…':dirty.size?'有 '+dirty.size+' 處內容尚未儲存':data.pendingRevision?'內容已儲存，正在同步正式記錄與任務':'目前所有內容已儲存');
+  if($('#contentSaveStatus').textContent!==message)$('#contentSaveStatus').textContent=message;
+  const times=(data.changes||[]).filter(h=>/^(record:|todo:)/.test(h.field)||['record','transcript','published_revision'].includes(h.field)).map(h=>Date.parse(h.created_at)).filter(Number.isFinite);
+  const text=times.length?'最近內容儲存：'+new Date(Math.max(...times)).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'';
+  $('#contentSavedAt').hidden=!text;if($('#contentSavedAt').textContent!==text)$('#contentSavedAt').textContent=text;
+ }
  function changeText(h,currentOnly=false){if(!h)return '';const a=typeof h.before_value==='string'?h.before_value:JSON.stringify(h.before_value,null,2),b=typeof h.after_value==='string'?h.after_value:JSON.stringify(h.after_value,null,2);return meetingTextChanges(a,b).filter(x=>!currentOnly||x.kind!=='delete').map(x=>x.kind==='same'?esc(x.text):'<'+(x.kind==='delete'?'del':'ins')+'>'+esc(x.text)+'</'+(x.kind==='delete'?'del':'ins')+'>').join('');}
  function latest(key){return(data.changes||[]).find(h=>h.field===key);}
  function markHistory(key,e){const h=latest(key),box=e.querySelector('[data-change]');if(!box)return;const signature=JSON.stringify(h||null);if(box.dataset.key===signature)return;box.dataset.key=signature;if(!h){box.innerHTML='';return;}const wasOpen=!!box.querySelector('details')?.open;box.style.setProperty('--change-color',h.color||color(h.actor_id));box.innerHTML='<details><summary><span class="edit-author">'+esc(h.actor_name)+' 編輯</span> · '+esc(new Date(h.created_at).toLocaleString('zh-TW'))+' · 查看新增與刪除</summary><div class="change-text">'+changeText(h)+'</div><div data-part-history></div><button type="button" class="secondary" data-part-more>查看這一處的歷次修改</button></details>';if(wasOpen)box.querySelector('details').open=true;let offset=0;box.querySelector('[data-part-more]').onclick=async event=>{const button=event.currentTarget;button.disabled=true;try{const j=await api({action:'history',field:key,offset});box.querySelector('[data-part-history]').insertAdjacentHTML('beforeend',j.history.map(item=>'<details style="--change-color:'+esc(item.color||color(item.actor_id))+'"><summary><span class="edit-author">'+esc(item.actor_name)+' 編輯</span> · '+esc(new Date(item.created_at).toLocaleString('zh-TW'))+'</summary><div class="change-text">'+changeText(item)+'</div></details>').join(''));offset+=j.history.length;button.textContent=j.history.length===100?'載入更早的修改':'已顯示這一處的全部修改';button.hidden=j.history.length<100;}catch(err){error(err);}finally{button.disabled=false;}};}
@@ -23,10 +33,10 @@ export function workspaceClient(BOOT){
  }
  function plainEditor(e){e.addEventListener('paste',event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));});}
  async function save(key){
-  if(!dirty.has(key)||saving.has(key)||!editable())return;saving.add(key);const value=structuredClone(dirty.get(key)),version=versions.get(key),e=document.querySelector('[data-part="'+key+'"]');e?.querySelector('[data-save]')?.setAttribute('disabled','');fieldStatus(key,'正在儲存…');
+  if(!dirty.has(key)||saving.has(key)||!editable())return;saving.add(key);contentSaveError='';contentSaveState();const value=structuredClone(dirty.get(key)),version=versions.get(key),e=document.querySelector('[data-part="'+key+'"]');e?.querySelector('[data-save]')?.setAttribute('disabled','');fieldStatus(key,'正在儲存…');
   try{data=await api({action:'save-part',field:key,value,version,...newBlocks.has(key)?{after:newBlocks.get(key).after}:{}});versions.set(key,Number(editData().versions[key]||0));newBlocks.delete(key);if(JSON.stringify(dirty.get(key))===JSON.stringify(value)){dirty.delete(key);e?.classList.remove('dirty','pending-delete','active-edit');}fieldStatus(key,data.pendingRevision?'已儲存，正在同步正式記錄與任務':'已儲存');error('');render();}
-  catch(err){fieldStatus(key,err.message,true);if(err.status===409){data=await api({action:'read'});let box=e?.querySelector('[data-conflict]');if(e&&!box){box=document.createElement('div');box.dataset.conflict='';e.append(box);}const remote=key.startsWith('record:')?editData().blocks.find(b=>'record:'+b.id===key)?.text:editData().fields[key];if(box){box.innerHTML='<p>最新內容（你的輸入仍保留）：</p><pre>'+esc(typeof remote==='string'?remote:JSON.stringify(remote??null,null,2))+'</pre><button class="secondary">已比較，儲存我的版本</button>';box.querySelector('button').onclick=()=>{if(confirm('確認已比較最新內容，使用你的內容取代這一段或待辦？')){versions.set(key,Number(editData().versions[key]||0));box.remove();save(key).catch(error);}};}}throw err;}
-  finally{saving.delete(key);if(e?.querySelector('[data-save]'))e.querySelector('[data-save]').disabled=!dirty.has(key);}
+  catch(err){contentSaveError='儲存未完成，尚未儲存的輸入仍保留：'+err.message;fieldStatus(key,err.message,true);if(err.status===409){data=await api({action:'read'});let box=e?.querySelector('[data-conflict]');if(e&&!box){box=document.createElement('div');box.dataset.conflict='';e.append(box);}const remote=key.startsWith('record:')?editData().blocks.find(b=>'record:'+b.id===key)?.text:editData().fields[key];if(box){box.innerHTML='<p>最新內容（你的輸入仍保留）：</p><pre>'+esc(typeof remote==='string'?remote:JSON.stringify(remote??null,null,2))+'</pre><button class="secondary">已比較，儲存我的版本</button>';box.querySelector('button').onclick=()=>{if(confirm('確認已比較最新內容，使用你的內容取代這一段或待辦？')){versions.set(key,Number(editData().versions[key]||0));box.remove();save(key).catch(error);}};}}throw err;}
+  finally{saving.delete(key);if(e?.querySelector('[data-save]'))e.querySelector('[data-save]').disabled=!dirty.has(key);contentSaveState();}
  }
  function editor(key,label,value){let e=document.querySelector('[data-part="'+key+'"]');if(!e){e=document.createElement('div');e.innerHTML='<label>'+esc(label)+'</label><textarea class="auto-text" aria-label="'+esc(label)+'"></textarea>';partControls(key,e);e.querySelector('textarea').oninput=event=>{grow(event.target);mark(key,event.target.value,Number(e.dataset.version));};e.querySelector('[data-remove]').hidden=true;}
   const area=e.querySelector('textarea');if(!dirty.has(key)&&document.activeElement!==area){area.value=value||'';e.dataset.version=editData().versions[key]||0;grow(area);}area.disabled=!editable();e.classList.toggle('dirty',dirty.has(key));e.querySelector('[data-save]').disabled=!dirty.has(key)||saving.has(key);markHistory(key,e);return e;
@@ -96,6 +106,7 @@ export function workspaceClient(BOOT){
    if(!membersLoaded&&editable())loadMembers().catch(error);
   }
   $('#online').innerHTML=(data.presence||[]).map(p=>'<span class="person" style="--person-color:'+color(p.id)+'">'+esc(p.name)+(p.field?' · 正在編輯':'')+'</span>').join('');
+  contentSaveState();
  }
  function renderShareNotices(){
   const box=$('#sharingNotices');if(!box||!data.host)return;
@@ -193,6 +204,7 @@ export function workspaceClient(BOOT){
  $('#replaceSpeaker').onclick=()=>{const old=$('#oldSpeaker').value,next=$('#newSpeaker').value;if(!old||!next)return;for(const e of $('#recordEditor').children){const key=e.dataset.part,area=e.querySelector('[contenteditable]');if(area?.innerText.includes(old)){area.textContent=area.innerText.split(old).join(next);mark(key,area.innerText,Number(e.dataset.version));}}const tr=document.querySelector('[data-part="transcript"] textarea');if(tr?.value.includes(old)){tr.value=tr.value.split(old).join(next);mark('transcript',tr.value,Number(tr.closest('[data-part]').dataset.version));}};
  $('#addRecordBlock').onclick=()=>{const key='record:'+crypto.randomUUID().replaceAll('-',''),blocks=[...editData().blocks,...[...newBlocks.keys()].map(k=>({id:k.slice(7)}))];newBlocks.set(key,{after:blocks.at(-1)?.id||null});mark(key,'',0);render();document.querySelector('[data-part="'+key+'"] [contenteditable]').focus();};
  $('#viewMode').onclick=()=>{mode='view';render();};
+ $('#saveContent').onclick=async()=>{if(savingAll||saving.size||!editable())return;savingAll=true;contentSaveError='';contentSaveState();try{for(const key of [...dirty.keys()])await save(key);}catch(err){error(err);}finally{savingAll=false;contentSaveState();}};
  $('#editMode').onclick=()=>{if(!data.canEdit)return;mode='edit';render();};
  $('#shareEnabled').onchange=()=>{sharingDirty=true;$('#sharingStatus').textContent='尚未儲存分享設定';};
  $('#choosePeople').onclick=async()=>{try{$('#organizationStatus').textContent='正在讀取最新組織架構…';const j=await api({action:'organization'});organization=j.organization;$('#organizationPicker').hidden=false;$('#organizationStatus').textContent='從單位展開或搜尋姓名，可選擇多位夥伴。';renderOrganization();}catch(e){$('#organizationStatus').textContent='組織架構讀取未完成，原分享名單保持。';error(e);}};

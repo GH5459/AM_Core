@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as workJournalEntry from '../core/work-journal-entry.js';
+import * as usageGuideEntry from '../core/usage-guide-entry.js';
 import * as uofSetupEntry from '../core/uof-setup-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
@@ -52,6 +53,7 @@ const journalReads = [], journalReplies = [], journalEntries=[];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
 const centralCaptured=[];let failCentralIntake=false, failUofNavigation=false;
 const dependencies = {
+  './core/usage-guide-entry.js': usageGuideEntry,
   './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
   './core/central-archive/index.js': { createCentralArchive: async () => ({capture:async events=>{
     if(failCentralIntake)throw Error('synthetic_archive_outage');centralCaptured.push(...events);},health:()=>({enabled:true})}) },
@@ -89,7 +91,7 @@ const dependencies = {
     'groupOnboardingRepairProperties', 'groupOnboardingSuccessMessage', 'parseGroupOnboardingCommand',
     'supportedGroupOnboardingExamples', 'withResolvedGroupName'].map(key => [key, () => ({ isCommand: false })])),
 };
-const context = vm.createContext({ URL, Buffer, console, process: { env: {} }, setInterval: () => ({ unref() {} }) });
+const context = vm.createContext({ URL, Buffer, console, process: { env: {AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID:"U"+"2".repeat(32)} }, setInterval: () => ({ unref() {} }) });
 const module = new vm.SourceTextModule(await fs.readFile(new URL('../server.js', import.meta.url), 'utf8'), { context });
 await module.link(name => new vm.SyntheticModule(Object.keys(dependencies[name]), function () {
   for (const [key, value] of Object.entries(dependencies[name])) this.setExport(key, value);
@@ -152,3 +154,21 @@ failCentralIntake=true;
 assert.equal((await webhook([group])).status,503,'An archive outage must not acknowledge and lose the source');
 assert.equal(centralCaptured.length,centralCount + 4);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');
+
+failCentralIntake=false;
+const guide={...journal,message:{type:'text',text:'使用說明'}};
+const helpBefore=Object.fromEntries(Object.entries(passed).map(([key,events])=>[key,events.length]));
+const repliesBefore=journalReplies.length;
+assert.equal((await webhook([guide],false)).status,401);assert.equal(journalReplies.length,repliesBefore);
+assert.equal((await webhook([guide])).status,200);assert.equal(journalReplies.length,repliesBefore+1);
+assert(journalReplies.at(-1).messages[0].text.includes(usageGuideEntry.USAGE_GUIDE_URL));
+for(const [key,events]of Object.entries(passed))assert.equal(events.length,helpBefore[key],'Help bypasses '+key);
+assert.equal((await webhook([guide,transport])).status,200);assert.equal(journalReplies.length,repliesBefore+2);
+assert.equal(health.body.usageGuideEntry.contract,usageGuideEntry.USAGE_GUIDE_CONTRACT);
+console.log('Signed private help navigation works during pause and mixed transport remains independent.');
+
+const groupGuide={...guide,source:{type:'group',userId:'U'+'1'.repeat(32),groupId:'C'+'3'.repeat(32)},message:{type:'text',text:'@葉小蝸 使用說明',mention:{mentionees:[{type:'user',isSelf:true,userId:'U'+'2'.repeat(32),index:0,length:4}]}}};
+const groupHelpBefore=Object.fromEntries(Object.entries(passed).map(([key,events])=>[key,events.length]));
+assert.equal((await webhook([groupGuide])).status,200);assert.equal(journalReplies.length,repliesBefore+3);
+for(const [key,events]of Object.entries(passed))assert.equal(events.length,groupHelpBefore[key],'Group help bypasses '+key);
+console.log('Signed native group mention also bypasses business classification and replies only to its source.');

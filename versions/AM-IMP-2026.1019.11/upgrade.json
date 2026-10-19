@@ -1,0 +1,7 @@
+{
+ "id":"AM-IMP-2026.1019.11","name":"編輯內容儲存與精簡收合版面","type":"Meeting UI improvement","portable":true,"status":"Ready",
+ "installTargets":["AM platform"],"requiresDatabases":[],"requiresEnv":["Existing meeting configuration"],
+ "requiresScripts":["tools/test-meeting-collaboration.mjs","tools/test-meeting-reader-sharing.mjs","tools/serve-meeting-reader-preview.mjs"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Content save action is visible in editable review and published meetings","Pending change count and saved/synchronizing status are explicit","Batch saves reuse per-part version checks and stop on failure without losing input","Sharing remains independent and does not auto-save with content","Sharing and history collapse and empty spacing is reduced","Production original content, access, revisions and task data remain unchanged by verification"]
+}
