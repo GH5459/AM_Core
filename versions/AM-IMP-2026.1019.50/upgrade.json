@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1019.50",
+  "name":"工作日誌、會議與 UOF 共用首次 LINE 公司身分",
+  "type":"Shared verified identity and compatible entry points",
+  "portable":true,
+  "status":"Ready",
+  "installTargets":["Original AM Leaf OA","Original DailyLog service","Original UOF shared management"],
+  "requiresDatabases":["Existing UOF encrypted Durable Object","Existing DailyLog D1 documents"],
+  "requiresEnv":["Existing meeting LINE Login channel","Existing task service authentication","Existing bidirectional named service bindings"],
+  "requiresScripts":["tools/test-common-line-identity.mjs","tools/build-common-line-workers.cjs"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Three entries share first identity confirmation","Existing consistent identities reused without rebinding","Original grants, accounts and business data retained","Cross-source and reverse conflicts rejected","LINE owner and fresh company authentication required","Live complete modules, active policy and menu verified"]
+}
