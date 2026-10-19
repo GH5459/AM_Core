@@ -11,6 +11,7 @@ import { createConversationMeetings } from './modules/meetings/conversation-serv
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
+import {createCommonLineEntry} from './core/common-line-entry.js';
 import { createLeafGroups } from './core/leaf-groups.js';
 import { createPortalCommandEntry } from './core/portal-command-entry.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
@@ -45,6 +46,7 @@ const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity, resolveRecipient:lineIo.resolveTaskRecipient });
+const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
 Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
 const leafGroups = createLeafGroups({ platform, line, tasks: leafTasks, calendar: leafCalendar, llm, logger });
@@ -286,6 +288,7 @@ const server = http.createServer(async (req, res) => {
   ) ? liffStatePath : pathname;
 
   // ── 健康檢查:平台 + 各租戶設定狀態 ──
+  if(await commonLineEntry.handle(req,res,new URL(routedPathname+url.search,url.origin)))return;
   if (req.method === 'GET' && pathname === '/health') {
     return sendJson(res, 200, {
       ok: true,
@@ -301,6 +304,7 @@ const server = http.createServer(async (req, res) => {
       lineTasks: leafTasks.health(),
       lineGroupMentions: leafGroups.health(),
       workJournalEntry: workJournalEntry.health(),
+      commonLineIdentity: commonLineEntry.health(),
       portalCommandEntry: portalCommandEntry.health(),
       usageGuideEntry: usageGuideEntry.health(),
 
