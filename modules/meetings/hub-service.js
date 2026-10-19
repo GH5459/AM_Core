@@ -83,7 +83,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  }
  async function handle(req,res,url){const liffState=url.searchParams.get('liff.state')||'';if(url.pathname!=='/meetings/review/hub'&&url.pathname!=='/meetings/review/hub/api'&&!(url.pathname==='/meetings/review'&&/^\/hub(?:[?#]|$)/.test(liffState)))return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Robots-Tag','noindex, nofollow');
-  try{if(req.method==='GET'){if(url.origin!==origin()){res.statusCode=302;res.setHeader('Location',origin()+'/meetings/review/hub');res.end();return true;}res.setHeader('Content-Type','text/html; charset=utf-8');res.end(hubHtml({liffId:env.AMCORE_MEETINGS_LIFF_ID}));return true;}
+  try{if(req.method==='GET'){if((req.headers.host||url.host)!==new URL(origin()).host){res.statusCode=302;res.setHeader('Location',origin()+'/meetings/review/hub');res.end();return true;}res.setHeader('Content-Type','text/html; charset=utf-8');res.end(hubHtml({liffId:env.AMCORE_MEETINGS_LIFF_ID}));return true;}
    if(req.method!=='POST'||url.pathname!=='/meetings/review/hub/api')throw failure(405,'不支援此操作。');if(req.headers.origin&&req.headers.origin!==origin())throw failure(403,'請從原會議頁操作。');const actor=await authenticate(req,null,null,false,true),v=await body(req);sendJson(res,200,await inventory(actor,v));
   }catch(e){sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議入口暫時無法使用，請保留內容後重試。'});}return true;
  }
