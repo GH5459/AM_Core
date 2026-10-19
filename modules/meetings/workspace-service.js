@@ -240,7 +240,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(result.host)result.sharing.people=current.shared_people;
    if(input.action==='members')result.members=await members(row,r.host_id,input.observed===true);
    if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
-   if(input.action==='history')result.history=await store.history(r.id,input.offset);
+   if(input.action==='history'){if(input.field!==undefined&&(typeof input.field!=='string'||input.field.length>100))throw failure(400,'修改紀錄範圍不正確。');result.history=await store.history(r.id,input.offset,input.field??null);}
    sendJson(res,200,result);return true;
   }catch(e){if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }

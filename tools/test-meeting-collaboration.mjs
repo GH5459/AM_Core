@@ -30,6 +30,7 @@ assert.equal((await api({action:'save-part',field:'settings',value:{},version:vi
 const todo=Object.keys(view.editing.fields).find(k=>k.startsWith('todo:'));
 assert.equal((await api({action:'save-part',field:todo,value:{...view.editing.fields[todo],ownerId:outside},version:view.editing.versions[todo]},'member')).status,403,'Outside share recipient is never an assignee');
 let changed=(await api({action:'history'})).value.history;assert(changed.some(h=>h.field===first&&h.actor_id===member&&h.before_value===blocks[0].text));assert.notEqual(changed.find(h=>h.field===first).color,changed.find(h=>h.field===second).color);
+const perPart=(await api({action:'history',field:first})).value.history;assert(perPart.length&&perPart.every(h=>h.field===first),'Each paragraph can expose its complete attributed history separately');
 const diff=textChanges('A🙂原文與保留','A🙂新增與保留');assert(diff.some(d=>d.kind==='delete'&&d.text==='原文'));assert(diff.some(d=>d.kind==='add'&&d.text==='新增'));assert.equal(diff.filter(d=>d.kind!=='delete').map(d=>d.text).join(''),'A🙂新增與保留');
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[id]);
 let held=true,calls=[];f.platform.publishMeetingTasks=async input=>{calls.push(input.revision);if(held)throw Error('synthetic_lost_response');return {tasks:[{id:'original-work-task'}],tenantKey:'fixture'};};
