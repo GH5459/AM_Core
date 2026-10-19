@@ -1,3 +1,4 @@
+import * as commonLineEntry from '../core/common-line-entry.js';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
 
@@ -338,6 +339,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
       './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
+      './core/common-line-entry.js':commonLineEntry,
       './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:()=>false})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},

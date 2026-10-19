@@ -1,3 +1,4 @@
+import * as commonLineEntry from '../core/common-line-entry.js';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
 
@@ -136,7 +137,8 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:events=>f.archive.capture(events),health:()=>({})})},
   './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,capture:async()=>{},handle:async()=>false}),readLineIoBody:async req=>req.rawBody},
   './core/leaf-calendar/index.js':{createLeafCalendar:async()=>({accepts:()=>false,capture:async()=>{},drain:async()=>{},health:()=>({})})},
-  './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async events=>legacy.push(...events),drain:async()=>{},health:()=>({})})},
+  './core/common-line-entry.js':commonLineEntry,
+      './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async events=>legacy.push(...events),drain:async()=>{},health:()=>({})})},
   './core/leaf-groups.js':{createLeafGroups:()=>live},
   './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
   './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
