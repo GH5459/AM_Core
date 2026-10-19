@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1019.38",
+  "name": "群組交辦登入提示只列尚未連結者",
+  "type": "Group identity notice correction",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM Platform"
+  ],
+  "requiresDatabases": [
+    "Existing central archive group dispatch"
+  ],
+  "requiresEnv": [
+    "Existing task service and OA identity verification"
+  ],
+  "requiresScripts": [
+    "tools/test-leaf-groups.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Confirmed recipients are excluded from login notice even if sender tenant is unresolved",
+    "Unresolved tenant never inferred from recipients or supplied for submission",
+    "Lookup outage and multiple sender tenants are not described as missing login",
+    "Original intake resumes once and current task/calendar/permission/settings data remain intact",
+    "Reviewed main commit deployed and policy verified on both production origins"
+  ]
+}

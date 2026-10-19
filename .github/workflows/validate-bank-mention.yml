@@ -63,6 +63,9 @@ on:
       - 'versions/AM-IMP-2026.1016.03/**'
       - 'versions/AM-IMP-2026.1016.02/**'
       - 'versions/AM-IMP-2026.1016.01/**'
+      - 'core/line-completion-report.js'
+      - 'tools/test-line-completion-report.mjs'
+      - 'versions/AM-IMP-2026.1019.14/**'
       - 'core/leaf-tasks.js'
       - 'tools/test-leaf-tasks.mjs'
       - 'versions/AM-IMP-2026.1008.07/**'
@@ -147,6 +150,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node tools/test-line-completion-report.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.14
       - run: node tools/test-portal-command-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-conversation-meetings.mjs
@@ -164,6 +169,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.33
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.32
       - run: node tools/test-meeting-external-invitations.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.39
       - run: node tools/test-meeting-hub.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.04
       - run: node tools/test-meeting-collaboration.mjs

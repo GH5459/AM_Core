@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.1019.14",
+  "name": "LINE 原群組任務完成確認回報",
+  "type": "Explicit task completion reporting",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing DailyLog documents and work_items / source intake"
+  ],
+  "requiresEnv": [
+    "Existing encrypted task-service settings and original OA credentials"
+  ],
+  "requiresScripts": [
+    "tools/test-line-completion-report.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Completed actual executor confirms preview before any send",
+    "Original group/requester from canonical intake only",
+    "Native mention and full completion result with original task URL",
+    "Current access/version/source/membership checks",
+    "Same receipt, lease and LINE retry key; no auto resend",
+    "Existing functions/config/assets/data preserved",
+    "Full CI and both production health checks; no real test messages"
+  ]
+}

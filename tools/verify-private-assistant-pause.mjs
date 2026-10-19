@@ -1,3 +1,4 @@
+import * as commonLineEntry from '../core/common-line-entry.js';
 import assert from 'node:assert/strict';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as workJournalEntry from '../core/work-journal-entry.js';
@@ -81,6 +82,7 @@ const dependencies = {
   }), parseAttachmentRequest: () => null },
   './core/portal-command-entry.js': portalCommandEntry,
   './core/work-journal-entry.js': workJournalEntry,
+  './core/common-line-entry.js': commonLineEntry,
   './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,

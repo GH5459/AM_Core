@@ -65,7 +65,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  async function upload(r,row,actor,v){await check(r,row,actor,true);audioInput(v);if(!['setup','failed'].includes(r.state))throw failure(409,'此階段不能替換錄音。');
   if(v.action==='audio-begin'){await pool.query(`INSERT INTO central_archive.meeting_audio_uploads(workspace_id,upload_id,actor_id,mime,filename) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,[r.id,v.uploadId,actor.id,v.mime,v.filename]);}
   const u=(await pool.query('SELECT * FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0];if(!u||u.actor_id!==actor.id)throw failure(403,'找不到本人的錄音上傳。');
-  if(v.action==='audio-begin'){if(u.mime!==v.mime||u.filename!==v.filename)throw failure(409,'上傳識別已用於其他錄音。');return {saved:u.state==='saved'};}
+  if(v.action==='audio-begin'){if(u.mime!==v.mime||u.filename!==v.filename)throw failure(409,'上傳識別已用於其他錄音。');const received=(await pool.query('SELECT part,hash FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2 ORDER BY part',[r.id,v.uploadId])).rows;return {saved:u.state==='saved',received};}
   if(v.action==='audio-part'){
    const bytes=Buffer.from(v.bytes,'base64');if(!bytes.length||bytes.length>2097152)throw failure(413,'錄音分段過大或空白。');
    return store.locked(r.id,async(current,db)=>{if(!['setup','failed'].includes(current.state))throw failure(409,'會議已開始整理。');const state=(await db.query('SELECT state FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2 FOR UPDATE',[r.id,v.uploadId])).rows[0];if(state.state!=='receiving')throw failure(409,'錄音已保存，不能修改分段。');const prior=(await db.query('SELECT hash FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2 AND part=$3',[r.id,v.uploadId,v.part])).rows[0];if(prior){if(prior.hash!==sha(bytes))throw failure(409,'同一分段內容不同，請重新上傳。');return {saved:true};}const total=Number((await db.query('SELECT COALESCE(sum(octet_length(bytes)),0) AS size FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0].size);if(total+bytes.length>512*1024*1024)throw failure(413,'單份錄音上限為512MB，請分場整理。');await db.query('INSERT INTO central_archive.meeting_audio_chunks VALUES($1,$2,$3,$4,$5)',[r.id,v.uploadId,v.part,bytes,sha(bytes)]);return {saved:true};});
@@ -93,7 +93,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
   else if(v.action==='plan-save')await savePlan(r,row,actor,v);
   else if(v.action==='invite-save')await saveInvitations(r,row,actor,v);
   else if(v.action==='plan-organization'){const org=await platform.meetingOrganization(actor.id);return {ok:true,organization:org};}
-  else if(v.action.startsWith('audio-'))await upload(r,row,actor,v);
+  else if(v.action.startsWith('audio-')){const result=await upload(r,row,actor,v);if(v.action!=='audio-finish')return {ok:true,...result};}
   else if(v.action!=='plan-read')throw failure(400,'不支援此操作。');
   const p=await plan(r.id);return {ok:true,plan:p,actorId:actor.id,host:actor.id===r.host_id,externalCalendar:!!r.receipt?.externalCalendar,audio:!!file(await store.get(r.id)),calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
  }

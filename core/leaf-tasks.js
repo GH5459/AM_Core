@@ -4,6 +4,7 @@ import {parseAttachmentRequest} from './attachment-retrieval.js';
 import {createTaskPhotos,taskEditNotice,PHOTO_CONTRACT,TASK_EDIT_CONTRACT} from './leaf-task-photos.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,TASK_SPEED_POLICY} from './task-judgment.js';
+import {createCompletionReporter,COMPLETION_REPORT_POLICY} from './line-completion-report.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -233,6 +234,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const result=await call(t,c,'meeting-publish',{id,host,tasks,url,notionId,...revision?{revision,removed,knownTaskIds}:{},date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});return {...result,tenantKey:host.tenantKey};
  }
  async function commonLink(input){const available=await groupServices();if(available.length!==1)throw Error('common_identity_service_ambiguous');const t=available[0],c=await config(t);const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/common-link',c.base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},body:JSON.stringify({tenantKey:t.key,...input}),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('common_identity_service_unavailable');return r.json();}
- return {commonLink,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
-  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ const completionReport=createCompletionReporter({tenants,config,call,identity,line});
+ return {commonLink,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
+  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,completionReportPolicy:COMPLETION_REPORT_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }

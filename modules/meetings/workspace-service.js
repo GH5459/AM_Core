@@ -274,7 +274,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
    if(input.action==='history'){if(input.field!==undefined&&(typeof input.field!=='string'||input.field.length>100))throw failure(400,'修改紀錄範圍不正確。');result.history=await store.history(r.id,input.offset,input.field??null);}
    sendJson(res,200,result);return true;
-  }catch(e){if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
+  }catch(e){if(match[2]==='hub'&&!e.status)logger.warn('Meeting audio/preparation request deferred.',{code:/^[A-Z0-9_]{1,20}$/.test(e.code||'')?e.code:e.name==='TimeoutError'?'timeout':/connection|connect/i.test(e.message||'')?'connection':'internal'});if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
  return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',recordFormat:DECISION_RECORD_CONTRACT})};
 }

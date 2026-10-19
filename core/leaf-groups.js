@@ -51,8 +51,13 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     const renew=async()=>{if(row.dispatch.lease&&!await store.checkpoint(row,p))throw Error('group_lease_changed');};
     await renew();
     if(p.tenantKey)chosen=services.find(t=>t.key===p.tenantKey);
-    else {const choices=[];for(const t of services){const who=await tasks.resolveGroupIdentity(row.event.source.userId,t,row.event.source.groupId);if(who){choices.push(t);checked.set(t.key,who);}}if(choices.length===1)chosen=choices[0];}
-    if(!chosen){const people=[];for(const id of ids){await renew();const profile=await line.lineGet(`/v2/bot/group/${row.event.source.groupId}/member/${id}`,{timeoutMs:5000});if(profile.userId!==id)throw Error('group_member_changed');people.push({userId:id,name:String(profile.displayName||'群組同仁').slice(0,120),state:'login'});}return {tenant:null,people};}
+    else {const choices=[];for(const t of services){const who=await tasks.resolveGroupIdentity(row.event.source.userId,t,row.event.source.groupId);checked.set(t.key,who);if(who)choices.push(t);}if(choices.length===1)chosen=choices[0];}
+    if(!chosen){const people=[];for(const id of ids){await renew();let linked=false;
+      // Notice-only evidence: a linked recipient must not select the sender's tenant
+      // or supply an account/binding for submission while that tenant is unresolved.
+      for(const t of services){await renew();const who=id===row.event.source.userId&&checked.has(t.key)?checked.get(t.key):await tasks.resolveGroupIdentity(id,t,row.event.source.groupId);if(who){linked=true;break;}}
+      const profile=await line.lineGet(`/v2/bot/group/${row.event.source.groupId}/member/${id}`,{timeoutMs:5000});if(profile.userId!==id)throw Error('group_member_changed');people.push({userId:id,name:String(profile.displayName||'群組同仁').slice(0,120),state:linked?'linked':services.length?'login':'unverified'});
+    }return {tenant:null,people};}
     const people=[];for(let i=0;i<ids.length;i++){await renew();const who=i===0&&checked.has(chosen.key)?checked.get(chosen.key):await tasks.resolveGroupIdentity(ids[i],chosen,row.event.source.groupId),prior=p.people?.find(x=>x.userId===ids[i]);
       if(prior?.account&&(!who||prior.account!==who.account||prior.bindingId!==who.bindingId))throw Error('group_identity_changed');
       let name=who?.name;if(!name){const profile=await line.lineGet(`/v2/bot/group/${row.event.source.groupId}/member/${ids[i]}`,{timeoutMs:5000});if(profile.userId!==ids[i])throw Error('group_member_changed');name=String(profile.displayName||'群組同仁').slice(0,120);}
@@ -110,8 +115,8 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       const message=card(row,p);await platform.pushLineMessage(row.event.source.groupId,message,null,{retryKey:retryKey(row.key+':preview:'+p.revision),suppressEvidenceLogs:true,timeoutMs:8000});
       p.phase='confirmation';p.promptedRevision=p.revision;return store.save(row,p,5);
     }
-    const waiting=p.people.filter(x=>!x.account);if(waiting.length)await notify(row,p,'已保留這則'+(p.mode==='task'?'交辦':p.mode==='selftask'?'自己的任務':'邀約')+'。'+waiting.map(x=>x.name).join('、')+'請從葉小蝸一對一聊天開啟「工作日誌」，登入本人公司帳號；完成後會自動接續處理。','login');
-    if(!context.tenant)return store.save(row,p,60);
+    const waiting=p.people.filter(x=>x.state==='login');if(waiting.length)await notify(row,p,'已保留這則'+(p.mode==='task'?'交辦':p.mode==='selftask'?'自己的任務':'邀約')+'。'+waiting.map(x=>x.name).join('、')+'請從葉小蝸一對一聊天開啟「工作日誌」，登入本人公司帳號；完成後會自動接續處理。','login');
+    if(!context.tenant){if(!waiting.length)await notify(row,p,'已保留這則交辦／邀約，目前無法確認對應的工作日誌，請聯絡管理者確認；不需要重複登入。','identity-scope');return store.save(row,p,60);}
     if(p.phase==='task'){
       if(waiting.length)return store.save(row,p,60);
       p.frozenTaskPeople ||= p.people.map(({userId,account,bindingId})=>({userId,account,bindingId}));
@@ -148,5 +153,5 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       if(error.message==='group_identity_changed'){p.phase='cancelled';await notify(row,p,'工作身分已變更，請由發起人重新發送交辦／邀約；已建立的活動會保留。','changed').catch(()=>{});}
       else await notify(row,p,'已保留這則群組交辦／邀約，暫時無法完成處理，系統會自動重試。','deferred').catch(()=>{});
       logger.warn?.('[leaf-groups] processing deferred; original source retained');await store.save(row,p,60);}}})().finally(()=>running=null);return running;}
-  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
+  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,identityNoticePolicy:'unlinked-people-only-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
 }
