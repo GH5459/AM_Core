@@ -579,9 +579,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose','/portal/admin/leaf-tasks/group-readiness','/portal/admin/leaf-tasks/login-health','/portal/admin/leaf-tasks/configure-photos','/portal/admin/leaf-tasks/photo-health','/portal/admin/leaf-tasks/quick-create-health'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
     try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/quick-create-health'))return sendJson(res,200,await leafTasks.checkQuickCreate(input));
       if(url.pathname.endsWith('/photo-health'))return sendJson(res,200,await leafTasks.checkPhotos(input));
       if(url.pathname.endsWith('/configure-photos'))return sendJson(res,200,await leafTasks.configurePhotos(input));
       if(url.pathname.endsWith('/login-health'))return sendJson(res,200,await leafTasks.checkLogin(input));

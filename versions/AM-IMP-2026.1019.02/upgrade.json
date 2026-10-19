@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.1019.02",
+  "name": "群組本人任務與明確會議入口",
+  "type": "LINE group quick creation",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing central archive jobs",
+    "Existing DailyLog documents/work_items"
+  ],
+  "requiresEnv": [
+    "Existing OA source identity",
+    "Existing task service key"
+  ],
+  "requiresScripts": [
+    "tools/test-group-quick-create.mjs",
+    "tools/test-group-quick-create-worker.cjs",
+    "tools/build-group-quick-create-worker.cjs"
+  ],
+  "installTargets": [
+    "Original Leaf OA AM platform",
+    "Original DailyLog task service"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Native bot mention and explicit creation intent",
+    "Own actor confirmation and current identity",
+    "Source-backed self task, atomic receipt and retry-safe same Work ID",
+    "Existing colleague task and per-person calendar unchanged",
+    "Ten-minute draft timeout and revision guards",
+    "Full current Worker/D1 and PostgreSQL checks",
+    "Synthetic AI and LINE format checks",
+    "Checked PR and verified formal production versions"
+  ]
+}
