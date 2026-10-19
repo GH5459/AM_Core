@@ -4,10 +4,12 @@ import {Readable} from 'node:stream';
 import {createWorkspaceStore} from './workspace-store.js';
 import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,checkPublication,checkField} from './workspace-model.js';
 import {workspaceHtml} from './workspace-ui.js';
+import {meetingDueDate} from './workspace-schedule.js';
 import {canReadShared,readerData,audioTickets} from './workspace-access.js';
 import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
+import {meetingShareNotices} from './share-notices.js';
 import {sendJson} from '../../core/util.js';
 
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
@@ -19,6 +21,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
  const link=id=>base()+'/meetings/review/work/'+id;
+ const shareNotices=meetingShareNotices({pool,store,botId,platform,link,logger});
  const hub=meetingHub({pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request});
  const revisionJobs=workspaceRevisions({pool,store,conversation,assertMember,validateAssignees,platform,request,link,logger});
  const audioAccess=()=>audioTickets(platform.publicLinkSecret||env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY||'');
@@ -109,7 +112,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const fields={...r.fields,record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:1,transcript:1};
    for(const t of (result.parsed.todos||[]).slice(0,60)){
-    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingToday(),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
+    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }
    await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning,glossaryUsed:result.glossaryUsed||[],preparationVersion:preparation.version})]);
   }catch(e){await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code=$2,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,e.status===413?e.message:'製作未完成，原始錄音及設定仍保留；主持人可重試。']);logger.warn('Meeting workspace generation failed; source retained.');}finally{clearInterval(heartbeat);}
@@ -165,6 +168,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   }
   if(!running.size){const job=(await pool.query(`SELECT v.* FROM central_archive.meeting_workspace_revisions v JOIN central_archive.meeting_workspaces w ON w.id=v.workspace_id JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND v.state='pending' AND v.base_revision=w.revision AND (v.lease_until IS NULL OR v.lease_until<now()) ORDER BY v.created_at LIMIT 1`,[botId])).rows[0];if(job){const claimed=await pool.query(`UPDATE central_archive.meeting_workspace_revisions SET lease_until=now()+interval '2 minutes' WHERE workspace_id=$1 AND revision=$2 AND (lease_until IS NULL OR lease_until<now()) RETURNING revision`,[job.workspace_id,job.revision]);if(claimed.rows.length){const p=revisionJobs.apply(job).catch(()=>logger.warn('Meeting revision recovery deferred.')).finally(()=>running.delete('revision:'+job.workspace_id));running.set('revision:'+job.workspace_id,p);}}}
   await hub.drain();
+  await shareNotices.drain();
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
@@ -223,7 +227,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
      if(!Array.isArray(input.accounts)||input.accounts.length>200||input.accounts.some(a=>typeof a!=='string'))throw failure(400,'分享名單格式不正確。');
      const org=await platform.meetingOrganization?.(r.host_id);if(!org)throw failure(503,'組織架構暫時無法讀取，原分享設定仍保留。');
      people=[...new Set(input.accounts)].map(account=>{const person=org.people.find(p=>p.account===account);if(!person)throw failure(409,'部分同仁已不在有效組織名單，請重新讀取後再選擇。');return {tenantKey:org.tenantKey,account,name:person.name};});
-    }current=await store.share(r.id,actor,input.enabled,input.revision,input.version,people);
+    }current=await store.share(r.id,actor,input.enabled,input.revision,input.version,people);shareNotices.drain().catch(()=>{});
    }
    else if(input.action==='save-part'){
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能儲存。');
@@ -261,12 +265,12 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const result={ok:true,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:current.result.segments||[],error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
    result.canEdit=['review','published'].includes(current.state);result.pendingRevision=await revisionJobs.pending(r.id);
    const editing=await store.effective(current);result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=await store.changes(r.id);
-   if(result.host)result.sharing.people=current.shared_people;
+   if(result.host){result.sharing.people=current.shared_people;result.sharing.notices=await shareNotices.status(current);}
    if(input.action==='members')result.members=await members(row,r.host_id,input.observed===true);
    if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
    if(input.action==='history'){if(input.field!==undefined&&(typeof input.field!=='string'||input.field.length>100))throw failure(400,'修改紀錄範圍不正確。');result.history=await store.history(r.id,input.offset,input.field??null);}
    sendJson(res,200,result);return true;
   }catch(e){if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,glossary:'shared-vocabulary-import-v1',hub:hub.contract,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'owner-and-due-required'})};
+ return {store,offer,choice,handle,drain,accepts,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'new-named-grants-line-notice-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'owner-and-due-required'})};
 }

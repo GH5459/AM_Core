@@ -1,23 +1,24 @@
 {
   "id": "AM-IMP-2026.1019.05",
-  "name": "本人 Calendar 每週會議清單",
-  "type": "Meeting calendar browse upgrade",
+  "name": "會議指定分享的 LINE 通知",
+  "type": "Meeting sharing notifications",
   "portable": true,
   "status": "Ready",
   "requiresDatabases": [
-    "Existing meeting PostgreSQL and DailyLog user connection"
+    "Project-local meeting workspaces and new share notice outbox"
   ],
   "requiresEnv": [
-    "Original Calendar service and Google OAuth"
+    "Existing private LINE, original task/personnel service and database configuration"
   ],
   "requiresScripts": [
-    "tools/test-meeting-hub.mjs",
-    "tools/test-meeting-hub-worker.cjs",
-    "tools/test-meeting-calendar-week-browser.mjs"
+    "tools/test-meeting-share-notices.mjs",
+    "tools/test-meeting-share-recipient.mjs",
+    "tools/build-meeting-share-notices-worker.cjs",
+    "tools/inspect-meeting-workspace.mjs"
   ],
   "installTargets": [
-    "Original AM runtime",
-    "Original DailyLog Calendar module"
+    "Root AM meeting runtime",
+    "Original DailyLog service"
   ],
   "dataIsolation": {
     "canCopyCode": true,
@@ -25,13 +26,12 @@
     "canCopySecrets": false
   },
   "definitionOfDone": [
-    "Personal read-only seven-day Calendar listing and weekly navigation",
-    "Recurring instances, pagination, cancelled and declined filtering",
-    "Signed actor-bound entry and fresh event verification before explicit filing",
-    "Stable original workspace without duplicate Google writes",
-    "Expired unfiled entries disappear from list without destructive deletion",
-    "Existing recording, preparation and sharing preserved",
-    "Full Worker and Chrome layout tests pass",
-    "Exact production readback verified"
+    "Only newly saved named grants enqueue notices atomically",
+    "Published only, topic and original read link in personal LINE message",
+    "Authoritative active personnel plus exact tenant/OA/account binding verified",
+    "Durable retry receipts, revoke cancellation and no historical backfill",
+    "Notification state visible only to host",
+    "Existing data, other features and complete Worker settings preserved",
+    "Synthetic tests and exact production version verification"
   ]
 }

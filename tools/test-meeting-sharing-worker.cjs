@@ -15,6 +15,12 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict'),runt
   assert.equal((await call('meeting-sharing-directory','999')).status,403);
   assert.equal((await(await call('meeting-sharing-person','333')).json()).person.name,'同名夥伴');assert.equal((await(await call('meeting-sharing-person','999')).json()).person,null);
   assert.equal((await db.prepare('SELECT count(*) AS n FROM documents').first()).n,2,'Reading the current cached authority does not write work/task/settings data');
+  const bot='U'+'b'.repeat(32),user='U'+'2'.repeat(32),identity={botUserId:bot,lineUserId:user,account:'222',identityId:'synthetic-confirmed-work-line'};
+  const recipient=(account='222',botUserId=bot,auth=true,tenantKey='fixture')=>mf.dispatchFetch('https://fixture/api/integrations/leaf-snail/tasks/meeting-sharing-recipient',{method:'POST',headers:{'Content-Type':'application/json',...auth?{Authorization:'Bearer '+'sharing-synthetic-key'.repeat(3)}:{}},body:JSON.stringify({account,botUserId,tenantKey})});
+  assert.equal((await recipient('222',bot,false)).status,401);assert.equal((await recipient('222',bot,true,'foreign')).status,403);assert.equal((await recipient('222','invalid')).status,403);
+  assert.equal((await(await recipient()).json()).recipient,null);await insert('line-work-identities','account:'+bot+':222',identity);assert.equal((await(await recipient()).json()).recipient,null,'Reverse entry alone is insufficient');await insert('line-work-identities','line:'+bot+':'+user,identity);
+  assert.equal((await(await recipient()).json()).recipient.userId,user);assert.equal((await(await recipient('333')).json()).recipient,null,'Same name never maps another account');assert.equal((await(await recipient('999')).json()).active,false);assert.equal((await(await recipient('222','U'+'c'.repeat(32))).json()).recipient,null,'Other OA identities do not cross');
+  await db.prepare("UPDATE documents SET value=json_set(value,'$.account','333') WHERE namespace='line-work-identities' AND key=?").bind('line:'+bot+':'+user).run();assert.equal((await(await recipient()).json()).recipient,null,'Forward account mismatch rejected');
   console.log('Complete Worker + workerd/D1: service/tenant auth, actual central personnel service/cache, organization hierarchy, same-name distinct accounts, work-disabled active colleagues, inactive rejection and minimal read-only sharing directory passed.');
  }finally{await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

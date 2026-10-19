@@ -78,9 +78,13 @@ test('task diagnostics verify current identities without changing or suspending 
  const allBefore=await snapshot();
  const before=await h.bindingStore.readOne(row.bindingId);
  assert(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}));
+ assert.deepEqual(await h.gateway.resolveTaskRecipient('synthetic-owner','sample'),{userId:user,tenantKey:'sample',account:'synthetic-owner',bindingId:row.bindingId});
+ assert.equal(await h.gateway.resolveTaskRecipient('synthetic-owner','other'),null);
+ assert.equal(await h.gateway.resolveTaskRecipient('unknown','sample'),null);
  assert.deepEqual(await h.bindingStore.readOne(row.bindingId),before);assert.deepEqual(await snapshot(),allBefore);
  h.setCount(2);
  assert.equal(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}),null);
+ assert.equal(await h.gateway.resolveTaskRecipient('synthetic-owner','sample'),null);
  assert.deepEqual(await h.bindingStore.readOne(row.bindingId),before);assert.deepEqual(await snapshot(),allBefore);
 });
 

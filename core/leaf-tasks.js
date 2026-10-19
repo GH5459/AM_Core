@@ -14,7 +14,7 @@ function key(secret){return Buffer.from(crypto.hkdfSync('sha256',Buffer.from(sec
 function encrypt(value,secret,tenant){const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-gcm',key(secret),iv);c.setAAD(Buffer.from(tenant));const data=Buffer.concat([c.update(value,'utf8'),c.final()]);return {iv:iv.toString('base64'),tag:c.getAuthTag().toString('base64'),data:data.toString('base64')};}
 function decrypt(value,secret,tenant){const c=crypto.createDecipheriv('aes-256-gcm',key(secret),Buffer.from(value.iv,'base64'));c.setAAD(Buffer.from(tenant));c.setAuthTag(Buffer.from(value.tag,'base64'));return Buffer.concat([c.update(Buffer.from(value.data,'base64')),c.final()]).toString('utf8');}
 export function mentionCandidate(e){return e?.type==='message'&&e.message?.type==='text'&&e.source?.type==='group'&&/^C[0-9a-f]{32}$/i.test(e.source.groupId||'')&&idPattern.test(e.source.userId||'')&&typeof e.message.text==='string'&&e.message.text.trim()&&Array.isArray(e.message.mention?.mentionees)&&e.message.mention.mentionees.some(m=>m.type==='user'&&m.isSelf!==true&&idPattern.test(m.userId||''));}
-export function createLeafTasks({env=process.env,tenants=[],platform,router,line,llm,resolveIdentity,logger=console,fetchImpl=fetch,store:injectedStore,now=Date.now}){
+export function createLeafTasks({env=process.env,tenants=[],platform,router,line,llm,resolveIdentity,resolveRecipient,logger=console,fetchImpl=fetch,store:injectedStore,now=Date.now}){
  const secret=env.LINE_CHANNEL_SECRET||'',store=injectedStore||createCalendarStore({settingsForTenant:t=>platform.operationalMemory?.settingsForTenant(t),env}),configured=new Set();let running,photoRunning,wakePending=false,photoRequested=false,lastPhotoRecovery=-Infinity;
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
@@ -212,6 +212,16 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   }return found.length===1?found[0]:null;
  }
  async function meetingOrganization(hostId){const host=await meetingShareIdentity(hostId);if(!host)throw Error('meeting_share_host_identity_required');const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t),v=await call(t,c,'meeting-sharing-directory',{account:host.account});return {...v.organization,tenantKey:t.key};}
+ async function meetingShareRecipient({tenantKey,account}){
+  const t=(await groupServices()).find(t=>t.key===tenantKey);if(!t||!account)return null;
+  const c=await config(t),prior=await resolveRecipient?.(account,tenantKey);
+  const v=await call(t,c,'meeting-sharing-recipient',{account,botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});
+  if(!v.active)return null;
+  const ids=[...new Set([prior?.userId,v.recipient?.userId].filter(Boolean))];
+  if(ids.length!==1||!idPattern.test(ids[0]))return null;
+  const who=await meetingShareIdentity(ids[0],tenantKey);
+  return who?.account===account?who:null;
+ }
  async function publishMeetingTasks({id,row,source,hostId,fields,url,notionId,revision,previousFields,taskTenant='',knownTaskIds=[]}){
   const assigned=Object.entries(fields).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId);
   const removed=revision?Object.entries(previousFields||{}).filter(([k,v])=>k.startsWith('todo:')&&v?.ownerId&&!fields[k]?.ownerId).map(([k])=>k):[];
@@ -221,6 +231,6 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const t=tenants.find(t=>t.key===host.tenantKey),c=await config(t);
   const result=await call(t,c,'meeting-publish',{id,host,tasks,url,notionId,...revision?{revision,removed,knownTaskIds}:{},date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});return {...result,tenantKey:host.tenantKey};
  }
- return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,publishMeetingTasks,
+ return {capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
   resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }
