@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
+import {recordBlocks,textChanges} from '../modules/meetings/workspace-collaboration.js';
+import {audioTickets} from '../modules/meetings/workspace-access.js';
+process.env.MEETING_WORKSPACE_PREVIEW='1';
+const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
+let r=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0];const id=r.id,member='U'+'2'.repeat(32),outside='U'+'3'.repeat(32);
+async function api(input,token='host'){let status=200,body='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin:f.platform.publicBaseUrl};await f.service.handle(req,{headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},end(v){body=v;}},new URL(f.platform.publicBaseUrl+'/meetings/review/work/'+id+'/api'));return {status,value:JSON.parse(body)};}
+let active=true;f.platform.meetingOrganization=async()=>({tenantKey:'fixture',revision:1,departments:[{id:'root',parentId:null,name:'公司'},{id:'team',parentId:'root',name:'工程'}],people:[{account:'111',name:'主持人',departments:['root']},{account:'222',name:'同名夥伴',departments:['team']},{account:'333',name:'同名夥伴',departments:['team']}]});
+f.platform.meetingShareIdentity=async(userId,tenant)=>active&&userId===outside&&tenant==='fixture'?{account:'333',tenantKey:'fixture',name:'指定夥伴'}:null;
+assert.equal((await api({action:'organization'},'member')).status,403);assert.equal((await api({action:'organization'})).value.organization.people.length,3);
+assert.equal((await api({action:'sharing',enabled:false,accounts:['unknown'],revision:Number(r.revision),version:0})).status,409);
+let result=await api({action:'sharing',enabled:false,accounts:['333','333'],revision:Number(r.revision),version:0});assert.equal(result.status,200);assert.equal(result.value.sharing.people.length,1);assert.equal(result.value.sharing.enabled,false);
+const recipient=(await api({action:'read'},'outside'));assert.equal(recipient.status,200);assert.equal(recipient.value.access,'recipient');assert(recipient.value.reader.record);for(const field of ['editing','changes','sharing','types','members','presence'])assert.equal(recipient.value[field],undefined);assert(!JSON.stringify(recipient.value).includes(r.host_id));
+for(const action of ['save-part','edit','revise','sharing','publish','members','history','organization'])assert.equal((await api({action},'outside')).status,403);
+const ticket=decodeURIComponent(recipient.value.audioUrl.split('ticket=')[1]);assert.equal(audioTickets(f.platform.publicLinkSecret).verify(await f.service.store.get(id),ticket),outside);
+active=false;assert.equal((await api({action:'read'},'outside')).status,403);active=true;
+await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='review' WHERE id=$1",[id]);assert.equal((await api({action:'read'},'outside')).status,403,'Named recipients never receive drafts');
+let view=(await api({action:'read'},'member')).value;assert(view.canEdit);const blocks=view.editing.blocks,first='record:'+blocks[0].id,second='record:'+blocks[1].id;
+assert.equal(blocks.map(b=>b.text).join('\n'),view.workspace.fields.record,'No line or whitespace is discarded');
+assert.equal((await api({action:'save-part',field:first,value:'A 新增🙂與刪除原文',version:0},'member')).status,200);
+assert.equal((await api({action:'save-part',field:second,value:'B 修改不同段落',version:0})).status,200,'Independent paragraph does not conflict with A');
+assert.equal((await api({action:'save-part',field:first,value:'過期版本覆蓋',version:0})).status,409);
+view=(await api({action:'read'})).value;assert(view.editing.fields.record.includes('A 新增🙂'));assert(view.editing.fields.record.includes('B 修改不同段落'));
+assert.equal((await api({action:'save-part',field:'settings',value:{},version:view.editing.versions.settings},'member')).status,400);
+const todo=Object.keys(view.editing.fields).find(k=>k.startsWith('todo:'));
+assert.equal((await api({action:'save-part',field:todo,value:{...view.editing.fields[todo],ownerId:outside},version:view.editing.versions[todo]},'member')).status,403,'Outside share recipient is never an assignee');
+let changed=(await api({action:'history'})).value.history;assert(changed.some(h=>h.field===first&&h.actor_id===member&&h.before_value===blocks[0].text));assert.notEqual(changed.find(h=>h.field===first).color,changed.find(h=>h.field===second).color);
+const diff=textChanges('A🙂原文與保留','A🙂新增與保留');assert(diff.some(d=>d.kind==='delete'&&d.text==='原文'));assert(diff.some(d=>d.kind==='add'&&d.text==='新增'));assert.equal(diff.filter(d=>d.kind!=='delete').map(d=>d.text).join(''),'A🙂新增與保留');
+await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[id]);
+let held=true,calls=[];f.platform.publishMeetingTasks=async input=>{calls.push(input.revision);if(held)throw Error('synthetic_lost_response');return {tasks:[{id:'original-work-task'}],tenantKey:'fixture'};};
+view=(await api({action:'read'},'member')).value;
+assert.equal((await api({action:'save-part',field:first,value:'A 正式版修訂',version:view.editing.versions[first]},'member')).status,200);await f.service.settle();
+assert.equal((await api({action:'save-part',field:second,value:'B 排隊修訂',version:view.editing.versions[second]})).status,200);await f.service.settle();
+let pending=(await f.pg.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE state='pending' ORDER BY revision")).rows;assert.equal(pending.length,2);assert.equal(Number(pending[1].base_revision),Number(pending[0].revision));assert.equal((await f.service.store.get(id)).fields.record,view.workspace.fields.record,'Readers keep the last fully synchronized version');
+assert.equal((await api({action:'save-part',field:first,value:'舊版本',version:view.editing.versions[first]})).status,409);
+held=false;for(let i=0;i<4;i++){await f.pg.query("UPDATE central_archive.meeting_workspace_revisions SET lease_until=NULL WHERE state='pending'");await f.service.drain();await f.service.settle();}
+r=await f.service.store.get(id);assert(r.fields.record.includes('A 正式版修訂'));assert(r.fields.record.includes('B 排隊修訂'));assert.equal(recordBlocks(r).map(b=>b.text).join('\n'),r.fields.record);assert.equal((await f.pg.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE state='pending'")).rows[0].n,0);
+assert.equal((await api({action:'sharing',enabled:false,accounts:[],revision:Number(r.revision),version:1})).status,200);assert.equal((await api({action:'read'},'outside')).status,403);assert.throws(()=>audioTickets(f.platform.publicLinkSecret).verify(awaitableRow(r),ticket));
+function awaitableRow(r){return {...r,sharing_version:2};}
+await f.pg.close();console.log('Collaboration: explicit per-paragraph/member saves, same-part conflicts, independent versioned edits, queued published sync/retry, exact Unicode additions/deletions and author colors; named multi-share, authoritative organization, active-recipient recheck, draft/directory/write isolation and revocation passed.');

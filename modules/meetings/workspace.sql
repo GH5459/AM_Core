@@ -46,3 +46,10 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_workspace_revisions (
  PRIMARY KEY(workspace_id,revision), CHECK(state IN ('pending','applied'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS meeting_workspace_one_revision ON central_archive.meeting_workspace_revisions(workspace_id) WHERE state='pending';
+
+ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS record_blocks jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE central_archive.meeting_workspaces ADD COLUMN IF NOT EXISTS shared_people jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE central_archive.meeting_workspace_access_changes ADD COLUMN IF NOT EXISTS before_people jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE central_archive.meeting_workspace_access_changes ADD COLUMN IF NOT EXISTS people jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE central_archive.meeting_workspace_revisions ADD COLUMN IF NOT EXISTS patch jsonb NOT NULL DEFAULT '{}';
+DROP INDEX IF EXISTS central_archive.meeting_workspace_one_revision;

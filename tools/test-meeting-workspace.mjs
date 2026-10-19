@@ -43,5 +43,5 @@ assert.equal((await s.transition(id,host,'publish',Number(r.revision))).state,'p
 await s.presence(id,member,'record');assert.equal((await s.people(id))[0].name,member.name);assert.equal((await s.history(id)).length,6);
 assert(!validDate('2026-02-30'));assert.throws(()=>checkField(todo,{...todoValue,due:'2026-02-30'}));assert.throws(()=>checkField('state','published'));
 assert.throws(()=>checkField('settings',{...settings,admin:true}));
-const html=workspaceHtml({id,liffId:'123-fixture'});assert(html.includes('1. 會議記錄')&&html.includes('2. 待辦事項')&&html.includes('確認儲存並發布到群組'));assert(!html.includes('fixture-recording'));
+const html=workspaceHtml({id,liffId:'123-fixture'});assert(html.includes('id="recordPanel"')&&html.includes('id="todoPanel"')&&html.includes('確認儲存並發布到群組'));assert(!html.includes('fixture-recording'));
 await pg.close();console.log('Workspace real PostgreSQL semantics: per-recording isolation, all-member edits, field conflict, host-only start/publish, required assignee deadline, unassigned candidates, stale confirmation, durable immutable lock, audit history and presence passed.');
