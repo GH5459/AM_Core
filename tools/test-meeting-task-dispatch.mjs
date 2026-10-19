@@ -29,7 +29,7 @@ fields[todo2].ownerId='';await pool.query('UPDATE central_archive.meeting_worksp
 // or discarded deadline may be sent later.
 fields[todo2].content='最新確認交付';fields[todo2].due='2026-11-03';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,revision=6 WHERE id=$1',[id,JSON.stringify(fields)]);
 await dispatch.run(id);assert.equal(calls.length,1);ids.set(two,identity(two));lose=true;await dispatch.run(id);assert.equal(tasks.size,2);assert.equal(tasks.get(todo2).content,'最新確認交付');assert.equal(tasks.get(todo2).due,'2026-11-03');
-dispatch=meetingTaskDispatch(args);await dispatch.run(id);assert.equal(tasks.size,2);assert.equal(calls.length,3);assert.deepEqual(calls[1],calls[2]);
+dispatch=meetingTaskDispatch(args);await dispatch.run(id);assert.equal(tasks.size,2);assert.equal(calls.length,3);assert.deepEqual(calls[1],calls[2]);assert.deepEqual(calls[1].tasks.map(t=>t.id),[todo2],'New recipient readiness must not re-edit other delivered tasks');
 await dispatch.run(id);assert.equal(calls.length,3,'Unchanged deliveries do not rewrite original task progress');
 // Removing an assigned source keeps the original task with a withdrawal note.
 fields[todo2].ownerId='';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,revision=7 WHERE id=$1',[id,JSON.stringify(fields)]);await dispatch.run(id);assert(tasks.get(todo2).withdrawn);assert.equal(tasks.size,2);

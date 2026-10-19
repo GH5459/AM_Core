@@ -39,7 +39,10 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
    const removed=todos(q.applied_fields).filter(t=>t.ownerId&&!fields[t.id]?.ownerId).map(t=>t.id);
    if(same(fields,q.applied_fields)){await wait(id,waiting.length?'部分任務待負責人完成 UOF／LINE 與工作日誌連線，完成後自動補派。':'');return;}
    if(!ready.length&&!removed.length){await wait(id,waiting.length?'待負責人完成 UOF／LINE 與工作日誌連線，完成後自動補派。':'');return;}
-   const sequence=Number(q.sequence)+1,payload={id:r.id,revision:Number(r.revision),deliverySequence:sequence,host,tasks:ready.map(t=>({id:t.id,content:t.content,due:t.due,evidence:t.evidence,owner:t.owner})),removed,knownTaskIds:q.known_task_ids,url:link(r.id),notionId:r.receipt.notionId,date:r.fields.settings.date,goal:r.fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:r.source.message.id,timestamp:r.source.timestamp,filename:r.source.message.fileName||r.filename||''}};
+   // A colleague connecting must not re-edit other already delivered tasks:
+   // their later work-log changes, due dates and progress remain authoritative.
+   const changed=ready.filter(t=>!same(q.applied_fields[t.id],r.fields[t.id])||q.applied_fields.settings?.date!==r.fields.settings.date||q.applied_fields.settings?.projectGoal!==r.fields.settings.projectGoal);
+   const sequence=Number(q.sequence)+1,payload={id:r.id,revision:Number(r.revision),deliverySequence:sequence,host,tasks:changed.map(t=>({id:t.id,content:t.content,due:t.due,evidence:t.evidence,owner:t.owner})),removed,knownTaskIds:q.known_task_ids,url:link(r.id),notionId:r.receipt.notionId,date:r.fields.settings.date,goal:r.fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:r.source.message.id,timestamp:r.source.timestamp,filename:r.source.message.fileName||r.filename||''}};
    await pool.query(`UPDATE central_archive.meeting_task_dispatches SET payload=$2::jsonb,payload_fields=$3::jsonb,sequence=$4,host_identity=$5::jsonb,task_tenant=$6,updated_at=now() WHERE workspace_id=$1`,[id,JSON.stringify(payload),JSON.stringify(fields),sequence,JSON.stringify(host),host.tenantKey]);
    // Read back JSONB's canonical key order before the very first network call.
    // Both the first attempt and every replay must hash the same serialized body.
