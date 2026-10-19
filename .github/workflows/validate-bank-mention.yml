@@ -182,6 +182,8 @@ jobs:
       - run: node --test tools/test-multilingual-policy.mjs tools/test-multilingual-service.mjs
       - run: node tools/test-multilingual-meetings.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.40
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.70
+      - run: node tools/test-meeting-audio-stream.mjs
       - run: node tools/test-meeting-hub.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.04
       - run: node tools/test-meeting-collaboration.mjs
