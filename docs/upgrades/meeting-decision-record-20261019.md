@@ -8,7 +8,7 @@ AM-IMP-2026.1019.36：Deployed。
 
 使用者本次明確指定一份已發布記錄改用核准預覽。該內容與更新前快照只保存於私人目錄，使用原修訂佇列，不重新辨識錄音、不另建會議或任務，不代改待辦指派、日期、進度或分享。其他歷史會議不批次重寫。
 
-不涉及 DailyLog／UOF 部署或資料庫結構調整；不向獨立 HOZO_AM／SevenAM 安裝。正式結果待精確版本及本人頁面查驗後補入。
+不涉及 DailyLog／UOF 部署或資料庫結構調整；不向獨立 HOZO_AM／SevenAM 安裝。正式版本及本人頁面查驗結果見下方。
 
 
 PR359 最後完整 CI 39250354440 通過，檢查執行 3 分 47 秒；受測 0eed42d 與合併 c084eba07f74fb673445e3cf500edeea8babb3a3 樹一致。Render 指定提交部署 42.8 秒 Live，2026-10-19 20:18（Asia/Taipei）兩站回讀相同提交及 meeting-decisions-with-evidence-v1。DailyLog／UOF 不重發；原 DailyLog 當時最新 c11e1354／100% 部署保持。
