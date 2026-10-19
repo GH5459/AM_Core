@@ -19,6 +19,12 @@ export async function syncMeetingCalendar(auth,v,{db,resolveAccount,checkUser,co
  const payload={summary:v.topic,location:v.location,description:'會議工作頁：'+v.url,start:{dateTime:v.start,timeZone:'Asia/Taipei'},end:{dateTime:v.end,timeZone:'Asia/Taipei'}};
  const payloadHash=await hash(JSON.stringify({payload,removed:v.removed}));const marker=previous?.extendedProperties?.private;
  if(previous&&marker?.meetingHub!==v.meetingId)throw fail('IDEMPOTENCY_CONFLICT','原日曆活動的來源不同，請核對。');
+ if(previous){
+  const date=t=>{if(!Number.isFinite(Date.parse(t)))throw fail('CALENDAR_EXTERNAL_CHANGED','原日曆活動內容已變更，請先核對。');return new Date(t).toISOString();};
+  const actual={summary:previous.summary||'',location:previous.location||'',description:previous.description||'',start:{dateTime:date(previous.start?.dateTime),timeZone:'Asia/Taipei'},end:{dateTime:date(previous.end?.dateTime),timeZone:'Asia/Taipei'}};
+  const actualHash=await hash(JSON.stringify({payload:actual,removed:previous.status==='cancelled'}));
+  if(actualHash!==marker.meetingPayload&&actualHash!==payloadHash)throw fail('CALENDAR_EXTERNAL_CHANGED','原日曆活動已在外部修改；請先核對會議頁及日曆，不會直接覆寫。');
+ }
  if(previous&&Number(marker.meetingRevision)>v.revision)return {ok:true,calendarId:target.calendarId,eventId,googleAccount:target.googleAccount,revision:Number(marker.meetingRevision)};
  if(previous&&Number(marker.meetingRevision)===v.revision&&marker.meetingPayload!==payloadHash)throw fail('IDEMPOTENCY_CONFLICT','相同排程版本的內容不同。');
  await checkUser(user);await connection(user,target.googleAccount);

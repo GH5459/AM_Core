@@ -1,5 +1,8 @@
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
 const folder=process.argv[2];assert(path.isAbsolute(folder||''));let s=fs.readFileSync(folder+'/dailylog/baseline/worker.mjs','utf8');
+if(s.startsWith("import {syncMeetingCalendar} from './meeting-hub-calendar.mjs';")){
+ assert(s.includes('meetingEvent:(auth,value)=>syncMeetingCalendar'),'Verify existing hub call');fs.writeFileSync(folder+'/dailylog/candidate/worker.mjs',s);fs.copyFileSync(path.resolve(__dirname,'../modules/meetings/dailylog-meeting-calendar.mjs'),folder+'/dailylog/candidate/meeting-hub-calendar.mjs');console.log('Updated only the existing hub Calendar module; current complete main preserved.');return;
+}
 const patch=(a,b)=>{assert.equal(s.split(a).length,2,'Current full module anchor changed: '+a.slice(0,90));s=s.replace(a,b);};
 patch('function createCalendarBot({ read: read52, write, google, canUse, serviceToken, resolveAccount,','function createCalendarBot({ meetingDb, read: read52, write, google, canUse, serviceToken, resolveAccount,');
 patch('return { key, authorize, createEvent };','return { key, authorize, createEvent, meetingEvent:(auth,value)=>syncMeetingCalendar(auth,value,{db:meetingDb,resolveAccount,checkUser,connection,calendarFor,google}) };');
