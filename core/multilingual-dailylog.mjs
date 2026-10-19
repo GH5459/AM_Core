@@ -40,7 +40,7 @@ export function createMultilingualDailylog(base){return {async fetch(request,env
   let response=await base.fetch(request,env,ctx);if(!response.ok)return response;
   if(p==='/auth/bootstrap.js'){const text=await response.text();response=new Response(text+'\nwindow.DAILYLOG_EXPERIENCE='+JSON.stringify(experience)+';\n',response);}
   else if((p==='/'||p==='/index.html'||p==='/supervisor'||p==='/supervisor.html')&&request.method==='GET'&&response.headers.get('content-type')?.includes('text/html')){const text=(await response.text()).replace('</head>','<script src="/multilingual.js" defer></script></head>');response=new Response(text,response);}
-  else if(p==='/tasks.js'&&request.method==='GET'){const text=(await response.text()).replace('wholeForm(task,canEdit)','wholeForm(task,canEdit||task.permissions?.changeStatus===true)');response=new Response(text,response);}
+  else if(p==='/tasks.js'&&request.method==='GET'){const text=(await response.text()).replace('${wholeForm(task,canEdit)}','${wholeForm(task,canEdit||task.permissions?.changeStatus===true)}').replace('collaborative(task)?executed(task):canEditTask(task)','collaborative(task)?executed(task):(canEditTask(task)||task.permissions?.changeStatus===true)');response=new Response(text,response);}
   else if(taskRoute(p)&&response.headers.get('content-type')?.includes('json'))response=json(permissions(await response.json(),experience.locale),response.status);
   response.headers.delete('Content-Length');response.headers.delete('ETag');response.headers.set('X-Multilingual-Contract',MULTILINGUAL_CONTRACT);return response;
  }catch(error){return json({error:error.status?error.message:'語言服務暫時無法使用，原文與操作內容仍保留。'},error.status||503);}
