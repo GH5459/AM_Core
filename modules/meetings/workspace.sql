@@ -60,12 +60,13 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_share_notices (
  workspace_id text NOT NULL REFERENCES central_archive.meeting_workspaces(id),
  tenant_key text NOT NULL, account text NOT NULL, grant_version bigint NOT NULL,
  state text NOT NULL DEFAULT 'pending', error_code text NOT NULL DEFAULT '',
- target_id text, first_attempt_at timestamptz, attempts integer NOT NULL DEFAULT 0,
+ target_id text, message_text text, first_attempt_at timestamptz, attempts integer NOT NULL DEFAULT 0,
  next_attempt_at timestamptz NOT NULL DEFAULT now(), lease_until timestamptz,
  sent_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(workspace_id,tenant_key,account,grant_version)
 );
 CREATE INDEX IF NOT EXISTS meeting_share_notices_pending ON central_archive.meeting_share_notices(next_attempt_at) WHERE state='pending';
+ALTER TABLE central_archive.meeting_share_notices ADD COLUMN IF NOT EXISTS message_text text;
 
 -- Shared vocabulary is scoped to this service/OA, without conversation content.
 CREATE TABLE IF NOT EXISTS central_archive.meeting_glossary (

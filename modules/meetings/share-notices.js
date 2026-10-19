@@ -23,7 +23,8 @@ export function meetingShareNotices({pool,store,botId,platform,link,logger=conso
     if(j.target_id&&j.target_id!==who.userId)return update("state='failed',error_code='identity_changed',lease_until=NULL");
     // Commit the first-attempt timestamp before sending. Its durable retry key
     // survives process death even if LINE accepted but the response was lost.
-    await update("target_id=$5,first_attempt_at=COALESCE(first_attempt_at,now()),attempts=attempts+1",[who.userId]);
+    const text='葉小蝸 AI 小助手｜會議記錄分享\n'+String(r.host_name||'主持人')+' 分享了一份會議記錄給你。\n\n會議主題：'+String(r.fields.settings.topic||'會議記錄').slice(0,300)+'\n閱讀連結：'+link(r.id)+'\n\n請使用本人的 LINE 登入，即可閱讀與收聽錄音。';
+    await update("target_id=$5,message_text=COALESCE(message_text,$6),first_attempt_at=COALESCE(first_attempt_at,now()),attempts=attempts+1",[who.userId,text]);
    });
    // The send transaction locks the same workspace as share/revoke. Removal
    // cannot finish and then be followed by a stale notice from this worker.
@@ -33,13 +34,12 @@ export function meetingShareNotices({pool,store,botId,platform,link,logger=conso
     const who=await platform.meetingShareRecipient?.({tenantKey:j.tenant_key,account:j.account});
     if(who?.userId!==j.target_id||who?.tenantKey!==j.tenant_key||who?.account!==j.account){await db.query("UPDATE central_archive.meeting_share_notices SET state='failed',error_code='identity_changed',lease_until=NULL WHERE "+where,key(j));return;}
     const retryKey='meeting-share:'+crypto.createHash('sha256').update(JSON.stringify([...key(j),j.target_id])).digest('hex');
-    const text='葉小蝸 AI 小助手｜會議記錄分享\n'+String(r.host_name||'主持人')+' 分享了一份會議記錄給你。\n\n會議主題：'+String(r.fields.settings.topic||'會議記錄').slice(0,300)+'\n閱讀連結：'+link(r.id)+'\n\n請使用本人的 LINE 登入，即可閱讀與收聽錄音。';
-    await platform.pushLineMessage(j.target_id,text,undefined,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});
+    await platform.pushLineMessage(j.target_id,j.message_text,undefined,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});
     await db.query("UPDATE central_archive.meeting_share_notices SET state='sent',error_code='',sent_at=now(),lease_until=NULL WHERE "+where,key(j));
    });
   }catch(e){
-   const rejected=[400,401,403,404].includes(e.lineStatus);
-   await pool.query("UPDATE central_archive.meeting_share_notices SET state=$5,error_code=$6,lease_until=NULL,next_attempt_at=now()+interval '2 minutes' WHERE "+where+" AND state='pending'",[...key(job),rejected?'failed':'pending',rejected?'line_rejected':'delivery_pending']);
+   const rejected=e.lineStatus>=400&&e.lineStatus<500;
+   await pool.query("UPDATE central_archive.meeting_share_notices SET state=$5,error_code=$6,lease_until=NULL,next_attempt_at=now()+interval '1 second'*LEAST(3600,30*power(2,LEAST(attempts,7))) WHERE "+where+" AND state='pending'",[...key(job),rejected?'failed':'pending',rejected?'line_rejected':'delivery_pending']);
    logger.warn?.('Meeting share notice deferred; durable retry retained.');
   }
  }
