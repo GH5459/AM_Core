@@ -1,19 +1,22 @@
 {
   "id": "AM-IMP-2026.1019.07",
-  "name": "會議與 UOF 文字入口",
-  "type": "Public navigation",
+  "name": "Rich Menu分享會議清單與取消LINE分享推播",
+  "type": "Meeting shared inbox",
   "portable": true,
   "status": "Ready",
-  "requiresDatabases": [],
+  "requiresDatabases": [
+    "Existing project-local meeting grants and OA-scoped share delivery policy"
+  ],
   "requiresEnv": [
-    "Original LINE credentials and active default Rich Menu"
+    "Existing private original OA, database and service configuration"
   ],
   "requiresScripts": [
-    "tools/test-portal-command-entry.mjs",
-    "tools/verify-private-assistant-pause.mjs"
+    "tools/test-meeting-shared-inbox.mjs",
+    "tools/test-meeting-share-notices.mjs",
+    "tools/disable-meeting-share-push.mjs"
   ],
   "installTargets": [
-    "Original AM runtime"
+    "Root AM meeting runtime"
   ],
   "dataIsolation": {
     "canCopyCode": true,
@@ -21,8 +24,11 @@
     "canCopySecrets": false
   },
   "definitionOfDone": [
-    "Exact meeting/UOF commands reply with public entry buttons in direct/group/room",
-    "Original 待簽 and identity/access remain unchanged",
-    "Reviewed main commit and production health readback"
+    "Dedicated shared-with-me section at the existing Rich Menu meeting hub",
+    "Published-only active exact-service recipient listing with filtered pagination",
+    "Original reader/audio and revoke authorization retained",
+    "No sharing push or new notification jobs; old pending/retries cancelled per OA",
+    "Other meeting features, original data and latest Worker preserved",
+    "Full CI and exact production checks"
   ]
 }

@@ -1,0 +1,14 @@
+  "name": "會議與 UOF 文字入口",
+  "type": "Public navigation",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Original LINE credentials and active default Rich Menu"
+  ],
+  "requiresScripts": [
+    "tools/test-portal-command-entry.mjs",
+    "tools/verify-private-assistant-pause.mjs"
+  ],
+  "installTargets": [
+    "Original AM runtime"

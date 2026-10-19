@@ -28,6 +28,7 @@ on:
       - 'tools/central-archive-admin.mjs'
       - 'tools/test-central-archive.mjs'
       - 'versions/AM-IMP-2026.1007.03/**'
+      - 'versions/AM-IMP-2026.1019.13/**'
       - 'core/portal-command-entry.js'
       - 'tools/test-portal-command-entry.mjs'
       - 'versions/AM-IMP-2026.1019.07/**'
@@ -159,6 +160,8 @@ jobs:
       - run: node tools/test-meeting-schedule.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.03
       - run: node tools/test-meeting-share-notices.mjs
+      - run: node tools/test-meeting-shared-inbox.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-meeting-share-recipient.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.05
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01

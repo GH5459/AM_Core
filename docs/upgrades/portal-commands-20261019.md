@@ -1,6 +1,6 @@
 # 會議與 UOF 文字入口
 
-AM-IMP-2026.1019.07。狀態 Ready；正式回讀前不標 Deployed。
+AM-IMP-2026.1019.13。狀態 Ready；正式回讀前不標 Deployed。
 
 私訊、群組及多人聊天室單獨輸入「會議」或「UOF」（不分英文大小寫），回覆一般按鈕。會議沿原 OA 當前 default 選單的 URI；UOF 開啟原 /Line/Review，須本人登入。原「待簽」查詢保持，工作日誌不改。
 
