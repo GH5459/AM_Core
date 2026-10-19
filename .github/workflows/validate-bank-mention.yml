@@ -2,6 +2,8 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'core/multilingual*'
+      - 'tools/*multilingual*'
       - 'modules/meetings/**'
       - 'versions/AM-IMP-2026.1019.01/**'
       - 'versions/AM-IMP-2026.1019.10/**'
