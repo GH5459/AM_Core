@@ -23,10 +23,11 @@ export async function syncMeetingCalendar(auth,v,{db,resolveAccount,checkUser,co
    for(let page=0;page<20;page++){
     const query=new URLSearchParams({iCalUID:source.iCalUID,timeMin:new Date(Date.parse(source.start)-86400000).toISOString(),timeMax:new Date(Date.parse(source.end)+86400000).toISOString(),singleEvents:'true',showDeleted:'false',maxResults:'250',...(pageToken?{pageToken}:{})});
     const found=await google.request(user,{path:'/calendars/'+encodeURIComponent(value.calendarId)+'/events?'+query});
-    matches.push(...(found.items||[]).filter(e=>e.status!=='cancelled'&&e.iCalUID===source.iCalUID&&Date.parse(e.start?.dateTime||e.start?.date+'T00:00:00+08:00')===Date.parse(source.start+(source.allDay?'T00:00:00+08:00':''))&&!e.attendees?.some(a=>a.self&&a.responseStatus==='declined')));
+    matches.push(...(found.items||[]).filter(e=>e.status!=='cancelled'&&e.iCalUID===source.iCalUID&&Date.parse(e.start?.dateTime||e.start?.date+'T00:00:00+08:00')===Date.parse(source.start+(source.allDay?'T00:00:00+08:00':''))));
     pageToken=found.nextPageToken;if(!pageToken)break;if(page===19)throw fail('GOOGLE_UNAVAILABLE','無法完整核對日曆，請重試。',503);
    }
    if(matches.length>1)throw fail('IDEMPOTENCY_CONFLICT','日曆有多筆相同行程，請先核對；不會新增副本。');
+   if(matches.length===1&&matches[0].attendees?.some(a=>a.self&&a.responseStatus==='declined'))throw fail('CALENDAR_EXTERNAL_CHANGED','對方已拒絕原日曆邀請，請先核對；不會另建副本。');
    if(matches.length===1){value.eventId=matches[0].id;value.reused=true;value.sourceUID=source.iCalUID;value.sourceStart=source.start;}
   }
   await db.prepare("INSERT INTO documents(namespace,key,value) VALUES('meeting-calendar-targets',?,?) ON CONFLICT(namespace,key) DO NOTHING").bind(key,JSON.stringify(value)).run();target=await read();
