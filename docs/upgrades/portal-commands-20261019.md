@@ -1,6 +1,6 @@
 # 會議與 UOF 文字入口
 
-AM-IMP-2026.1019.13。狀態 Ready；正式回讀前不標 Deployed。
+AM-IMP-2026.1019.13。Installed／Deployed：PR346完整CI3m37s通過，正式 bc1d350dcb258d28c33e94a783722ad32774fc77，Render Live43.0s及兩站 /health 已回讀。原手機選單、DailyLog及UOF未重發；保留最新使用說明與會議分享清單。真人LINE自然操作另待使用者驗收。
 
 私訊、群組及多人聊天室單獨輸入「會議」或「UOF」（不分英文大小寫），回覆一般按鈕。會議沿原 OA 當前 default 選單的 URI；UOF 開啟原 /Line/Review，須本人登入。原「待簽」查詢保持，工作日誌不改。
 
