@@ -43,6 +43,7 @@ export function createWorkspaceStore(pool){
   if(!['review','published'].includes(original.state))throw failure(409,'此階段不可修改內容。');
   const r=await effective(original,db),next=applyPart(r,input),ownerNames=await validate?.({...r,...next})||original.receipt.ownerNames||{};
   if(JSON.stringify(next.patch.before)===JSON.stringify(next.patch.value))return original;
+  if(r.state==='published'&&Number((await db.query("SELECT count(*) AS n FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'",[id])).rows[0].n)>=50)throw failure(429,'已有較多修改正在同步，請稍後再儲存；你的輸入仍保留。');
   const revision=Number(r.revision)+1;
   if(r.state==='published')await db.query(`INSERT INTO central_archive.meeting_workspace_revisions(workspace_id,revision,base_revision,fields,owner_names,actor_id,actor_name,patch) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8::jsonb)`,[id,revision,r.revision,JSON.stringify(next.fields),JSON.stringify(ownerNames),actor.id,actor.name,JSON.stringify(next.patch)]);
   else{

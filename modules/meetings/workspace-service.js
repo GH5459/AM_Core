@@ -71,6 +71,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function members(row,hostId,observedOnly=false){
   let ids=[],complete=true;
   if(row.source_kind==='user')ids=[row.source_id];
+  else if(observedOnly){const observed=await pool.query(`SELECT DISTINCT payload->'event'->'source'->>'userId' AS id FROM central_archive.jobs WHERE conversation_key=$1 AND payload->>'direction'='incoming'`,[row.key]);ids=observed.rows.map(r=>r.id);complete=false;}
   else try{let cursor='';do{const j=await platform.lineGet(`/v2/bot/${row.source_kind}/${row.source_id}/members/ids`+(cursor?'?start='+encodeURIComponent(cursor):''),{timeoutMs:10000});ids.push(...j.memberIds);cursor=j.next||'';}while(cursor);}
   catch{
    complete=false;
@@ -81,7 +82,6 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const known=await platform.meetingTaskDirectory?.();ids.push(...(known||[]).map(p=>p.userId));
    try{const bound=await pool.query("SELECT DISTINCT user_id FROM line_bindings.bindings WHERE status='bound' AND confirmed_at IS NOT NULL");ids.push(...bound.rows.map(p=>p.user_id));}catch{logger.warn('Meeting member roster: prior identity directory unavailable.');}
   }
-  if(observedOnly&&row.source_kind!=='user'){const observed=await pool.query(`SELECT DISTINCT payload->'event'->'source'->>'userId' AS id FROM central_archive.jobs WHERE conversation_key=$1 AND payload->>'direction'='incoming'`,[row.key]);ids=observed.rows.map(r=>r.id);complete=false;}
   ids=[...new Set([...ids,hostId])].filter(uid);const people=[];
   for(let i=0;i<ids.length;i+=5)await Promise.all(ids.slice(i,i+5).map(async id=>{
    try{await assertMember(row,id);const profile=await platform.lineGet(row.source_kind==='user'?'/v2/bot/profile/'+id:`/v2/bot/${row.source_kind}/${row.source_id}/member/${id}`,{timeoutMs:8000});

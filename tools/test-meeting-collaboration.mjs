@@ -21,6 +21,7 @@ let recording=await nativeFetch(playback);assert.equal(recording.status,200);ass
 active=false;assert.equal((await api({action:'read'},'outside')).status,403);recording=await nativeFetch(playback);assert.equal(recording.status,403);await recording.text();await new Promise(resolve=>server.close(resolve));active=true;
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='review' WHERE id=$1",[id]);assert.equal((await api({action:'read'},'outside')).status,403,'Named recipients never receive drafts');
 let view=(await api({action:'read'},'member')).value;assert(view.canEdit);const blocks=view.editing.blocks,first='record:'+blocks[0].id,second='record:'+blocks[1].id;
+const originalDirectory=f.platform.meetingTaskDirectory;f.platform.meetingTaskDirectory=async()=>{throw Error('Observed speakers must not scan the entire company identity directory');};assert.equal((await api({action:'members',observed:true},'member')).status,200);f.platform.meetingTaskDirectory=originalDirectory;
 assert.equal(blocks.map(b=>b.text).join('\n'),view.workspace.fields.record,'No line or whitespace is discarded');
 assert.equal((await api({action:'save-part',field:first,value:'A 新增🙂與刪除原文',version:0},'member')).status,200);
 assert.equal((await api({action:'save-part',field:second,value:'B 修改不同段落',version:0})).status,200,'Independent paragraph does not conflict with A');
