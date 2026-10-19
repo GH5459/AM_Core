@@ -1,5 +1,6 @@
 import {createMeetingConversationStore,keyFor} from './conversation-store.js';
 import {verifyManagementRequest} from './management-auth.js';
+import {readTaskOrigins} from './task-origins.js';
 import {sendJson} from '../../core/util.js';
 import {createMeetingWorkspace} from './workspace-service.js';
 
@@ -198,6 +199,9 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       const body=req.method==='GET'?'':await limitedBody(req);
       if(body.length>20000)return sendJson(res,413,{error:'設定資料過大。'}),true;
       if(!verifyManagementRequest(secret,req,body))return sendJson(res,401,{error:'Unauthorized'}),true;
+      if(req.method==='POST'&&url.pathname==='/integrations/meeting-management/task-origins'){
+        return sendJson(res,200,await readTaskOrigins(JSON.parse(body),{pool,botId})),true;
+      }
       if(req.method==='GET'&&url.pathname==='/integrations/meeting-management/conversations'){
         const rows=await store.list();return sendJson(res,200,{contract:CONVERSATION_MEETINGS_CONTRACT,conversations:rows.map(r=>({
           key:r.key,name:r.display_name||'尚未取得名稱',type:r.source_kind,status:r.legacy_status||'啟用',connection:r.connection_state,
