@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.1019.72",
+  "name": "會議層次主題與逐層展開",
+  "type": "Meeting record format",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing project-local workspace and revision tables"
+  ],
+  "requiresEnv": [
+    "Existing project-local model, Notion and member verification settings"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-topic-hierarchy.mjs",
+    "tools/test-meeting-decision-record.mjs",
+    "tools/test-meeting-workspace-generation.mjs",
+    "tools/install-meeting-text-access.mjs",
+    "tools/test-meeting-text-access.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Three topic levels with concise outcomes and independently expandable source evidence",
+    "Original flat format remains readable",
+    "Nested Notion saves respect two-level append limit and recover partial replies without duplicate topics",
+    "Original task IDs, assignments, progress, audio, transcript, sharing and source page preserved",
+    "Exact production build and authorized single-record update verified"
+  ]
+}

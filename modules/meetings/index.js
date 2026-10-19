@@ -1,4 +1,4 @@
-import {DECISION_RECORD_INSTRUCTIONS,normalizeDecisionTopics,decisionRecordText,meetingNotionBlocks} from './decision-record.js';
+import {DECISION_RECORD_INSTRUCTIONS,normalizeDecisionTopics,decisionRecordText,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 import {glossaryPrompt} from './glossary.js';
 // AM Platform 模組:meetings
 // 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
@@ -143,7 +143,10 @@ async function appendToggleSection(pageId, title, blocks) {
     body: { children: [{ object: 'block', type: 'heading_2', heading_2: { rich_text: [text(title)], is_toggleable: true } }] },
   });
   const toggleId = res.results?.[0]?.id;
-  if (toggleId && blocks && blocks.length) await appendChildren(toggleId, blocks);
+  if (toggleId && blocks && blocks.length) {
+    if(blocks.some(b=>b.type==='toggle'))await appendVerifiedMeetingBlocks((path,method='GET',body)=>platform.notionRequest('/v1'+path,{method,...body?{body}:{}}),toggleId,blocks);
+    else await appendChildren(toggleId, blocks);
+  }
   return toggleId;
 }
 
@@ -637,21 +640,18 @@ function renderDiarized(tr, legend) {
 // Require the merged topics contract, so wrapped/legacy model output retries
 // through the existing model fallback instead of publishing empty notes.
 const REQUIRED_SUMMARY_KEYS = ['title', 'topics'];
+const topicSchema=depth=>({type:'object',required:['title','summary','status','evidence',...(depth<3?['children']:[])],properties:{
+  title:{type:'string'},summary:{type:'string'},status:{type:'string'},
+  evidence:{type:'array',items:{type:'object',required:['timestamp','speaker','text'],properties:{timestamp:{type:'string'},speaker:{type:'string'},text:{type:'string'}}}},
+  ...(depth<3?{children:{type:'array',items:topicSchema(depth+1)}}:{})
+}});
 const SUMMARY_SCHEMA = {
   type: 'object',
   required: REQUIRED_SUMMARY_KEYS,
   properties: {
     title: { type: 'string' },
     type: { type: 'string' },
-    topics: { type:'array', items:{type:'object',required:['title','summary','status','evidence'],properties:{
-      title:{type:'string'},summary:{type:'string'},status:{type:'string'},
-      evidence:{
-        type:'array',items:{
-          type:'object',required:['timestamp','speaker','text'],
-          properties:{timestamp:{type:'string'},speaker:{type:'string'},text:{type:'string'}}
-        }
-      }
-    }}},
+    topics: {type:'array',items:topicSchema(1)},
     minutes: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, points: { type: 'array', items: { type: 'string' } } } } },
     highlights: { type: 'array', items: { type: 'string' } },
     conclusions: { type: 'array', items: { type: 'string' } },
@@ -684,7 +684,7 @@ function meetingPrompt({ who, topic, today, kind = 'work', cfg = GENERIC_MEETING
 待辦須具體可追蹤。若有明確約定下次會議或回報時間，寫入 nextMeeting，原提醒待辦規則保持。
 ${DECISION_RECORD_INSTRUCTIONS}
 只輸出 JSON：
-{"title":"會議主題","type":"${kind==='share'?'讀書會|分享會|座談|討論會':typeInstruction(cfg.types)}","topics":[{"title":"具體結果或待確認問題","summary":"整合理解後的重點、決定及下一步","status":"依據來源的狀態","evidence":[{"timestamp":"原文時間或空字串","speaker":"原講者或空字串","text":"支持結果的對話摘意"}]}],"todos":[{"content":"待辦內容","owner":"負責人或空字串","due":"YYYY-MM-DD或空字串"}],"nextMeeting":"有約定才寫，否則空字串"}`;
+{"title":"會議主題","type":"${kind==='share'?'讀書會|分享會|座談|討論會':typeInstruction(cfg.types)}","topics":[{"title":"具體結果或待確認問題","summary":"整合理解後的重點、決定及下一步","status":"依據來源的狀態","evidence":[{"timestamp":"原文時間或空字串","speaker":"原講者或空字串","text":"支持結果的對話摘意"}],"children":[]}],"todos":[{"content":"待辦內容","owner":"負責人或空字串","due":"YYYY-MM-DD或空字串"}],"nextMeeting":"有約定才寫，否則空字串"}`;
 }
 
 function normalizeParsed(j,transcript='') {
@@ -1332,7 +1332,8 @@ async function buildPublicSections(pageId) {
   for (const tg of top.filter((b) => b.type === 'heading_2' && b.heading_2?.is_toggleable)) {
     const title = richText(tg.heading_2.rich_text);
     const kids = await readChildren(tg.id);
-    for(const child of kids)if(child.type==='toggle'&&child.has_children)child.toggle.children=await readChildren(child.id);
+    const expand=async(blocks,depth=0)=>{for(const child of blocks)if(child.type==='toggle'&&child.has_children&&depth<3){child.toggle.children=await readChildren(child.id);await expand(child.toggle.children,depth+1);}};
+    await expand(kids);
     if (title.includes('最終確認待辦')) {
       confirmedTodoSection = { key: 'todo', title: '📅 待辦事項（最終確認版）', blocks: kids.filter((b) => b.type === 'to_do') };
     } else if (title.includes('摘要')) {
