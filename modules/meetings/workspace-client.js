@@ -80,7 +80,7 @@ export function workspaceClient(BOOT){
   $('#notice').textContent=[w.warning,w.error,data.pendingRevision?.error_code|| (data.pendingRevision?'修改已儲存，正在依序同步正式記錄與任務；觀看模式會顯示已完成同步的正式版本。':'')].filter(Boolean).join('\n');
   if(!audioUrl&&data.audioUrl){audioUrl=data.audioUrl;$('#audio').src=audioUrl;$('#audio').hidden=false;$('#audioStatus').textContent='原始會議錄音，按播放即可收聽。';}
   $('#setupPanel').hidden=readOnly||!['setup','failed'].includes(w.state);$('#processingPanel').hidden=w.state!=='processing';$('#recordPanel').hidden=!review||reading;$('#todoPanel').hidden=!review||reading;$('#historyPanel').hidden=readOnly||reading;$('#publishPanel').hidden=!review||locked||reading;$('#readerPanel').hidden=!reading;
-  $('#sharingPanel').hidden=!data.host||mode!=='edit'||w.state==='publishing';if(!sharingDirty){$('#shareEnabled').checked=!!data.sharing?.enabled;selectedPeople=data.sharing?.people||[];}renderSelected();$('#revisionPanel').hidden=true;if(reading)renderReader();if(!data.pendingRevision)document.querySelectorAll('[data-status]').forEach(e=>{if(e.textContent==='已儲存，正在同步正式記錄與任務')e.textContent='已儲存';});
+  $('#sharingPanel').hidden=!data.host||mode!=='edit'||w.state==='publishing';if(!sharingDirty){$('#shareEnabled').checked=!!data.sharing?.enabled;selectedPeople=data.sharing?.people||[];}renderSelected();renderShareNotices();$('#revisionPanel').hidden=true;if(reading)renderReader();if(!data.pendingRevision)document.querySelectorAll('[data-status]').forEach(e=>{if(e.textContent==='已儲存，正在同步正式記錄與任務')e.textContent='已儲存';});
   document.querySelectorAll('[data-step]').forEach(e=>e.classList.toggle('active',e.dataset.step===(locked?'published':review?'review':'setup')));
   if(!$('#setupPanel').hidden)setup(w.fields.settings);
   $('#start').hidden=!data.host;$('#publish').hidden=!data.host||locked;$('#publishText').textContent='原對話成員各自儲存修改後，由主持人首次發布。發布後成員仍可分段修改並儲存，保留修改歷程。';
@@ -96,6 +96,11 @@ export function workspaceClient(BOOT){
    if(!membersLoaded&&editable())loadMembers().catch(error);
   }
   $('#online').innerHTML=(data.presence||[]).map(p=>'<span class="person" style="--person-color:'+color(p.id)+'">'+esc(p.name)+(p.field?' · 正在編輯':'')+'</span>').join('');
+ }
+ function renderShareNotices(){
+  const box=$('#sharingNotices');if(!box||!data.host)return;
+  const labels={sent:'LINE 通知已送出（不代表已讀）',not_requested:'既有分享：此次不補發通知',cancelled:'通知已取消',failed:'通知未完成，請確認 LINE 連線或聯絡管理者'};
+  box.innerHTML=(data.sharing?.notices||[]).map(n=>'<p>'+esc(n.name)+'：'+esc(n.waitingForPublication?'等待會議發布後通知':n.state==='pending'?(n.reason==='line_not_linked'?'尚未確認本人 LINE 連線，完成後系統會再試':n.reason==='delivery_pending'?'通知暫未完成，系統會重試':'LINE 通知處理中'):labels[n.state]||'通知處理中')+'</p>').join('');
  }
  function renderSelected(){const box=$('#sharedPeople');if(!box)return;const key=JSON.stringify(selectedPeople);if(box.dataset.key===key)return;box.dataset.key=key;box.innerHTML=selectedPeople.map(p=>'<span class="selected-person"><span>'+esc(p.name)+' <small>'+esc(p.account)+'</small></span><button class="secondary" aria-label="移除 '+esc(p.name)+' '+esc(p.account)+'" data-account="'+esc(p.account)+'">移除</button></span>').join('')||'<p class="muted">尚未指定分享夥伴。</p>';box.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>{selectedPeople=selectedPeople.filter(p=>p.account!==b.dataset.account);sharingDirty=true;$('#sharingStatus').textContent='分享名單尚未儲存';renderSelected();renderOrganization();});}
  function renderOrganization(){if(!organization)return;const q=$('#shareSearch').value.trim().toLocaleLowerCase(),selected=new Set(selectedPeople.map(p=>p.account)),nodes=new Map(organization.departments.map(d=>[d.id,{...d,children:[],people:[]} ])),roots=[];
@@ -192,7 +197,7 @@ export function workspaceClient(BOOT){
  $('#shareEnabled').onchange=()=>{sharingDirty=true;$('#sharingStatus').textContent='尚未儲存分享設定';};
  $('#choosePeople').onclick=async()=>{try{$('#organizationStatus').textContent='正在讀取最新組織架構…';const j=await api({action:'organization'});organization=j.organization;$('#organizationPicker').hidden=false;$('#organizationStatus').textContent='從單位展開或搜尋姓名，可選擇多位夥伴。';renderOrganization();}catch(e){$('#organizationStatus').textContent='組織架構讀取未完成，原分享名單保持。';error(e);}};
  $('#shareSearch').oninput=renderOrganization;
- $('#saveSharing').onclick=async()=>{if(busy)return;busy=true;$('#saveSharing').disabled=true;try{data=await api({action:'sharing',enabled:$('#shareEnabled').checked,accounts:selectedPeople.map(p=>p.account),revision:data.workspace.revision,version:data.sharing.version});sharingDirty=false;audioUrl='';$('#sharingStatus').textContent='分享設定已儲存。指定夥伴須用本人 LINE 登入，發布後可觀看與收聽，不能編輯。';render();error('');}catch(e){error(e);}finally{busy=false;$('#saveSharing').disabled=false;}};
+ $('#saveSharing').onclick=async()=>{if(busy)return;busy=true;$('#saveSharing').disabled=true;try{data=await api({action:'sharing',enabled:$('#shareEnabled').checked,accounts:selectedPeople.map(p=>p.account),revision:data.workspace.revision,version:data.sharing.version});sharingDirty=false;audioUrl='';$('#sharingStatus').textContent='分享設定已儲存。新加入夥伴的 LINE 通知進度如下；指定夥伴只能觀看與收聽。';render();error('');}catch(e){error(e);}finally{busy=false;$('#saveSharing').disabled=false;}};
 
  let audioRetries=0;
  $('#audio').onerror=async()=>{if(audioRetries++<2&&data?.audioUrl&&data.audioUrl!==audioUrl){const player=$('#audio'),at=player.currentTime;audioUrl=data.audioUrl;player.src=audioUrl;player.currentTime=at;$('#audioStatus').textContent='正在更新錄音播放授權，請再按播放。';return;}$('#audioStatus').textContent='錄音暫時無法播放。可重新整理頁面再試，原始錄音仍保留。';};

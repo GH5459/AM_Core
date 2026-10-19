@@ -40,8 +40,8 @@ const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticat
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
-const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity });
-Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,publishMeetingTasks:leafTasks.publishMeetingTasks});
+const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity, resolveRecipient:lineIo.resolveTaskRecipient });
+Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
 const leafGroups = createLeafGroups({ platform, line, tasks: leafTasks, calendar: leafCalendar, llm, logger });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
