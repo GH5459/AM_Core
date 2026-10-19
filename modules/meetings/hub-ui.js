@@ -13,7 +13,7 @@ export function hubClient(BOOT){
  function row(x,past=false){
   const article=document.createElement('article');article.className='meeting-row';article.dataset.start=x.start;
   const when=document.createElement('div');when.className='meeting-time';when.textContent=!Number.isFinite(atDate(x.start))?'日期未定':(past?dateKey(atDate(x.start)).slice(5).replace('-','/')+'\n':'')+(x.allDay?'全天':/^\d{4}-\d{2}-\d{2}$/.test(x.start||'')?'時間未定':clock(x.start)+(x.end?'\n– '+clock(x.end):''));
-  const body=document.createElement('div');body.className='meeting-info';const title=document.createElement('h3');title.textContent=x.topic||'未命名會議';body.append(title);
+  const body=document.createElement('div');body.className='meeting-info';const title=document.createElement('h3');if(x.calendar)title.textContent=x.topic||'未命名會議';else{const link=document.createElement('a');link.href=x.url;link.textContent=x.topic||'未命名會議';title.append(link);}body.append(title);
   const meta=[x.location,x.calendar?'':stateLabel(x),x.host].filter(Boolean);if(meta.length){const detail=document.createElement('p');detail.className='meeting-meta';detail.textContent=meta.join(' · ');body.append(detail);}
   let action;if(x.calendar){action=document.createElement('button');action.textContent='建檔';action.setAttribute('aria-label','建立／開啟會議記錄：'+x.topic);action.onclick=()=>openCalendar(x,action);}else{action=document.createElement('a');action.href=x.url;action.textContent='開啟';action.setAttribute('aria-label','開啟會議記錄：'+x.topic);}
   action.className='meeting-open';article.append(when,body,action);return article;
