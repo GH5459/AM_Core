@@ -402,3 +402,17 @@ test('weekly recurring draft keeps rule through durable confirmation and retry',
   await f.service.capture([button('repeat-confirm-again','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.match(JSON.stringify(f.pushes.at(-1).msg),/每週 星期二/);
  }finally{await f.close();}
 });
+
+
+test('lunar all-day anniversary waits for owner confirmation and retries freeze computed lunar rule',async()=>{const f=await fixture();try{
+ await f.bind();const text='請幫我建立活動：\n活動名稱：家族紀念日\n時間設定：每年農曆 10 月 17 日\n備忘：回家團聚';const e=message('lunar-intake',text);e.timestamp=Date.parse('2026-10-19T12:00:00+08:00');assert.equal(await f.service.accepts(e),true);
+ await f.service.capture([e]);await f.service.drain();assert.equal(f.writes.length,0);const draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.payload.event.allDay,true);assert.equal(draft.payload.event.recurrence.month,10);assert.equal(draft.payload.event.recurrence.day,17);assert.equal(draft.payload.event.date,'2026-11-25');
+ await f.service.capture([button('lunar-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.equal(f.writes[0].allDay,true);assert.equal(f.writes[0].time,undefined);assert.equal(f.writes[0].content,'回家團聚');await f.service.capture([button('lunar-repeat','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
+}finally{await f.close();}});
+test('unsupported or empty explicit activity receives an explanation instead of silence',async()=>{const f=await fixture();try{
+ await f.bind();f.setEvents([]);const e=message('unsupported-intake','請幫我建立活動');assert.equal(await f.service.accepts(e),true);await f.service.capture([e]);await f.service.drain();assert(f.pushes.some(x=>JSON.stringify(x.msg).includes('目前無法辨識這筆活動')));assert.equal(f.writes.length,0);
+}finally{await f.close();}});
+
+test('explicit request without identity explains setup without reading or writing a calendar',async()=>{const f=await fixture();try{
+ const e=message('unbound-explicit','請幫我建立活動：家族紀念日');assert.equal(await f.service.accepts(e),true);await f.service.capture([e]);assert.equal(f.writes.length,0);assert(f.pushes.some(x=>JSON.stringify(x.msg).includes('這筆活動尚未建立')));
+}finally{await f.close();}});

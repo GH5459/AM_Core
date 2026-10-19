@@ -1,0 +1,6 @@
+const test=require('node:test'),assert=require('node:assert/strict'),{Miniflare,convertV4MiniflareOptions}=require('miniflare'),esbuild=require('esbuild');
+test('actual workerd supports Taiwan lunar conversion and all-day native series',async()=>{
+ const code=await esbuild.build({stdin:{contents:"const {normalizeEvent}=require('./calendar-bot-core.cjs');export default {fetch(){return Response.json(normalizeEvent({requestId:'fixture',topic:'家族紀念日',date:'2026-11-25',allDay:true,location:'',content:'回家團聚',recurrence:{frequency:'YEARLY',calendar:'chinese',month:10,day:17,throughYear:2100}}).event)}}",resolveDir:process.cwd()},bundle:true,platform:'neutral',format:'esm',write:false});
+ const mf=new Miniflare(convertV4MiniflareOptions({workers:[{name:'lunar-fixture',modules:true,script:code.outputFiles[0].text,compatibilityDate:'2026-10-01'}]}));
+ try{const response=await mf.dispatchFetch('https://fixture.example');assert.equal(response.status,200);const event=await response.json();assert.deepEqual(event.start,{date:'2026-11-25'});assert.deepEqual(event.end,{date:'2026-11-26'});assert.match(event.recurrence[0],/^RDATE;VALUE=DATE:20261125,20271114,/);assert.equal(event.recurrence[0].split(':')[1].split(',').length,75);}finally{await mf.dispose();}
+});

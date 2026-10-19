@@ -1,9 +1,10 @@
+import {explicitCalendarRequest} from './date-intent.js';
 import recurrence from './recurrence.cjs';
 import crypto from 'node:crypto';
 import {createCalendarStore} from './store.js';
 import {calendarCandidate,extractEvents,prepareEvent,preview,reviewDraft,supplementRequest} from './extract.js';
 
-export const LEAF_CALENDAR_CONTRACT='line-confirmed-dailylog-shared-calendar-v3';
+export const LEAF_CALENDAR_CONTRACT='line-confirmed-dailylog-shared-calendar-v4';
 const USER=/^U[0-9a-f]{32}$/i;
 const hash=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
 const textOf=e=>e?.message?.type==='text'?String(e.message.text||'').normalize('NFKC').trim():'';
@@ -43,7 +44,7 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
   }
   async function accepts(event){if(!enabled||!direct(event))return false;const text=textOf(event);
     if(!(actionOf(event)||calendarCandidate(text)||supplementRequest(text)||/^(?:確認加入行事曆|不要加入行事曆|查看行事曆草稿)/u.test(text)))return false;
-    return Boolean(await owner(event.source.userId));
+    return Boolean(await owner(event.source.userId))||explicitCalendarRequest(text);
   }
   async function notice(tenant,userId,event,message,fingerprint='unbound'){
     await store.insert(tenant,{id:hash(`notice:${userId}:${rawId(event)}:${message}`).slice(0,48),userId,kind:'notice',status:'notice',payload:{message},source:receipt(event),fingerprint});
@@ -51,7 +52,10 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
   async function capture(events){for(const event of events){
     if(!direct(event)||!rawId(event))throw new Error('calendar_event_identity_required');
     const userId=event.source.userId,text=textOf(event);
-    const resolved=await owner(userId);if(!resolved)continue;const {tenant,binding}=resolved;
+    const resolved=await owner(userId);if(!resolved){
+      const message='尚無法確認你的行事曆身分或服務設定。請先從葉小蝸下方的「工作日誌」登入公司帳號，並完成 Google 行事曆連線；若已完成仍無法使用，請聯絡管理者。這筆活動尚未建立。';
+      if(event.replyToken&&typeof platform.replyLineMessage==='function')await platform.replyLineMessage(event.replyToken,message);else await platform.pushLineMessage(userId,message,null,{retryKey:hash('calendar-unbound:'+userId+':'+rawId(event)).slice(0,32).replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/,'$1-$2-$3-$4-$5'),suppressEvidenceLogs:true,timeoutMs:8000});continue;
+    }const {tenant,binding}=resolved;
     let control=actionOf(event);let payload;
     if(control)payload={action:control[1],id:control[2],revision:Number(control[3])};
     else if(text==='查看行事曆草稿')payload={action:'list'};
@@ -85,8 +89,8 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
     const link=result.event.htmlLink;
     return {id:result.event.id,replayed:result.replayed===true,htmlLink:typeof link==='string'&&/^https:\/\/calendar\.google\.com\//.test(link)?link:null};
   }
-  function success(row){return `✅ 已加入你的 Google 行事曆\n活動名稱：${row.payload.event.topic}\n日期與時間：${row.payload.event.date} ${row.payload.event.time}${row.payload.event.recurrence?'\n重複：'+recurrence.recurrenceLabel(row.payload.event.recurrence,row.payload.event.date):''}\n地點：${row.payload.event.location||'未提供'}${row.result?.htmlLink?'\n'+row.result.htmlLink:''}`;}
-  function failure(row){const messages={GOOGLE_NOT_CONNECTED:'請先在工作日誌重新連接 Google，然後重試。',ACCOUNT_NOT_FOUND:'請先登入工作日誌建立帳號；若已登入，請聯絡管理者檢查 UOF 身分綁定。',UNAUTHORIZED:'共用服務金鑰設定異常，請聯絡管理者。',ACCESS_DISABLED:'工作日誌帳號未開通，請聯絡管理者。',CALENDAR_NOT_WRITABLE:'目標日曆無編輯權，請在工作日誌確認目標日曆。',IDEMPOTENCY_CONFLICT:'活動識別資料有衝突，請先在 Google 行事曆確認；不會另建重複活動。',BINDING_CHANGED:'UOF 身分綁定已變更或失效，請重新確認綁定後再傳入活動。'};
+  function success(row){return `✅ 已加入你的 Google 行事曆\n活動名稱：${row.payload.event.topic}\n日期與時間：${row.payload.event.date} ${row.payload.event.allDay?'全天':row.payload.event.time}${row.payload.event.recurrence?'\n重複：'+recurrence.recurrenceLabel(row.payload.event.recurrence,row.payload.event.date):''}\n地點：${row.payload.event.location||'未提供'}${row.result?.htmlLink?'\n'+row.result.htmlLink:''}`;}
+  function failure(row){const messages={EXTRACTION_UNAVAILABLE:'這筆活動尚未建立。目前無法整理你提供的排程，請提供日期及活動名稱；全天請註明「全天」，農曆請註明月日與每年重複。',INVALID_REQUEST:'這筆活動的日期、全天或重複規則目前無法處理，請核對確認卡後重新提供；不會改成其他日期建立。',GOOGLE_NOT_CONNECTED:'請先在工作日誌重新連接 Google，然後重試。',ACCOUNT_NOT_FOUND:'請先登入工作日誌建立帳號；若已登入，請聯絡管理者檢查 UOF 身分綁定。',UNAUTHORIZED:'共用服務金鑰設定異常，請聯絡管理者。',ACCESS_DISABLED:'工作日誌帳號未開通，請聯絡管理者。',CALENDAR_NOT_WRITABLE:'目標日曆無編輯權，請在工作日誌確認目標日曆。',IDEMPOTENCY_CONFLICT:'活動識別資料有衝突，請先在 Google 行事曆確認；不會另建重複活動。',BINDING_CHANGED:'UOF 身分綁定已變更或失效，請重新確認綁定後再傳入活動。'};
     return '目前無法完成行事曆新增。'+(messages[row.error_code]||'暫時無法確認是否已建立；重試會沿用原本資料與識別碼，避免重複。');}
   async function work(tenant,row){
     if(row.status==='notice'){await push(row,row.payload.message,tenant,'notice');await store.settle(tenant,row,{status:'done',notified:true});return;}
@@ -104,6 +108,7 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
       const existing=row.payload.editId?await store.owned(tenant,row.line_user_id,row.payload.editId):null;
       const prior=existing?reviewDraft(existing):null;
       const events=await extractEvents({text:existing?(supplementRequest(row.source_evidence.text)?.text||row.source_evidence.text):row.source_evidence.text,at:row.source_evidence.timestamp,llm:platform.llmForTenant?.(tenant)||platform.llm,existing:existing?{...Object.fromEntries(Object.entries(existing.payload.event).filter(([k])=>!['account','requestId'].includes(k))),needsClarification:prior.missing,confirmationNotes:prior.notes}:undefined});
+      if(!events.length){await push(row,'目前無法辨識這筆活動。請提供活動名稱及日期；全天活動請註明「全天」。農曆請寫例如「每年農曆十月十七」。無法支援的排程不會自動改成其他日期。',tenant,'unsupported');}
       const drafts=events.map((event,index)=>{const id=row.payload.editId||hash(`${tenant.tenantId}:${row.line_user_id}:${row.source_evidence.id}:${index}`).slice(0,48);
         const payload=prepareEvent(event,`leafcal:${id}`);payload.event.account=row.payload.account;return {id,payload,status:payload.missing.length?'needs_details':'pending'};});
       await store.storeDrafts(tenant,row,drafts);return;
@@ -148,5 +153,5 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
   }
   async function syncMeetingEvent(tenantKey,event){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!ready.some(x=>x.key===t.key))throw Error('calendar_service_unavailable');const c=await store.service(t);if(!c)throw Error('calendar_service_unavailable');const r=await fetchImpl(new URL('/api/integrations/leaf-snail/calendar/events/meetings',c.base_url),{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json',Authorization:'Bearer '+decrypt(c.encrypted_key,secret,t.tenantId)},body:JSON.stringify(event),signal:AbortSignal.timeout(30000)});const j=await r.json().catch(()=>({}));if(!r.ok||j.ok!==true)throw Object.assign(Error('calendar_sync_deferred'),{code:j.code||'GOOGLE_UNAVAILABLE'});return j;}
   return {accepts,capture,drain,configureService,writeGroupEvent,syncMeetingEvent,adminAuthorized:value=>Boolean(secret)&&same(value,calendarAdminKey(secret)),
-    health:()=>({enabled,contract:LEAF_CALENDAR_CONTRACT,provisionedTenants:ready.map(t=>t.key),configuredTenants:[...configured],recurrence:{frequencies:['DAILY','WEEKLY','MONTHLY'],contract:'structured-recurrence-v1'}}),close:()=>store.close?.()};
+    health:()=>({enabled,contract:LEAF_CALENDAR_CONTRACT,provisionedTenants:ready.map(t=>t.key),configuredTenants:[...configured],recurrence:{frequencies:['DAILY','WEEKLY','MONTHLY','YEARLY'],lunarYearly:true,allDay:true,lunarThroughYear:2100,contract:'lunar-all-day-recurrence-v2'}}),close:()=>store.close?.()};
 }

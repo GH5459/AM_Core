@@ -59,6 +59,8 @@ on:
       - 'core/bank-line-reply-intake.js'
       - 'core/leaf-calendar/**'
       - 'tools/test-calendar-recurrence.mjs'
+      - 'tools/test-lunar-calendar.mjs'
+      - 'versions/AM-IMP-2026.1019.61/**'
       - 'versions/AM-IMP-2026.1013.04/**'
       - 'core/leaf-task-photos.js'
       - 'tools/test-leaf-task-photos.mjs'
@@ -240,7 +242,8 @@ jobs:
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
-      - run: node --test tools/test-calendar-recurrence.mjs
+      - run: node --test tools/test-calendar-recurrence.mjs tools/test-lunar-calendar.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.61
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.04
       - run: node --experimental-vm-modules --test tools/test-leaf-calendar.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.07
