@@ -56,3 +56,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 
 | AM-IMP-2026.1019.70 | 會議錄音與音檔上傳加速 | Deployed | PR378完整CI、AM2153bc1兩站／Render45.2秒Live；同檔16MiB WAV檔案71.5→13.1～16.0秒、錄音160.4→12.9～13.4秒；原9會議／113對話／54段及權限歷程保持，DailyLog／UOF不重發；真實手機網路時間另依環境。 |
 | AM-IMP-2026.1019.41 | 依帳號語言顯示與停止翻譯重試 | Deployed | PR381完整CI4分8秒；AM b9b656c兩站／Live41.1秒，DailyLog615ed463完整51模組只更新2個語言模組，其餘49及原設定／資產／排程保持。本人中文無語言列／無翻譯請求，原9會議／113對話／54段保持；Calendar原讀取失敗為獨立問題。 |
+| AM-IMP-2026.1019.80 | 群組未連線停止重試與安靜有限退避 | Installed | 未連線停止、暫時故障最多三次且不發一般重試提示；原來源與已建立行程保留。正式版本驗證待完成。 |

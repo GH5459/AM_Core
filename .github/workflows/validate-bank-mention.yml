@@ -21,6 +21,7 @@ on:
       - 'versions/AM-IMP-2026.1019.02/**'
       - 'core/leaf-groups*.js'
       - 'core/group-invite-policy.js'
+      - 'core/group-retry-policy.js'
       - 'versions/AM-IMP-2026.1017.01/**'
       - 'core/task-eligibility-policy.js'
       - 'core/line-task-suppression-worker.mjs'
