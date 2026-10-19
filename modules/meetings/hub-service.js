@@ -15,7 +15,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  async function body(req){let n=0,a=[];for await(const b of req){n+=b.length;if(n>3000000)throw failure(413,'內容過大。');a.push(b);}try{return JSON.parse(Buffer.concat(a).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function enqueue(db,r,p){
   const host=await identity(r.host_id,p.tenant_key),accounts=[...new Set([host.account,...p.participants.map(x=>x.account)])];
-  for(const account of accounts)await db.query(`INSERT INTO central_archive.meeting_calendar_links(workspace_id,account,tenant_key,desired_revision) VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,account) DO UPDATE SET desired_revision=$4,state='pending',updated_at=now()`,[r.id,account,p.tenant_key,p.version]);
+  if(p.calendar_enabled&&!p.cancelled)for(const account of accounts)await db.query(`INSERT INTO central_archive.meeting_calendar_links(workspace_id,account,tenant_key,desired_revision) VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,account) DO UPDATE SET desired_revision=$4,state='pending',updated_at=now()`,[r.id,account,p.tenant_key,p.version]);
   await db.query(`UPDATE central_archive.meeting_calendar_links SET desired_revision=$2,state='pending',updated_at=now() WHERE workspace_id=$1`,[r.id,p.version]);
  }
  async function savePlan(r,row,actor,input){const v=planInput(input);await check(r,row,actor,true);const org=await platform.meetingOrganization(actor.id),host=await identity(actor.id);if(org.tenantKey!==host.tenantKey)throw failure(409,'組織來源已變更。');
