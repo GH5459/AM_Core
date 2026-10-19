@@ -5,6 +5,7 @@ import {createTaskPhotos,taskEditNotice,PHOTO_CONTRACT,TASK_EDIT_CONTRACT} from 
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,TASK_SPEED_POLICY} from './task-judgment.js';
 import {createCompletionReporter,COMPLETION_REPORT_POLICY} from './line-completion-report.js';
+import {TASK_ELIGIBILITY_POLICY,taskIneligible,isTaskIneligible} from './task-eligibility-policy.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -41,6 +42,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
   const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))];
   const mentions=ids.map(id=>participants.find(p=>p.userId===id));if(mentions.some(p=>!p))throw Error('task_recipient_required');
+  for(const prior of [participants[0],...mentions]){const current=await taskIdentity(prior.userId,t,event.source.groupId,c);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)throw taskIneligible();}
   const result=await call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
    sender:clean(participants[0]),mentions:mentions.map(clean),...(groupJudgment?.policy===TASK_SPEED_POLICY?{groupJudgment:{policy:TASK_SPEED_POLICY,assignments:checkedAssignments(groupJudgment.assignments,mentions.length)}}:{}),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});return result;
  }
@@ -59,7 +61,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){
    let c;try{c=await config(t);}catch{continue;}if(!c)continue;
    let valid=userIds.length>0;
-   const unique=[...new Set(userIds)],people=[];for(let i=0;i<unique.length;i+=4)people.push(...await Promise.all(unique.slice(i,i+4).map(id=>identity(id,t,groupId,{readOnly:true},c))));
+   const unique=[...new Set(userIds)],people=[];for(let i=0;i<unique.length;i+=4)people.push(...await Promise.all(unique.slice(i,i+4).map(id=>taskIdentity(id,t,groupId,c))));
    if(people.some(p=>!p))valid=false;
    if(valid&&snapshot)snapshot.set(t.key,people);
    if(valid)eligible.push({tenant:t,binding:{status:'啟用'},resolution:'verified_group_task_service'});
@@ -74,6 +76,15 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
     if(r.identity?.userId===userId&&r.identity.identityId)who={tenantKey:t.key,account:r.identity.account,bindingId:r.identity.identityId};}
   }
   if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId,...(p.displayName?{name:String(p.displayName).slice(0,120)}:{})};
+ }
+ async function taskIdentity(userId,t,groupId,serviceConfig){
+  let who;try{who=await identity(userId,t,groupId,{readOnly:true},serviceConfig);}catch(e){if(e.status===404||e.statusCode===404||e.lineStatus===404)return null;throw e;}
+  if(!who)return null;
+  const c=serviceConfig||await config(t),r=await call(t,c,'meeting-person',{account:who.account});
+  // This existing endpoint checks current roster AND DailyLog enabled status.
+  // A malformed/unavailable response is not proof of ineligibility.
+  if(!Object.hasOwn(r,'person'))throw Error('task_eligibility_unavailable');
+  return r.person?who:null;
  }
  async function loginEntry(event,action){
   const userId=event.source?.userId;
@@ -136,9 +147,10 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    await platform.pushLineMessage(job.input.groupId,notice,null,{retryKey,suppressEvidenceLogs:true,timeoutMs:8000});const result=await call(t,c,'notified',{id:job.id,leaseToken:job.leaseToken});if(job.result.speedPolicy===TASK_SPEED_POLICY&&job.result.photo?.state==='pending')photoRequested=true;return result;
   }
   // A frozen combined judgment only stores extraction here; current authority is checked at issue and notice.
-  if(!(job.state==='queued'&&job.input.groupJudgment?.policy===TASK_SPEED_POLICY)&&!await validate(t,job)){if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:[],ruleVersion:LEAF_TASK_CONTRACT});throw Error('binding_changed');}
+  if(!await validate(t,job))return call(t,c,'suppress',{id:job.id,leaseToken:job.leaseToken,policy:TASK_ELIGIBILITY_POLICY});
   if(job.state==='queued')return call(t,c,'judgment',{id:job.id,leaseToken:job.leaseToken,assignments:await judge(t,job),ruleVersion:LEAF_TASK_CONTRACT});
-  return call(t,c,'issue',{id:job.id,leaseToken:job.leaseToken});
+  try{return await call(t,c,'issue',{id:job.id,leaseToken:job.leaseToken});}
+  catch(e){if(isTaskIneligible(e))return call(t,c,'suppress',{id:job.id,leaseToken:job.leaseToken,policy:TASK_ELIGIBILITY_POLICY});throw e;}
  }
  function drain(){if(running)return running;wakePending=false;running=(async()=>{for(const t of tenants.filter(t=>t.runtimeEnabled!==false)){try{const c=await config(t);if(!c)continue;for(let i=0;i<12;i++){const {job}=await call(t,c,'next',{});if(!job)break;try{const started=Date.now();try{await work(t,c,job);}finally{logger.info?.('[leaf-tasks] stage '+JSON.stringify({trace:hash(job.id).slice(0,12),state:job.state,durationMs:Date.now()-started,sourceAgeMs:Date.now()-job.input.timestamp,speedPolicy:job.result?.speedPolicy||job.input.groupJudgment?.policy||null}));}}catch{await call(t,c,'defer',{id:job.id,leaseToken:job.leaseToken}).catch(()=>{});logger.warn?.('[leaf-tasks] processing deferred; durable request retained');}}}catch{logger.warn?.('[leaf-tasks] tenant unavailable; other task services continue');}}})().finally(()=>{running=null;if(photoRequested||now()-lastPhotoRecovery>=60000)drainPhotos().catch(()=>{});if(wakePending)wake();});return running;}
  function wake(){wakePending=true;queueMicrotask(()=>drain().catch(()=>logger.warn?.('[leaf-tasks] immediate processing deferred')));}
@@ -183,6 +195,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
    members,personalBindingsUnchanged:true,noTasksOrMessagesWritten:true};
  }
  async function checkQuickCreate({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('task_tenant_unavailable');const c=await config(t),r=await call(t,c,'health');if(r.selfTaskContract!=='line-group-bot-quick-create-v1')throw Error('self_task_contract_mismatch');return {ok:true,tenantKey,contract:r.selfTaskContract,noWrites:true};}
+ async function checkTaskEligibility({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('task_tenant_unavailable');const c=await config(t),r=await call(t,c,'health');if(r.taskEligibilityPolicy!==TASK_ELIGIBILITY_POLICY)throw Error('task_eligibility_policy_mismatch');return {ok:true,tenantKey,policy:r.taskEligibilityPolicy,noWrites:true};}
  async function checkLogin({tenantKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('work_login_service_unavailable');const c=await config(t);if(!c)throw Error('work_login_service_unavailable');const r=await call(t,c,'login-health');if(r.contract!=='line-first-work-login-v1'||r.tenant!==t.key)throw Error('work_login_contract_mismatch');return {ok:true,contract:r.contract,tenantKey:t.key,manualPairingRequired:r.manualPairingRequired,uofApprovalRequired:r.uofApprovalRequired,noTicketsOrIdentitiesWritten:true};}
  async function configurePhotos({tenantKey,groupId,enabled}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!/^C[a-f0-9]{32}$/i.test(groupId||'')||typeof enabled!=='boolean')throw Error('invalid_photo_pilot');const c=await config(t);return call(t,c,'photos/configure',{groupId,enabled});}
  async function checkPhotos({tenantKey,groupId}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('invalid_photo_tenant');const c=await config(t),health=await call(t,c,'photos/health');if(health.contract!==PHOTO_CONTRACT)throw Error('photo_contract_mismatch');const pilot=groupId?await call(t,c,'photos/enabled',{groupId}):null;return {ok:true,contract:PHOTO_CONTRACT,editContract:health.editContract||null,enabled:pilot?.enabled??false,since:pilot?.since??null};}
@@ -235,6 +248,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  }
  async function commonLink(input){const available=await groupServices();if(available.length!==1)throw Error('common_identity_service_ambiguous');const t=available[0],c=await config(t);const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/common-link',c.base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},body:JSON.stringify({tenantKey:t.key,...input}),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('common_identity_service_unavailable');return r.json();}
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
- return {commonLink,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
-  resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,completionReportPolicy:COMPLETION_REPORT_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+
+ return {commonLink,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
+  resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }

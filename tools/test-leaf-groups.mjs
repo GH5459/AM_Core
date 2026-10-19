@@ -26,7 +26,7 @@ export async function fixture(){
  const line={lineGet:async path=>{const id=path.split('/').at(-1);if(!names.has(id))throw Error('not_member');return {userId:id,displayName:names.get(id)};}};
  const llm={available:true,completeJson:async input=>{const data=JSON.parse(input.userContent);if(input.schema.properties.kind)return {kind:data.text.includes('會議')?'meeting':data.text.includes('整理清單')?'task':'none'};
    return {events:[{topic:'專案會議',date:'2026-10-14',time:data.text.includes('時間未定')?'':'15:00',location:'漫漫回嘉附近的咖啡廳',content:'討論進度',...(data.existing||{}),...(data.existing?{time:'16:00',needsClarification:[]}:{} )}]};}};
- const tasks={submitSelfTask:async(t,e,p,d,c,r)=>{selfSubmissions.push({t,e,p,d,c,r});return {taskIds:['work-fixture'],message:{type:'text',text:'已建立自己的任務'}};},groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p,judgment)=>{submissions.push({t,e,p,judgment});return {ok:true};}};
+ const tasks={resolveTaskGroupIdentity:async id=>identities.get(id)||null,submitSelfTask:async(t,e,p,d,c,r)=>{selfSubmissions.push({t,e,p,d,c,r});return {taskIds:['work-fixture'],message:{type:'text',text:'已建立自己的任務'}};},groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p,judgment)=>{submissions.push({t,e,p,judgment});return {ok:true};}};
  const calendar={writeGroupEvent:async(t,account,event)=>{attempts.push({t,account,event});if(disconnected.has(account))throw Object.assign(Error('connect'),{code:'GOOGLE_NOT_CONNECTED'});
    if(!writes.has(event.requestId))writes.set(event.requestId,{id:'saved-'+writes.size});if(uncertain){uncertain=false;throw Object.assign(Error('timeout'),{code:'NETWORK_UNCERTAIN'});}return writes.get(event.requestId);}};
  const platform={llmForTenant:()=>llm,pushLineMessage:async(to,message,_,options)=>{if(failSummary&&typeof message==='string'&&message.startsWith('活動：')){failSummary=false;throw Error('delivery');}pushes.push({to,message,options});}};
@@ -60,37 +60,32 @@ test('meeting requires original organizer confirmation; fanout deduplicates nati
  assert.deepEqual(f.attempts.map(x=>x.account),['owner','a','b']);assert.ok(f.attempts.every(x=>x.event.location==='漫漫回嘉附近的咖啡廳'));
  await f.capture(e);await f.capture(f.button(p.id));f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.length,3);
 }finally{await f.close();}});
-test('unresolved task identity is retained, resumes after login with original evidence and requester',async()=>{const f=await fixture();try{
- f.identities.delete(a);const e=f.message('@甲 明天請整理清單',[a]);await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.match(JSON.stringify(f.pushes),/已保留/);
- f.identities.set(a,{account:'a',bindingId:'a-binding'});f.advance();f.restart();await f.drain();assert.equal(f.submissions.length,1);
- assert.deepEqual(f.submissions[0].e.message,e.message);assert.equal(f.submissions[0].e.timestamp,e.timestamp);assert.deepEqual(f.submissions[0].p.map(x=>x.account),['owner','a']);
- await f.capture(e);await f.drain();assert.equal(f.submissions.length,1);assert.equal((await f.rows())[0].phase,'done');
+test('unresolved task identity is silently terminal, login and replay never backfill',async()=>{const f=await fixture();try{
+ f.identities.delete(a);const e=f.message('@甲 明天請整理清單',[a]);await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+ f.identities.set(a,{account:'a',bindingId:'a-binding'});f.advance();f.restart();await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);
+ await f.capture(f.message('@甲 請整理清單',[a]));await f.drain();assert.equal(f.submissions.length,1);
 }finally{await f.close();}});
 
-test('unlinked sender notice excludes linked recipients without using their tenant or account',async()=>{const f=await fixture();try{
- f.identities.delete(owner);f.identities.delete(b);const e=f.message('@甲 @乙 整理清單',[a,b]);await f.capture(e);await f.drain();
- const notice=f.pushes.find(x=>typeof x.message==='string'&&x.message.includes('請從葉小蝸')).message;
- assert.match(notice,/發起人、同仁乙請從/);assert(!notice.includes('同仁甲'));assert.equal(f.submissions.length,0);
- let p=(await f.rows())[0];assert.equal(p.tenantKey,undefined);assert.deepEqual(p.people.map(x=>x.state),['login','linked','login']);assert(p.people.every(x=>!x.account&&!x.bindingId));
- f.advance();f.restart();await f.drain();assert.equal(f.pushes.length,1,'unchanged missing list does not repeat notice');
- f.identities.set(b,{account:'b',bindingId:'b-binding'});f.advance();await f.drain();assert.match(f.pushes.at(-1).message,/發起人請從/);assert(!f.pushes.at(-1).message.includes('同仁'));
- f.identities.set(owner,{account:'owner',bindingId:'owner-binding'});f.advance();f.restart();await f.drain();assert.equal(f.submissions.length,1);assert.deepEqual(f.submissions[0].e,e);assert.deepEqual(f.submissions[0].p.map(x=>x.account),['owner','a','b']);
- await f.capture(e);await f.drain();assert.equal(f.submissions.length,1);assert.equal(f.writes.size,0);
+test('mixed linked and unknown recipients silently skip the whole task and never resume',async()=>{const f=await fixture();try{
+ f.identities.delete(b);const e=f.message('@甲 @乙 整理清單',[a,b]);await f.capture(e);await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.submissions.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+ f.identities.set(b,{account:'b',bindingId:'b-binding'});f.advance();f.restart();await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);
 }finally{await f.close();}});
+test('ambiguous sender tenant silently ends the task',async()=>{const f=await fixture();try{
+ f.options.tasks.groupServices=async()=>[{key:'one'},{key:'two'}];await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.submissions.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+}finally{await f.close();}});
+test('unavailable identity service pauses silently and retries a genuinely eligible task',async()=>{const f=await fixture();try{
+ const resolver=f.options.tasks.resolveGroupIdentity;f.options.tasks.resolveGroupIdentity=async()=>{throw Error('service_unavailable');};await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.submissions.length,0);assert.equal((await f.rows())[0].phase,'task');
+ f.options.tasks.resolveGroupIdentity=resolver;f.advance();f.restart();await f.drain();assert.equal(f.submissions.length,1);assert.equal(f.pushes.length,0);
+}finally{await f.close();}});
+test('disabled recipient, late access denial and previously deferred login are terminal without notices',async()=>{for(const scenario of ['disabled','denied','legacy']){const f=await fixture();try{
+ if(scenario==='disabled')f.options.tasks.resolveTaskGroupIdentity=async id=>id===b?null:f.identities.get(id);
+ if(scenario==='denied')f.options.tasks.submitGroupTask=async()=>{throw Object.assign(Error('disabled'),{code:'ACCESS_DISABLED',status:403});};
+ const e=f.message('@甲 @乙 整理清單',[a,b]);await f.capture(e);
+ if(scenario==='legacy')await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{groupDispatch}',(payload->'groupDispatch') || $1::jsonb)",[JSON.stringify({mode:'task',phase:'task',people:[{userId:b,state:'login'}],notices:['login:old']})]);
+ await f.drain();assert.equal(f.pushes.length,0);assert.equal(f.submissions.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+ f.options.tasks.resolveTaskGroupIdentity=async id=>f.identities.get(id);f.advance();f.restart();await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);
+}finally{await f.close();}}});
 
-test('all identities linked but ambiguous sender tenant is not described as login or used for submission',async()=>{const f=await fixture();try{
- f.options.tasks.groupServices=async()=>[{key:'one',tenantId:'one'},{key:'two',tenantId:'two'}];
- f.options.tasks.resolveGroupIdentity=async(id,t)=>({...f.identities.get(id),account:t.key+'-account',bindingId:t.key+'-binding'});
- await f.capture(f.message('@甲 整理清單',[a]));await f.drain();const p=(await f.rows())[0];
- assert.equal(f.submissions.length,0);assert.equal(p.tenantKey,undefined);assert(p.people.every(x=>x.state==='linked'&&!x.account&&!x.bindingId));
- assert.equal(f.pushes.length,1);assert.match(f.pushes[0].message,/無法確認對應的工作日誌/);assert(!f.pushes[0].message.includes('請從葉小蝸'));assert(!f.pushes[0].message.includes('account'));assert(!f.pushes[0].message.includes('發起人'));
-}finally{await f.close();}});
-
-test('unavailable work service and failed identity checks never label linked people as needing login',async()=>{const f=await fixture();try{
- f.options.tasks.groupServices=async()=>[];await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.submissions.length,0);assert.match(f.pushes[0].message,/不需要重複登入/);assert((await f.rows())[0].people.every(x=>x.state==='unverified'));
- f.options.tasks.groupServices=async()=>[{key:'fixture',tenantId:'fixture-id'}];f.options.tasks.resolveGroupIdentity=async()=>{throw Error('service_unavailable');};
- await f.capture(f.message('@甲 整理清單',[a]));await f.drain();assert.equal(f.submissions.length,0);assert(f.pushes.every(x=>!String(x.message).includes('請從葉小蝸')));
-}finally{await f.close();}});
 test('partial fanout waits for work identity and Google connection and resumes only missing participants',async()=>{const f=await fixture();try{
  f.identities.delete(b);f.disconnected.add('a');await f.capture(f.message());await f.drain();const p=(await f.rows())[0];await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,1);
  f.identities.set(b,{account:'b',bindingId:'b-binding'});f.disconnected.delete('a');f.advance();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.filter(x=>x.account==='owner').length,1);
@@ -185,7 +180,7 @@ test('editing cards does not renew deadline; legacy cards expire silently; task 
  await f.capture(f.message());await f.drain();const legacy=(await f.rows()).find(x=>x.phase==='confirmation');
  await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{groupDispatch}',(payload->'groupDispatch')-'confirmationStartedAt') WHERE payload->'groupDispatch'->>'id'=$1",[legacy.id]);
  f.advance(600000);await f.drain();assert.equal((await f.rows()).find(x=>x.id===legacy.id).phase,'cancelled');
- f.identities.delete(a);await f.capture(f.message('@甲 請整理清單',[a]));await f.drain();f.advance(600000);f.identities.set(a,{account:'a',bindingId:'a-binding'});await f.drain();assert.equal(f.submissions.length,1);
+ f.identities.delete(a);await f.capture(f.message('@甲 請整理清單',[a]));await f.drain();f.advance(600000);f.identities.set(a,{account:'a',bindingId:'a-binding'});await f.drain();assert.equal(f.submissions.length,0);
 }finally{await f.close();}});
 
 
