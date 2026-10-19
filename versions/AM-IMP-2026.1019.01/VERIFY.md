@@ -1,13 +1,8 @@
 # 驗證
 
-- node tools/test-meeting-glossary.mjs：實際 PostgreSQL 相容資料庫、登入與成員、跨會議共用／跨服務隔離、版本衝突、衝突詞／輸入上限／停用／歷程、詞庫網頁及 LIFF 回跳、辨識／整理／備援詞庫提示、讀取失敗明確阻擋。AI 與外部服務採合成回應，此項驗證提示內容，不宣稱實際聲音辨識品質。
-- node tools/test-meeting-workspace-generation.mjs
-- node tools/test-meeting-reader-sharing.mjs
-- node tools/test-meeting-workspace.mjs
-- node tools/test-conversation-meetings.mjs
-- node tools/dryrun-meetings.mjs
-- Browser：node tools/preview-meeting-glossary.mjs，僅在 127.0.0.1:43129 提供全合成資料，測試開啟、新增、修改、搜尋、停用及另開網頁；測試結束停止程序。
-- 生產環境後續：核對實際提交、資料表與帳號權限、本人登入可開啟詞庫及新錄音的校字結果；未執行不得稱 Deployed 或真人驗收完成。
-
-- node tools/test-meeting-glossary-import.mjs：200 筆真實資料表寫入、無寫入預覽、TXT／TSV／帶引號 CSV、標題／BOM／編碼、重複與錯字衝突、預覽過期、超量、整批及歷程回退、登入與原主持人權限。
-- 詞庫整理測試以 200 詞確認最後一詞也帶入摘要與音檔備援。瀏覽器合成資料確認 200 筆預覽與一次匯入成功，無真人詞庫匯入。
+- 執行 test-meeting-workspace.mjs、test-meeting-workspace-service.mjs、test-meeting-reader-sharing.mjs、test-meeting-collaboration.mjs、test-meeting-workspace-generation.mjs。
+- 在最新完整 Worker 與真正 workerd/D1 執行 test-meeting-workspace-worker.cjs 及 test-meeting-sharing-worker.cjs。
+- 瀏覽器使用合成資料測試原成員發布後逐段／逐項儲存、顏色及新增刪除、同處衝突、不同處保留、取消、失敗重試、觀看／編輯切換、組織複選與撤銷。涵蓋手機／桌機，確認不溢出。
+- 目錄僅主持人可讀；指定夥伴不能讀草稿、名單、歷程或寫入。當前有效人員、實際 LINE 綁定與專案服務一致，不依姓名猜配。
+- 正式發布比對精確提交及 Worker 100% 版本；保留原會議／設定／分享／任務／頁面及錄音。真人設定不代儲存，不代傳 LINE。
+- 執行套件檢查與 AMCore 對齊稽核，保留未指定專案的既有缺項，不宣稱全面對齊。

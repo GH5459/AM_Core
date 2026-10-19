@@ -4,6 +4,7 @@ on:
     paths:
       - 'modules/meetings/**'
       - 'versions/AM-IMP-2026.1019.01/**'
+      - 'versions/AM-IMP-2026.1019.10/**'
       - 'tools/test-meeting-glossary.mjs'
       - 'tools/test-meeting-glossary-import.mjs'
       - 'versions/AM-IMP-2026.1016.07/**'
@@ -84,6 +85,7 @@ on:
       - 'core/notion.js'
       - 'modules/meetings/**'
       - 'versions/AM-IMP-2026.1019.01/**'
+      - 'versions/AM-IMP-2026.1019.10/**'
       - 'tools/test-meeting-glossary.mjs'
       - 'tools/test-meeting-glossary-import.mjs'
       - 'versions/AM-IMP-2026.1004.06/**'
@@ -138,6 +140,8 @@ jobs:
       - run: node tools/test-meeting-reader-sharing.mjs
       - run: node tools/test-meeting-glossary.mjs
       - run: node tools/test-meeting-glossary-import.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.10
+      - run: node tools/test-meeting-collaboration.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1018.02
       - run: node tools/test-meeting-workspace-generation.mjs

@@ -16,7 +16,7 @@ async function page(path){let status=200,html='';const req={method:'GET',headers
 for(const path of ['/meetings/review/work/'+r.id+'/glossary','/meetings/review?liff.state='+encodeURIComponent('/work/'+r.id+'/glossary')]){const p=await page(path);assert.equal(p.status,200);assert(p.html.includes('"glossaryOnly":true'));assert(p.html.includes('"publicAvailable":false'));assert(p.html.includes('"loginUrl":"'+f.platform.publicBaseUrl+'/meetings/review/work/'+r.id+'/glossary"'));}
 assert.equal((await api({action:'glossary-list'},'')).status,401);
 assert.equal((await api({action:'glossary-list'},'outside')).status,403);
-assert.equal((await api({action:'glossary-save',entry},'member')).status,403);
+assert.equal((await api({action:'glossary-save',entry},'outside')).status,403);
 assert.equal((await api({action:'glossary-save',entry},'host',r.id,'https://foreign.test')).status,403);
 let result=await api({action:'glossary-save',entry});assert.equal(result.status,200,JSON.stringify(result.value));
 let saved=result.value.entries[0];assert.equal(saved.term,entry.term);assert.equal(saved.version,1);

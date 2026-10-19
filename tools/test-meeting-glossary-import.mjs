@@ -20,7 +20,7 @@ assert.throws(()=>parseGlossaryImport(Array.from({length:501},(_,i)=>'詞'+i).jo
 const text=Array.from({length:200},(_,i)=>'合成詞'+String(i+1).padStart(3,'0')).join('\n'),input={text,format:'text'};
 assert.equal((await api({action:'glossary-preview',...input},'')).status,401);
 assert.equal((await api({action:'glossary-import',...input},'outside')).status,403);
-assert.equal((await api({action:'glossary-preview',...input},'member')).status,403);
+assert.equal((await api({action:'glossary-preview',...input},'member')).status,200);
 assert.equal((await api({action:'glossary-import',...input},'host','https://foreign.test')).status,403);
 let preview=(await api({action:'glossary-preview',...input})).value.preview;assert.equal(preview.added,200);assert.equal(preview.errors,0);assert.equal((await store.list()).length,0);
 assert.equal((await api({action:'glossary-import',...input,previewHash:'invalid'})).status,409);assert.equal((await store.list()).length,0);

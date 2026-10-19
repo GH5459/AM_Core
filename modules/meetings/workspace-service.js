@@ -6,14 +6,14 @@ import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,c
 import {workspaceHtml} from './workspace-ui.js';
 import {canReadShared,readerData,audioTickets} from './workspace-access.js';
 import {workspaceRevisions} from './workspace-revisions.js';
+import {recordBlocks} from './workspace-collaboration.js';
 import {sendJson} from '../../core/util.js';
 
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const uid=s=>/^U[a-f0-9]{32}$/i.test(s||'');
 const rich=s=>[{type:'text',text:{content:String(s).slice(0,1900)}}];
 export function createMeetingWorkspace({pool,botId,platform,archive,env,context,tenantFor,getConversation,ensureDatabase,request,meetingModule,logger=console}){
- const glossary=createGlossaryStore(pool,botId);
- platform.meetingGlossary={snapshot:()=>glossary.list()};
+ const glossary=createGlossaryStore(pool,botId);platform.meetingGlossary={snapshot:()=>glossary.list()};
  const store=createWorkspaceStore(pool),running=new Map();let recovering=false,cutover;
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
@@ -34,14 +34,16 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   catch{throw failure(403,'無法確認你仍是來源對話的成員，請從原對話重新開啟。');}
  }
  async function liffFor(row){return tenantFor(row).config.meetings.liffId;}
- async function authenticate(req,row){
+ async function namedReader(r,userId){if(r.state!=='published'||!r.shared_people?.length||!platform.meetingShareIdentity)return false;for(const tenantKey of new Set(r.shared_people.map(p=>p.tenantKey))){const who=await platform.meetingShareIdentity(userId,tenantKey);if(who&&r.shared_people.some(p=>p.tenantKey===who.tenantKey&&p.account===who.account))return true;}return false;}
+ async function assertRead(r,row,userId){try{await assertMember(row,userId);}catch(e){if(!await namedReader(r,userId))throw e;}}
+ async function authenticate(req,row,r,allowReader=false){
   const token=String(req.headers.authorization||'').match(/^Bearer ([^\s]+)$/)?.[1]||'';
   const liff=await liffFor(row);if(!liff||!token||token.length>4096)throw failure(401,'請用 LINE 登入後再開啟。');
   try{
    const v=await fetch('https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),{signal:AbortSignal.timeout(8000)}),j=await v.json();
    if(!v.ok||Number(j.expires_in)<=0||String(j.client_id)!==String(liff).split('-')[0])throw Error('invalid');
    const p=await fetch('https://api.line.me/v2/profile',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(8000)}),a=await p.json();
-   if(!p.ok||!uid(a.userId))throw Error('profile');await assertMember(row,a.userId);return {id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100)};
+   if(!p.ok||!uid(a.userId))throw Error('profile');let readOnly=false;try{await assertMember(row,a.userId);}catch(e){if(!allowReader||!await namedReader(r,a.userId))throw e;readOnly=true;}return {id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100),readOnly};
   }catch(e){if(e.status)throw e;throw failure(401,'LINE 登入已失效或暫時無法驗證，請重新登入。');}
  }
  async function offer(row,event,filename,hostName){
@@ -68,9 +70,10 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=receipt||'{"linkSent":true}'::jsonb WHERE id=$1`,[r.id]);
   }return true;
  }
- async function members(row,hostId){
+ async function members(row,hostId,observedOnly=false){
   let ids=[],complete=true;
   if(row.source_kind==='user')ids=[row.source_id];
+  else if(observedOnly){const observed=await pool.query(`SELECT DISTINCT payload->'event'->'source'->>'userId' AS id FROM central_archive.jobs WHERE conversation_key=$1 AND payload->>'direction'='incoming'`,[row.key]);ids=observed.rows.map(r=>r.id);complete=false;}
   else try{let cursor='';do{const j=await platform.lineGet(`/v2/bot/${row.source_kind}/${row.source_id}/members/ids`+(cursor?'?start='+encodeURIComponent(cursor):''),{timeoutMs:10000});ids.push(...j.memberIds);cursor=j.next||'';}while(cursor);}
   catch{
    complete=false;
@@ -157,7 +160,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   for(const r of jobs){if(running.size>=1)break;const row=await conversation(r);if(!row.enabled||['left','blocked'].includes(row.connection_state))continue;
    const claim=await pool.query(`UPDATE central_archive.meeting_workspaces SET lease_until=now()+interval '2 minutes' WHERE id=$1 AND (lease_until IS NULL OR lease_until<now()) RETURNING id`,[r.id]);if(claim.rows.length)launch(r,row);
   }
-  if(!running.size){const job=(await pool.query(`SELECT v.* FROM central_archive.meeting_workspace_revisions v JOIN central_archive.meeting_workspaces w ON w.id=v.workspace_id JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND v.state='pending' AND (v.lease_until IS NULL OR v.lease_until<now()) ORDER BY v.created_at LIMIT 1`,[botId])).rows[0];if(job){const claimed=await pool.query(`UPDATE central_archive.meeting_workspace_revisions SET lease_until=now()+interval '2 minutes' WHERE workspace_id=$1 AND revision=$2 AND (lease_until IS NULL OR lease_until<now()) RETURNING revision`,[job.workspace_id,job.revision]);if(claimed.rows.length){const p=revisionJobs.apply(job).catch(()=>logger.warn('Meeting revision recovery deferred.')).finally(()=>running.delete('revision:'+job.workspace_id));running.set('revision:'+job.workspace_id,p);}}}
+  if(!running.size){const job=(await pool.query(`SELECT v.* FROM central_archive.meeting_workspace_revisions v JOIN central_archive.meeting_workspaces w ON w.id=v.workspace_id JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND v.state='pending' AND v.base_revision=w.revision AND (v.lease_until IS NULL OR v.lease_until<now()) ORDER BY v.created_at LIMIT 1`,[botId])).rows[0];if(job){const claimed=await pool.query(`UPDATE central_archive.meeting_workspace_revisions SET lease_until=now()+interval '2 minutes' WHERE workspace_id=$1 AND revision=$2 AND (lease_until IS NULL OR lease_until<now()) RETURNING revision`,[job.workspace_id,job.revision]);if(claimed.rows.length){const p=revisionJobs.apply(job).catch(()=>logger.warn('Meeting revision recovery deferred.')).finally(()=>running.delete('revision:'+job.workspace_id));running.set('revision:'+job.workspace_id,p);}}}
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
@@ -173,7 +176,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    }
    if(req.headers.origin&&![base(),loginUrl.origin].includes(req.headers.origin))throw failure(403,'請從原工作頁操作。');
    if(match[2]==='audio'&&req.method==='GET'){
-    const ticket=url.searchParams.get('ticket');if(ticket){const who=audioAccess().verify(r,ticket);if(who!=='public')await assertMember(row,who);}else await authenticate(req,row);
+    const ticket=url.searchParams.get('ticket');if(ticket){const who=audioAccess().verify(r,ticket);if(who!=='public')await assertRead(r,row,who);}else await authenticate(req,row,r,true);
     const file=await original(r,row),token=await platform.drive.getAccessToken();const range=String(req.headers.range||'');if(range&&!/^bytes=\d*-\d*$/.test(range))throw failure(416,'無效的播放範圍。');
     const controller=new AbortController(),abort=()=>controller.abort(),timeout=setTimeout(abort,15000);req.once?.('aborted',abort);res.once?.('close',abort);let response;
     try{response=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true',{headers:{Authorization:'Bearer '+token,...range?{Range:range}:{}},signal:controller.signal});}finally{clearTimeout(timeout);}
@@ -182,11 +185,12 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    }
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
    const input=await readBody(req);let current=r,actor;
-   try{actor=await authenticate(req,row);}catch(e){if(input.action==='read'&&canReadShared(r)){
+   try{actor=await authenticate(req,row,r,input.action==='read');}catch(e){if(input.action==='read'&&canReadShared(r)){
     sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public'))});return true;
    }throw e;}
+   if(actor.readOnly){sendJson(res,200,{ok:true,access:'recipient',host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id))});return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
-    const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published'&&actor.id===r.host_id);
+    const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
      if(!canEdit)throw failure(403,'目前只能由可編輯這場會議的成員修改共用詞庫。');
     }
@@ -204,7 +208,22 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     if(!saved.rows.length)throw failure(409,'類型已被其他人更新，請重新讀取再儲存。');
    }
    else if(input.action==='edit')current=await store.edit(r.id,actor,input);
-   else if(input.action==='sharing')current=await store.share(r.id,actor,input.enabled,input.revision,input.version);
+   else if(input.action==='sharing'){
+    if(actor.id!==r.host_id)throw failure(403,'只有主持人可以管理分享名單。');
+    let people;if(input.accounts!==undefined){
+     if(!Array.isArray(input.accounts)||input.accounts.length>200||input.accounts.some(a=>typeof a!=='string'))throw failure(400,'分享名單格式不正確。');
+     const org=await platform.meetingOrganization?.(r.host_id);if(!org)throw failure(503,'組織架構暫時無法讀取，原分享設定仍保留。');
+     people=[...new Set(input.accounts)].map(account=>{const person=org.people.find(p=>p.account===account);if(!person)throw failure(409,'部分同仁已不在有效組織名單，請重新讀取後再選擇。');return {tenantKey:org.tenantKey,account,name:person.name};});
+    }current=await store.share(r.id,actor,input.enabled,input.revision,input.version,people);
+   }
+   else if(input.action==='save-part'){
+    if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能儲存。');
+    current=await store.part(r.id,actor,input,async next=>{
+     if(input.field?.startsWith('todo:')&&input.value?.ownerId)await assertMember(row,input.value.ownerId);
+     if(next.state==='published'){const identities=await validateAssignees(next,row);return Object.fromEntries(identities.map(p=>[p.userId,p.name]));}
+     if(input.field?.startsWith('todo:')&&input.value?.ownerId){const userId=input.value.ownerId,identity=await platform.meetingTaskIdentity?.(userId),profile=identity?null:await platform.lineGet(row.source_kind==='user'?'/v2/bot/profile/'+userId:`/v2/bot/${row.source_kind}/${row.source_id}/member/${userId}`,{timeoutMs:8000});return {...next.receipt.ownerNames,[userId]:identity?.name||String(profile?.displayName||'群組成員').slice(0,100)};}
+    });drain().catch(()=>{});
+   }
    else if(input.action==='revise'){
     if(actor.id!==r.host_id)throw failure(403,'只有主持人可以修訂正式會議。');
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能儲存修訂；仍可關閉對外分享。');
@@ -224,15 +243,19 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
      await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{ownerNames}',$2::jsonb) WHERE id=$1 AND state='review'`,[r.id,JSON.stringify(ownerNames)]);
     }
     current=await store.transition(r.id,actor,input.action,input.revision);drain().catch(()=>{});
-   }else if(input.action!=='members'&&input.action!=='history')throw failure(400,'不支援此操作。');
+   }else if(!['members','history','organization'].includes(input.action))throw failure(400,'不支援此操作。');
+   if(input.action==='organization'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以選擇分享夥伴。');
    const templates=(await pool.query('SELECT name,prompt,version FROM central_archive.meeting_workspace_templates WHERE conversation_key=$1 ORDER BY name',[row.key])).rows;
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
    const result={ok:true,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)),workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:current.result.segments||[],error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
-   if(result.host)result.pendingRevision=await revisionJobs.pending(r.id);
-   if(input.action==='members')result.members=await members(row,r.host_id);
-   if(input.action==='history')result.history=await store.history(r.id);
+   result.canEdit=['review','published'].includes(current.state);result.pendingRevision=await revisionJobs.pending(r.id);
+   const editing=await store.effective(current);result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=await store.changes(r.id);
+   if(result.host)result.sharing.people=current.shared_people;
+   if(input.action==='members')result.members=await members(row,r.host_id,input.observed===true);
+   if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
+   if(input.action==='history'){if(input.field!==undefined&&(typeof input.field!=='string'||input.field.length>100))throw failure(400,'修改紀錄範圍不正確。');result.history=await store.history(r.id,input.offset,input.field??null);}
    sendJson(res,200,result);return true;
   }catch(e){if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',assignment:'owner-and-due-required'})};
+ return {store,offer,choice,handle,drain,accepts,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,glossary:'shared-vocabulary-import-v1',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'owner-and-due-required'})};
 }
