@@ -60,6 +60,9 @@ export function createWorkspaceStore(pool){
   const recipients=people===undefined?r.shared_people:people;
   await db.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=$2,sharing_version=$3,shared_people=$4::jsonb WHERE id=$1',[id,enabled,next,JSON.stringify(recipients)]);
   await db.query(`INSERT INTO central_archive.meeting_workspace_access_changes(workspace_id,version,actor_id,actor_name,before_enabled,enabled,before_people,people) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)`,[id,next,actor.id,actor.name,!!r.sharing_enabled,enabled,JSON.stringify(r.shared_people),JSON.stringify(recipients)]);
+  const same=(a,b)=>a.tenantKey===b.tenantKey&&a.account===b.account;
+  for(const p of r.shared_people.filter(p=>!recipients.some(n=>same(p,n))))await db.query("UPDATE central_archive.meeting_share_notices SET state='cancelled',error_code='removed',lease_until=NULL WHERE workspace_id=$1 AND tenant_key=$2 AND account=$3 AND state='pending'",[id,p.tenantKey,p.account]);
+  for(const p of recipients.filter(p=>!r.shared_people.some(n=>same(p,n))))await db.query('INSERT INTO central_archive.meeting_share_notices(workspace_id,tenant_key,account,grant_version) VALUES($1,$2,$3,$4)',[id,p.tenantKey,p.account,next]);
   return get(id,db);
  });}
  async function revise(id,actor,fields,revision,ownerNames){return locked(id,async(r,db)=>{
