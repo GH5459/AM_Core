@@ -8,6 +8,7 @@ import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quot
 import {checkedAssignments,assignmentSchema,TASK_SPEED_POLICY} from './task-judgment.js';
 import {GROUP_INVITE_TIMEOUT_MS,GROUP_INVITE_TIMEOUT_POLICY,invitationTimedOut,cancelTimedOutInvitation} from './group-invite-policy.js';
 import {TASK_ELIGIBILITY_POLICY,isTaskIneligible,wasWaitingForTaskIdentity,ignoreTask} from './task-eligibility-policy.js';
+import {GROUP_RETRY_POLICY,GROUP_RETRY_LIMIT,groupConnectionRequired,stopGroupRetry,retryGroupFailure} from './group-retry-policy.js';
 export const GROUP_MENTION_CONTRACT='line-group-mention-meetings-tasks-v1';
 const user=/^U[a-f0-9]{32}$/i,group=/^C[a-f0-9]{32}$/i;
 const command=e=>String(e.postback?.data||'').match(/^(?:groupcal|grouptask):(confirm|cancel):([a-f0-9]{48}):(\d{1,8})$/u);
@@ -72,7 +73,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     body[0].text=p.prepared.missing.length?'請確認群組活動日期與時間':'確認群組會議／活動';
     if(p.people.length===1)body.push({type:'text',text:'本次僅加入本人行事曆，沒有邀請其他群組同仁。',wrap:true,size:'sm'});
     body.splice(1,0,{type:'text',text:'發起人與受邀人：'+p.people.map(x=>x.name+(x.state==='login'?'（待登入）':'')).join('、'),size:'sm',wrap:true,color:'#263B33'});
-    body.push({type:'text',text:'由發起人按「建立」後，分別加入以上每個人的 Google 行事曆；尚未完成登入或 Google 連線的人會保留待處理。',size:'xs',wrap:true,color:'#698176'});
+    body.push({type:'text',text:'由發起人按「建立」後加入 Google 行事曆；尚未完成身分或行事曆連線者，本次不自動重試，完成設定後請重新發起。',size:'xs',wrap:true,color:'#698176'});
     body.push({type:'text',text:'請發起人在卡片發出後 10 分鐘內確認或取消；逾時將自動取消本次邀約，不再提醒。補充或修改活動不會延長期限。',size:'xs',wrap:true,color:'#698176'});
     for(const b of value.contents.footer.contents)b.action.data=b.action.data.replace(/^leafcal:/u,'groupcal:');
     value.contents.footer.contents[1].action.label='取消邀約';value.altText='群組活動確認：'+p.prepared.event.topic;return value;
@@ -95,6 +96,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     if(text)await notify(row,p,text,'control');p.phase='done';
   }
   async function work(row){const p={...row.dispatch};
+    if(p.mode!=='task'&&groupConnectionRequired(p))return store.save(row,stopGroupRetry(p,now(),'connection_required'));
     if((p.quickKind==='selftask'||p.mode==='selftask')&&peers(row.event,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1)return store.save(row,ignoreTask({...p,mode:'task'}));
     if(wasWaitingForTaskIdentity(p))return store.save(row,ignoreTask(p));
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
@@ -129,6 +131,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     }
     const context=await resolve(row,p,services);p.people=context.people;if(context.tenant)p.tenantKey=context.tenant.key;
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
+    if(groupConnectionRequired(p)||!context.tenant)return store.save(row,stopGroupRetry(p,now(),'identity_required'));
     if(p.phase==='preview'){
       // Freeze the first delivery attempt before external I/O. Crash/retry and
       // edits must not give an already visible card a fresh ten-minute window.
@@ -137,11 +140,9 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       const message=card(row,p);await platform.pushLineMessage(row.event.source.groupId,message,null,{retryKey:retryKey(row.key+':preview:'+p.revision),suppressEvidenceLogs:true,timeoutMs:8000});
       p.phase='confirmation';p.promptedRevision=p.revision;return store.save(row,p,5);
     }
-    const waiting=p.people.filter(x=>x.state==='login');if(waiting.length)await notify(row,p,'已保留這則'+(p.mode==='task'?'交辦':p.mode==='selftask'?'自己的任務':'邀約')+'。'+waiting.map(x=>x.name).join('、')+'請從葉小蝸一對一聊天開啟「工作日誌」，登入本人公司帳號；完成後會自動接續處理。','login');
-    if(!context.tenant){if(!waiting.length)await notify(row,p,'已保留這則交辦／邀約，目前無法確認對應的工作日誌，請聯絡管理者確認；不需要重複登入。','identity-scope');return store.save(row,p,60);}
     if(p.phase==='selfissue'){
       if(!p.confirmation||p.confirmation.userId!==row.event.source.userId||p.prepared.missing.length)throw Error('self_task_confirmation_required');
-      const who=p.people[0];if(!who.account)return store.save(row,p,60);
+      const who=p.people[0];if(!who.account)return store.save(row,stopGroupRetry(p,now(),'identity_required'));
       p.selfResult=await tasks.submitSelfTask(context.tenant,row.event,who,p.prepared.draft,p.confirmation,p.revision);
       if(!await store.checkpoint(row,p))return;
       await platform.pushLineMessage(row.event.source.groupId,p.selfResult.message,null,{retryKey:retryKey(row.key+':self-created'),suppressEvidenceLogs:true,timeoutMs:8000});
@@ -158,21 +159,20 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
         if(!await store.checkpoint(row,p))return;
       }
       const done=p.people.filter(x=>x.calendarResult),pending=p.people.filter(x=>!x.calendarResult);
-      await notify(row,p,'活動：'+p.prepared.event.topic+'\n'+p.prepared.event.date+' '+p.prepared.event.time+'\n已加入行事曆：'+(done.map(x=>x.name).join('、')||'尚無')+(pending.length?'\n待處理：'+pending.map(x=>x.name).join('、')+'。請先完成工作日誌登入與 Google 行事曆連線，完成後會自動接續。':''),'results');
-      p.phase=pending.length?'fanout':'done';return store.save(row,p,pending.length?60:0);
+      if(pending.length){if(groupConnectionRequired(p))return store.save(row,stopGroupRetry(p,now(),'connection_required'));const retry=retryGroupFailure(p,now());return store.save(row,retry.value,retry.delay);}
+      await notify(row,p,'活動：'+p.prepared.event.topic+'\n'+p.prepared.event.date+' '+p.prepared.event.time+'\n已加入行事曆：'+done.map(x=>x.name).join('、'),'results');
+      p.phase='done';return store.save(row,p);
     }
-    await store.save(row,p,60);
+    await store.save(row,stopGroupRetry(p,now(),'unsupported_phase'));
   }
   function drain(){if(!enabled)return Promise.resolve();if(running)return running;running=(async()=>{for(let i=0;i<20;i++){const row=await store.lease();if(!row)break;try{await work(row);}catch(error){const live=await store.active(row);if(!live)continue;const p={...live.dispatch};
       if(invitationTimedOut(live,p,now())){await store.save(row,cancelTimedOutInvitation(p,now()));continue;}
       if(p.mode==='task'){
         if(isTaskIneligible(error)||error.lineStatus===404||error.message==='group_identity_changed'||error.message==='group_member_changed')await store.save(row,ignoreTask(p));
-        else await store.save(row,p,60);
+        else {const retry=retryGroupFailure(p,now());await store.save(row,retry.value,retry.delay);}
         logger.warn?.('[leaf-groups] task eligibility gate; no group notice');continue;
       }
-      if(!p.mode&&!p.quickKind){await store.save(row,p,60);continue;}
-      if(error.message==='group_identity_changed'){p.phase='cancelled';await notify(row,p,'工作身分已變更，請由發起人重新發送交辦／邀約；已建立的活動會保留。','changed').catch(()=>{});}
-      else await notify(row,p,'已保留這則群組交辦／邀約，暫時無法完成處理，系統會自動重試。','deferred').catch(()=>{});
-      logger.warn?.('[leaf-groups] processing deferred; original source retained');await store.save(row,p,60);}}})().finally(()=>running=null);return running;}
-  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,identityNoticePolicy:'meetings-only-unlinked-people-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
+      if(isTaskIneligible(error)||error.lineStatus===404||error.message==='group_identity_changed'||error.message==='group_member_changed'){await store.save(row,stopGroupRetry(p,now(),'identity_or_membership_changed'));continue;}
+      const retry=retryGroupFailure(p,now());logger.warn?.('[leaf-groups] silent bounded retry; original source retained');await store.save(row,retry.value,retry.delay);}}})().finally(()=>running=null);return running;}
+  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,retryPolicy:GROUP_RETRY_POLICY,retryLimit:GROUP_RETRY_LIMIT,identityNoticePolicy:'silent-stop-unlinked-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
 }

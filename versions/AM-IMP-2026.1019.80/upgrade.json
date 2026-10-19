@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.1019.80",
+  "name": "群組未連線停止重試與安靜有限退避",
+  "type": "Group retry policy correction",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM Platform"
+  ],
+  "requiresDatabases": [
+    "Existing central archive group dispatch and original calendar receipts"
+  ],
+  "requiresEnv": [
+    "Existing OA and task/calendar service credentials"
+  ],
+  "requiresScripts": [
+    "tools/test-leaf-groups.mjs",
+    "tools/test-group-quick-create.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Unlinked work identity or missing Google connection stops the source without automatic backfill",
+    "Original queued sources and successful calendar receipts remain intact",
+    "Transient failures retry silently at most three times with bounded delays",
+    "No generic retry notice is sent to original groups",
+    "Current requester permissions, confirmation timeout, source ownership and request keys preserved",
+    "Reviewed main release and both production policies verified"
+  ]
+}

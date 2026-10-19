@@ -86,10 +86,27 @@ test('disabled recipient, late access denial and previously deferred login are t
  f.options.tasks.resolveTaskGroupIdentity=async id=>f.identities.get(id);f.advance();f.restart();await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);
 }finally{await f.close();}}});
 
-test('partial fanout waits for work identity and Google connection and resumes only missing participants',async()=>{const f=await fixture();try{
- f.identities.delete(b);f.disconnected.add('a');await f.capture(f.message());await f.drain();const p=(await f.rows())[0];await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,1);
- f.identities.set(b,{account:'b',bindingId:'b-binding'});f.disconnected.delete('a');f.advance();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.filter(x=>x.account==='owner').length,1);
- assert.ok(f.pushes.some(x=>typeof x.message==='string'&&x.message.includes('待處理')));
+test('unlinked meeting identity stops silently and cannot resume after login or original message replay',async()=>{const f=await fixture();try{
+ f.identities.delete(b);const e=f.message();await f.capture(e);await f.drain();const p=(await f.rows())[0];assert.equal(p.phase,'ignored');assert.equal(p.stopReason,'identity_required');assert.equal(f.writes.size,0);assert.equal(f.pushes.length,0);
+ f.identities.set(b,{account:'b',bindingId:'b-binding'});f.advance();f.restart();await f.drain();await f.capture(e);await f.drain();assert.equal(f.writes.size,0);assert.equal(f.pushes.length,0);assert.equal((await f.rows())[0].phase,'ignored');
+}finally{await f.close();}});
+
+test('legacy disconnected fanout stops on first visit and preserves source and every existing calendar receipt',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();const initial=(await f.rows())[0];f.disconnected.add('a');await f.capture(f.button(initial.id));await f.drain();assert.equal(f.writes.size,2);
+ await f.db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{groupDispatch}',((payload->'groupDispatch')-'closedReason'-'stopReason'-'stoppedAt')||$1::jsonb) WHERE payload->'groupDispatch'->>'id'=$2",[JSON.stringify({phase:'fanout',attempts:6800,availableAt:0,leaseUntil:0,lease:null}),initial.id]);
+ const before=(await f.rows()).find(p=>p.id===initial.id),attempts=f.attempts.length,notices=f.pushes.length;f.restart();await f.drain();const after=(await f.rows()).find(p=>p.id===initial.id);assert.equal(after.phase,'ignored');assert.equal(after.stopReason,'connection_required');assert.deepEqual(after.people,before.people);assert.equal(f.writes.size,2);assert.equal(f.attempts.length,attempts);assert.equal(f.pushes.length,notices);
+ f.advance(3600000);f.restart();await f.drain();assert.equal((await f.rows()).find(p=>p.id===initial.id).attempts,6801);assert.equal(await f.store.lease(),null);
+}finally{await f.close();}});
+
+test('transient classification errors silently stop after three failures and a fresh source still works',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async()=>{throw Error('temporary_network_failure');};await f.capture(f.message());await f.drain();let p=(await f.rows())[0];assert.equal(p.retryFailures,1);assert.equal(f.pushes.length,0);
+ f.advance();await f.drain();p=(await f.rows())[0];assert.equal(p.retryFailures,2);f.advance();await f.drain();assert.equal((await f.rows())[0].attempts,2,'five minute backoff');f.advance(301000);await f.drain();p=(await f.rows())[0];assert.equal(p.phase,'ignored');assert.equal(p.retryFailures,3);assert.equal(p.stopReason,'retry_limit');assert.equal(f.pushes.length,0);
+ f.options.llm.completeJson=original;f.advance(3600000);f.restart();await f.drain();assert.equal(f.pushes.length,0);await f.capture(f.message());await f.drain();assert.equal(f.pushes.length,1);assert.equal((await f.rows()).filter(p=>p.phase==='confirmation').length,1);
+}finally{await f.close();}});
+
+test('temporary calendar failures have a finite retry budget without group error messages',async()=>{const f=await fixture();try{
+ f.options.calendar.writeGroupEvent=async()=>{throw Object.assign(Error('service'),{code:'GOOGLE_UNAVAILABLE'});};await f.capture(f.message());await f.drain();const p=(await f.rows())[0];const initialNotices=f.pushes.length;await f.capture(f.button(p.id));await f.drain();assert.equal((await f.rows()).find(x=>x.id===p.id).retryFailures,1);
+ f.advance();await f.drain();f.advance(301000);f.restart();await f.drain();const result=(await f.rows()).find(x=>x.id===p.id);assert.equal(result.phase,'ignored');assert.equal(result.retryFailures,3);assert.equal(f.pushes.length,initialNotices);assert.equal(f.writes.size,0);f.advance(3600000);await f.drain();assert.equal(f.pushes.length,initialNotices);
 }finally{await f.close();}});
 test('ambiguous time blocks creation; organizer text correction gives new card and invalidates old revision',async()=>{const f=await fixture();try{
  await f.capture(f.message('@甲 時間未定的會議',[a]));await f.drain();let p=(await f.rows())[0];assert.ok(p.prepared.missing.length);
@@ -100,6 +117,7 @@ test('ambiguous time blocks creation; organizer text correction gives new card a
 test('uncertain API acceptance and summary delivery retry preserve receipts and do not duplicate copies',async()=>{const f=await fixture();try{
  await f.capture(f.message());await f.drain();const p=(await f.rows())[0];f.uncertain();f.failSummary();await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,3);
  f.advance();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.filter(x=>x.account==='a').length,1);assert.equal(f.attempts.filter(x=>x.account==='b').length,1);
+ f.advance(301000);await f.drain();assert.equal(f.writes.size,3);
  assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'done');
 }finally{await f.close();}});
 test('source removal, cancellation and changed work identity fence future side effects',async()=>{const f=await fixture();try{
@@ -168,10 +186,10 @@ test('background timeout works without clicks, identity lookup or reminders and 
  assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'cancelled');assert.equal(f.pushes.length,count);assert.equal(f.writes.size,0);
  f.restart();f.advance();await f.drain();assert.equal(f.pushes.length,count);
 }finally{await f.close();}});
-test('confirmation just before deadline still finishes and participant connection retries retain existing policy',async()=>{const f=await fixture();try{
+test('confirmed meeting preserves created events but stops disconnected participants without automatic catchup',async()=>{const f=await fixture();try{
  await f.capture(f.message());await f.drain();const p=(await f.rows()).find(x=>x.mode==='meeting');f.disconnected.add('a');f.advance(599999);
- await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,2);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'fanout');
- f.advance(600000);f.disconnected.clear();f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'done');
+ await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,2);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'ignored');
+ const count=f.pushes.length,attempts=f.attempts.length;f.advance(600000);f.disconnected.clear();f.restart();await f.drain();await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,2);assert.equal(f.attempts.length,attempts);assert.equal(f.pushes.length,count);assert.equal((await f.rows()).find(x=>x.id===p.id).phase,'ignored');
 }finally{await f.close();}});
 test('editing cards does not renew deadline; legacy cards expire silently; task waiting unaffected',async()=>{const f=await fixture();try{
  await f.capture(f.message());await f.drain();let p=(await f.rows()).find(x=>x.mode==='meeting');const started=p.confirmationStartedAt;
