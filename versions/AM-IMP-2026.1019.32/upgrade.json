@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1019.32",
+  "name": "Google來源會議內部邀請與逐人行程同步",
+  "type": "Meeting invitations",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM platform",
+    "DailyLog original Calendar service"
+  ],
+  "requiresDatabases": [
+    "Existing meeting plans and Calendar documents"
+  ],
+  "requiresEnv": [
+    "Existing tenant-local Calendar service configuration"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-external-invitations.mjs",
+    "tools/test-meeting-hub-worker.cjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Host can invite internal colleagues from external Calendar workspaces",
+    "Internal membership survives recipient Google failures",
+    "Original host event is never copied",
+    "Existing recipient UID/occurrence reused without modifying original event",
+    "Deterministic writes and frozen targets prevent duplicate retries",
+    "Calendar read links invited colleagues back to the same workspace",
+    "Per-person outcomes are visible without resetting pending edits",
+    "Production preserves original records and all unrelated Worker modules"
+  ]
+}

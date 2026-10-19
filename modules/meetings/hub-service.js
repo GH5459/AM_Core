@@ -14,9 +14,43 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  async function check(r,row,actor,host=false){if(!row||row.bot_id!==botId)throw failure(403,'此會議不屬於目前的服務。');await identity(actor.id);if(host&&actor.id!==r.host_id)throw failure(403,'只有主持人可管理排程及錄音。');try{await assertMember(row,actor.id);}catch(e){if(!await participant(r,actor.id))throw e;}if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'來源對話會議功能目前未開啟。');}
  async function body(req){let n=0,a=[];for await(const b of req){n+=b.length;if(n>3000000)throw failure(413,'內容過大。');a.push(b);}try{return JSON.parse(Buffer.concat(a).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function enqueue(db,r,p){
-  const host=await identity(r.host_id,p.tenant_key),accounts=[...new Set([host.account,...p.participants.map(x=>x.account)])];
+  const host=await identity(r.host_id,p.tenant_key),accounts=[...new Set([...(r.receipt?.externalCalendar?[]:[host.account]),...p.participants.map(x=>x.account).filter(a=>!r.receipt?.externalCalendar||a!==host.account)])];
   if(p.calendar_enabled&&!p.cancelled)for(const account of accounts)await db.query(`INSERT INTO central_archive.meeting_calendar_links(workspace_id,account,tenant_key,desired_revision) VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,account) DO UPDATE SET desired_revision=$4,state='pending',updated_at=now()`,[r.id,account,p.tenant_key,p.version]);
   await db.query(`UPDATE central_archive.meeting_calendar_links SET desired_revision=$2,state='pending',updated_at=now() WHERE workspace_id=$1`,[r.id,p.version]);
+ }
+ async function externalSource(r,p,actor){
+  let ref=r.receipt?.externalCalendarSource;
+  const who=await identity(actor.id,p.tenant_key);
+  if(!ref){
+   const start=new Date(Date.parse(p.start_at)+8*3600000).toISOString().slice(0,10);
+   const week=await calendar(actor,{action:'calendar-week',start});
+   const event=week.items.find(e=>e.workspaceId===r.id);
+   if(!event)throw failure(409,'找不到原 Google 行程，請核對原日曆後再邀請；不會另建主持人行程。');
+   const read=await calendar(actor,{action:'calendar-read',calendarRef:event.calendarRef});
+   ref={account:who.account,calendarId:read.calendarId,googleAccount:read.googleAccount,eventId:read.event.id};
+  }
+  if(ref.account!==who.account)throw failure(409,'原行程的本人帳號已變更，請先核對。');
+  const result=await platform.syncMeetingCalendar(p.tenant_key,{action:'calendar-read',...ref});
+  const event=result.items?.find(e=>e.id===ref.eventId);
+  if(!event?.iCalUID)throw failure(409,'原日曆尚未提供可核對的行程識別，請稍後重試。');
+  return {...ref,iCalUID:event.iCalUID,start:event.start,end:event.end,allDay:event.allDay,topic:event.topic,location:event.location};
+ }
+ async function saveInvitations(r,row,actor,input){
+  await check(r,row,actor,true);
+  if(!r.receipt?.externalCalendar)throw failure(409,'請使用這場會議的排程設定。');
+  if(!Array.isArray(input.accounts)||input.accounts.length>200||input.accounts.some(a=>typeof a!=='string'||!/^\d{1,20}$/.test(a))||typeof input.calendar!=='boolean'||!Number.isSafeInteger(input.version))throw failure(400,'請選擇有效的內部參與者。');
+  const org=await platform.meetingOrganization(actor.id),host=await identity(actor.id),prior=await plan(r.id);
+  if(!prior||prior.tenant_key!==host.tenantKey||org.tenantKey!==host.tenantKey)throw failure(409,'會議服務已變更，請重新確認。');
+  const participants=[...new Set(input.accounts)].filter(a=>a!==host.account).map(account=>{const person=org.people.find(p=>p.account===account);if(!person)throw failure(409,'參與者已不在有效同仁名單，請重新選擇。');return {account,name:person.name};});
+  let source=null,sourceError='';if(input.calendar)try{source=await externalSource(r,prior,actor);}catch(e){if(e.status===403)throw e;sourceError='原 Google 行程尚未核對，請確認本人日曆連線後重試邀請同步';}
+  return store.locked(r.id,async(current,db)=>{
+   const p=(await db.query('SELECT * FROM central_archive.meeting_plans WHERE workspace_id=$1 FOR UPDATE',[r.id])).rows[0];
+   if(Number(p.version)!==input.version)throw failure(409,'邀請名單已更新，請重讀後比較；你的選擇尚未覆寫。');
+   if(['processing','publishing'].includes(current.state))throw failure(409,'目前正在整理或發布，請稍後調整邀請。');
+   await db.query(`UPDATE central_archive.meeting_workspaces SET receipt=receipt||$2::jsonb WHERE id=$1`,[r.id,JSON.stringify({externalSyncError:sourceError,...source?{externalCalendarSource:source}:{}})]);
+   const next=(await db.query(`UPDATE central_archive.meeting_plans SET participants=$2::jsonb,calendar_enabled=$3,version=version+1,updated_at=now() WHERE workspace_id=$1 RETURNING *`,[r.id,JSON.stringify(participants),input.calendar])).rows[0];
+   await enqueue(db,current,next);return next;
+  });
  }
  async function savePlan(r,row,actor,input){const v=planInput(input);if(r.receipt?.externalCalendar)throw failure(409,'此會議來自 Calendar，排程請到原日曆調整；會前資料及錄音仍可使用。');await check(r,row,actor,true);const org=await platform.meetingOrganization(actor.id),host=await identity(actor.id);if(org.tenantKey!==host.tenantKey)throw failure(409,'組織來源已變更。');
   const participants=v.accounts.map(account=>{const p=org.people.find(x=>x.account===account);if(!p)throw failure(409,'參與者名單已更新，請重新選擇。');return {account,name:p.name};});
@@ -57,6 +91,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
   if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>60000)throw failure(400,'會前資料請限60000字。');const who=await identity(actor.id);const created=await pool.query(`INSERT INTO central_archive.meeting_plans(workspace_id,tenant_key,topic,preparation) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING workspace_id`,[r.id,who.tenantKey,r.fields.settings.topic,v.text]);if(!created.rows.length)throw failure(409,'資料區已建立，請重讀後比較內容。');}
   else if(v.action==='preparation'){if(typeof v.text!=='string'||v.text.length>60000)throw failure(400,'會前資料請限60000字。');await pool.query(`UPDATE central_archive.meeting_plans SET preparation=$2,preparation_version=preparation_version+1,updated_at=now() WHERE workspace_id=$1 AND preparation_version=$3 RETURNING workspace_id`,[r.id,v.text,v.version]).then(q=>{if(!q.rows.length)throw failure(409,'會前資料已被修改，請比較後再儲存；你的內容仍保留。');});}
   else if(v.action==='plan-save')await savePlan(r,row,actor,v);
+  else if(v.action==='invite-save')await saveInvitations(r,row,actor,v);
   else if(v.action==='plan-organization'){const org=await platform.meetingOrganization(actor.id);return {ok:true,organization:org};}
   else if(v.action.startsWith('audio-'))await upload(r,row,actor,v);
   else if(v.action!=='plan-read')throw failure(400,'不支援此操作。');
@@ -88,7 +123,7 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
   }
   v=planInput(v);if(!/^[a-zA-Z0-9_-]{16,80}$/.test(v.operationId||''))throw failure(400,'建立識別不正確。');const row=await getConversation(v.conversationKey);if(!row||row.bot_id!==botId)throw failure(404,'來源對話不存在。');await assertMember(row,actor.id);if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'請選擇已開啟會議的來源對話。');const who=await identity(actor.id),org=await platform.meetingOrganization(actor.id),participants=v.accounts.map(account=>{const p=org.people.find(p=>p.account===account);if(!p)throw failure(409,'參與者不在目前有效名單。');return {account,name:p.name};});
   const id=sha('meeting-plan:'+botId+':'+actor.id+':'+v.operationId),event={type:'message',timestamp:Date.now(),source:{type:row.source_kind,userId:actor.id,...row.source_kind==='group'?{groupId:row.source_id}:row.source_kind==='room'?{roomId:row.source_id}:{}},message:{id:'plan:'+v.operationId,type:'audio',fileName:''}},fields=initialFields(event);Object.assign(fields.settings,{topic:v.topic,date:v.start.slice(0,10)});
-  const db=await pool.connect();try{await db.query('BEGIN');const payloadHash=sha(JSON.stringify(v));await db.query(`INSERT INTO central_archive.meeting_workspaces(id,conversation_key,message_id,host_id,host_name,source,filename,state,fields,receipt) VALUES($1,$2,$3,$4,$5,$6::jsonb,'','setup',$7::jsonb,$8::jsonb) ON CONFLICT DO NOTHING`,[id,row.key,event.message.id,actor.id,who.name,JSON.stringify(event),JSON.stringify(fields),JSON.stringify({offerSent:true,linkSent:true,planInputHash:payloadHash,...external?{externalCalendar:true}:{}})]);const prior=await store.get(id,db);if(!prior||prior.receipt.planInputHash!==payloadHash)throw failure(409,'建立識別已用於其他內容，請重新開啟新增會議。');await db.query(`INSERT INTO central_archive.meeting_plans(workspace_id,tenant_key,participants,start_at,end_at,location,calendar_enabled,topic) VALUES($1,$2,$3::jsonb,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,[id,who.tenantKey,JSON.stringify(participants),v.start,v.end,v.location,v.calendar,v.topic]);const p=(await db.query('SELECT * FROM central_archive.meeting_plans WHERE workspace_id=$1',[id])).rows[0];await enqueue(db,{id,host_id:actor.id},p);await db.query('COMMIT');}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}return {ok:true,id,url:origin()+'/meetings/review/work/'+id};
+  const db=await pool.connect();try{await db.query('BEGIN');const payloadHash=sha(JSON.stringify(v));await db.query(`INSERT INTO central_archive.meeting_workspaces(id,conversation_key,message_id,host_id,host_name,source,filename,state,fields,receipt) VALUES($1,$2,$3,$4,$5,$6::jsonb,'','setup',$7::jsonb,$8::jsonb) ON CONFLICT DO NOTHING`,[id,row.key,event.message.id,actor.id,who.name,JSON.stringify(event),JSON.stringify(fields),JSON.stringify({offerSent:true,linkSent:true,planInputHash:payloadHash,...external?{externalCalendar:true,externalCalendarSource:{account:external.who.account,calendarId:external.calendarId,googleAccount:external.googleAccount,eventId:external.event.id}}:{}})]);const prior=await store.get(id,db);if(!prior||prior.receipt.planInputHash!==payloadHash)throw failure(409,'建立識別已用於其他內容，請重新開啟新增會議。');await db.query(`INSERT INTO central_archive.meeting_plans(workspace_id,tenant_key,participants,start_at,end_at,location,calendar_enabled,topic) VALUES($1,$2,$3::jsonb,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,[id,who.tenantKey,JSON.stringify(participants),v.start,v.end,v.location,v.calendar,v.topic]);const p=(await db.query('SELECT * FROM central_archive.meeting_plans WHERE workspace_id=$1',[id])).rows[0];await enqueue(db,{id,host_id:actor.id},p);await db.query('COMMIT');}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}return {ok:true,id,url:origin()+'/meetings/review/work/'+id};
  }
  async function inventory(actor,v){const who=await identity(actor.id);if(v.action==='calendar-week')return calendar(actor,v);if(v.action==='organization')return {ok:true,organization:await platform.meetingOrganization(actor.id)};
   if(v.action==='history-list'||v.action==='history-read'){
@@ -115,9 +150,12 @@ export function meetingHub({pool,botId,platform,env,store,getConversation,authen
  }
  let draining=false;
  async function drain(){if(draining)return;draining=true;try{const jobs=(await pool.query(`SELECT l.* FROM central_archive.meeting_calendar_links l JOIN central_archive.meeting_workspaces w ON w.id=l.workspace_id JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND l.state='pending' AND (l.lease_until IS NULL OR l.lease_until<now()) ORDER BY l.updated_at LIMIT 3`,[botId])).rows;for(const j of jobs){const claimed=(await pool.query(`UPDATE central_archive.meeting_calendar_links SET lease_until=now()+interval '2 minutes' WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3 AND (lease_until IS NULL OR lease_until<now()) RETURNING account`,[j.workspace_id,j.account,j.desired_revision])).rows;if(!claimed.length)continue;try{const r=await store.get(j.workspace_id),row=await getConversation(r.conversation_key),p=await plan(r.id);await check(r,row,{id:r.host_id},true);if(Number(p.version)!==Number(j.desired_revision))continue;const host=await identity(r.host_id,p.tenant_key),org=await platform.meetingOrganization(r.host_id),removed=p.cancelled||!p.calendar_enabled||j.account!==host.account&&!p.participants.some(x=>x.account===j.account);if(!org.people.some(x=>x.account===j.account))throw Object.assign(Error('inactive'),{code:'ACCESS_DISABLED'});
-    const result=await platform.syncMeetingCalendar(p.tenant_key,{meetingId:r.id,account:j.account,revision:Number(p.version),removed,topic:p.topic||r.fields.settings.topic,start:new Date(p.start_at).toISOString(),end:new Date(p.end_at).toISOString(),location:p.location,url:origin()+'/meetings/review/work/'+r.id});
-    await pool.query(`UPDATE central_archive.meeting_calendar_links SET state=$4,calendar_id=$5,event_id=$6,google_account=$7,applied_revision=$3,error_code='',lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[r.id,j.account,j.desired_revision,removed?'removed':'synced',result.calendarId,result.eventId,result.googleAccount]);
-   }catch(e){const codes={CALENDAR_EXTERNAL_CHANGED:'原日曆已在外部修改，請先核對',GOOGLE_NOT_CONNECTED:'請在工作日誌連接Google後重試',ACCESS_DISABLED:'帳號目前未開通',ACCOUNT_NOT_FOUND:'請先登入工作日誌',BINDING_CHANGED:'Google帳號已變更，請核對原日曆',CALENDAR_NOT_WRITABLE:'原日曆無法編輯'};await pool.query(`UPDATE central_archive.meeting_calendar_links SET state='failed',error_code=$4,lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[j.workspace_id,j.account,j.desired_revision,codes[e.code]||'同步未完成，請儲存排程重試']);}}
+    const source=r.receipt?.externalCalendarSource;
+    if(r.receipt?.externalCalendar&&j.account===host.account){await pool.query("UPDATE central_archive.meeting_calendar_links SET state='reused',lease_until=NULL WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3",[r.id,j.account,j.desired_revision]);continue;}
+    if(r.receipt?.externalCalendar&&(r.receipt.externalSyncError||!source?.iCalUID)&&!removed)throw Object.assign(Error('source missing'),{code:'SOURCE_UNAVAILABLE'});
+    const result=await platform.syncMeetingCalendar(p.tenant_key,{...(r.receipt?.externalCalendar?{externalSource:source}:{}),meetingId:r.id,account:j.account,revision:Number(p.version),removed,topic:p.topic||r.fields.settings.topic,start:new Date(source?.start?(source.start+(source.allDay?'T00:00:00+08:00':'')):p.start_at).toISOString(),end:new Date(source?.end?(source.end+(source.allDay?'T00:00:00+08:00':'')):p.end_at).toISOString(),location:source?.location??p.location,url:origin()+'/meetings/review/work/'+r.id});
+    await pool.query(`UPDATE central_archive.meeting_calendar_links SET state=$4,calendar_id=$5,event_id=$6,google_account=$7,applied_revision=$3,error_code='',lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[r.id,j.account,j.desired_revision,removed?'removed':result.reused?'reused':'synced',result.calendarId,result.eventId,result.googleAccount]);
+   }catch(e){const codes={SOURCE_UNAVAILABLE:'請先核對原日曆，再儲存邀請重試',IDEMPOTENCY_CONFLICT:'行程識別有衝突，請先核對；不會另建副本',CALENDAR_EXTERNAL_CHANGED:'原日曆已在外部修改，請先核對',GOOGLE_NOT_CONNECTED:'請在工作日誌連接Google後重試',ACCESS_DISABLED:'帳號目前未開通',ACCOUNT_NOT_FOUND:'請先登入工作日誌',BINDING_CHANGED:'Google帳號已變更，請核對原日曆',CALENDAR_NOT_WRITABLE:'原日曆無法編輯'};await pool.query(`UPDATE central_archive.meeting_calendar_links SET state='failed',error_code=$4,lease_until=NULL,updated_at=now() WHERE workspace_id=$1 AND account=$2 AND desired_revision=$3`,[j.workspace_id,j.account,j.desired_revision,codes[e.code]||'同步未完成，請儲存排程重試']);}}
  }finally{draining=false;}}
  return {handle,detail,participant,file,plan,inventory,check,drain,contract:HUB_CONTRACT};
 }
