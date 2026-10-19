@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as workJournalEntry from '../core/work-journal-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
 import * as uofSetupEntry from '../core/uof-setup-entry.js';
@@ -78,6 +79,7 @@ const dependencies = {
     deliveryReady: () => false,
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
+  './core/portal-command-entry.js': portalCommandEntry,
   './core/work-journal-entry.js': workJournalEntry,
   './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
@@ -155,6 +157,18 @@ assert.equal((await webhook([group])).status,503,'An archive outage must not ack
 assert.equal(centralCaptured.length,centralCount + 4);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');
 
+// Public portal navigation bypasses business handlers after signature validation.
+failCentralIntake=false;
+for(const text of ['UOF','會議']){
+ for(const source of [journal.source,{type:'group',userId:journal.source.userId,groupId:'C'+'2'.repeat(32)},{type:'room',userId:journal.source.userId,roomId:'R'+'3'.repeat(32)}]){
+ const before=Object.fromEntries(Object.entries(passed).map(([k,v])=>[k,v.length]));
+ const ev={...journal,source,message:{...journal.message,text},replyToken:'portal-'+text};
+ const replyCount=journalReplies.length;
+ assert.equal((await webhook([ev],false)).status,401);assert.equal(journalReplies.length,replyCount);
+ assert.equal((await webhook([ev])).status,200);assert.equal(journalReplies.length,replyCount+1);
+ for(const [k,v] of Object.entries(passed))assert.equal(v.length,before[k]);
+ }
+}
 failCentralIntake=false;
 const guide={...journal,message:{type:'text',text:'使用說明'}};
 const helpBefore=Object.fromEntries(Object.entries(passed).map(([key,events])=>[key,events.length]));
@@ -172,3 +186,4 @@ const groupHelpBefore=Object.fromEntries(Object.entries(passed).map(([key,events
 assert.equal((await webhook([groupGuide])).status,200);assert.equal(journalReplies.length,repliesBefore+3);
 for(const [key,events]of Object.entries(passed))assert.equal(events.length,groupHelpBefore[key],'Group help bypasses '+key);
 console.log('Signed native group mention also bypasses business classification and replies only to its source.');
+

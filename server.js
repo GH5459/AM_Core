@@ -12,6 +12,7 @@ import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
 import { createLeafGroups } from './core/leaf-groups.js';
+import { createPortalCommandEntry } from './core/portal-command-entry.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
 import { createUsageGuideEntry } from './core/usage-guide-entry.js';
 import { createUofSetupEntry } from './core/uof-setup-entry.js';
@@ -37,6 +38,7 @@ const centralArchive=await createCentralArchive({line,drive:platform.drive,route
 const conversationMeetings=createConversationMeetings({env:process.env,archive:centralArchive,platform,router,tenants,meetingModule:modules.get('meetings'),logger});
 platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,taskPhotos:centralArchive.taskPhotos,taskPhoto:centralArchive.taskPhoto,canRetrieveQuote:centralArchive.canRetrieveQuote,
   recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
+const portalCommandEntry = createPortalCommandEntry({ line, logger });
 const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>leafTasks.loginEntry(event,action) });
 const usageGuideEntry = createUsageGuideEntry({line,logger,botUserId:process.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});
 const lineIo = await createLineIo({ tenants, line, router, logger });
@@ -299,7 +301,9 @@ const server = http.createServer(async (req, res) => {
       lineTasks: leafTasks.health(),
       lineGroupMentions: leafGroups.health(),
       workJournalEntry: workJournalEntry.health(),
+      portalCommandEntry: portalCommandEntry.health(),
       usageGuideEntry: usageGuideEntry.health(),
+
       uofSetupEntry: uofSetupEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       centralArchive: centralArchive.health(),
@@ -457,10 +461,13 @@ const server = http.createServer(async (req, res) => {
     // Capture every verified event before private-assistant pause, command and business-module filters.
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
+    const portalEvents = body.events.filter(portalCommandEntry.matches);
+    body.events = body.events.filter(event => !portalCommandEntry.matches(event));
     // Consume public help before business classifiers, retaining the signed
     // source above. Deliver only after the webhook is acknowledged below.
     const guideEvents = body.events.filter(usageGuideEntry.matches);
     body.events = body.events.filter(event => !usageGuideEntry.matches(event));
+
     try {
       const meetingEvents=await conversationMeetings.capture(body.events);
       // Keep existing subscribed input feeds and conversation observations even
@@ -507,7 +514,9 @@ const server = http.createServer(async (req, res) => {
     } catch { return sendJson(res,503,{error:'Calendar intake is temporarily unavailable.'}); }
     if (!activeEvents.length) {
       sendText(res,200,'OK');
+      for (const event of portalEvents) portalCommandEntry.handle(event);
       for (const event of guideEvents) usageGuideEntry.handle(event);
+
       for (const event of journalEvents) workJournalEntry.handle(event);
       for (const event of uofSetupEvents) uofSetupEntry.handle(event);
       if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
@@ -572,7 +581,9 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
+    for (const event of portalEvents) portalCommandEntry.handle(event);
     for (const event of guideEvents) usageGuideEntry.handle(event);
+
     for (const event of journalEvents) workJournalEntry.handle(event);
     for (const event of uofSetupEvents) uofSetupEntry.handle(event);
     if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));

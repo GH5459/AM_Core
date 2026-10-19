@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.1019.13",
+  "name": "會議與 UOF 文字入口",
+  "type": "Public navigation",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Original LINE credentials and active default Rich Menu"
+  ],
+  "requiresScripts": [
+    "tools/test-portal-command-entry.mjs",
+    "tools/verify-private-assistant-pause.mjs"
+  ],
+  "installTargets": [
+    "Original AM runtime"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Exact meeting/UOF commands reply with public entry buttons in direct/group/room",
+    "Original 待簽 and identity/access remain unchanged",
+    "Reviewed main commit and production health readback"
+  ]
+}

@@ -1,4 +1,6 @@
+import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
+
 import test from 'node:test';
 import * as workJournalEntry from '../core/work-journal-entry.js';
 import * as uofSetupEntry from '../core/uof-setup-entry.js';
@@ -339,8 +341,10 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:()=>false})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
+      './core/portal-command-entry.js':portalCommandEntry,
       './core/usage-guide-entry.js':usageGuideEntry,
       './core/work-journal-entry.js': workJournalEntry,
+
       './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=> '/'},
       './core/util.js':{readBody:async req=>req.rawBody,sendJson:(res,status,body)=>{res.status=status;res.body=body;},sendText:(res,status)=>{res.status=status;acked=true;}},
