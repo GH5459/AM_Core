@@ -25,3 +25,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1016.04 | DailyLog task cards | Deployed | ccb64406 complete27 modules / original settings and Assets preserved; protected inline image gallery / six widths / retries / read-only viewing; latest collaborative completion and timeline retained; production authenticated asset policies verified; no AM runtime deployment |
 
 | AM-IMP-2026.1017.01 | Root Leaf OA group invitations | Deployed | PR314 CI passed; 39 isolated checks; Render dep-db9dse61egvs73et22d0 and both production origins a44bb04 verified with 600-second silent timeout |
+| AM-IMP-2026.1019.10 | AM shared meeting glossary and batch import | Deployed | PR327 full CI; AM b8fc4ff both origins; authenticated editor/standalone CSV200 preview, guest denial; production runtime-role isolated200 import/dedup/audit with cleanup;4 meetings/109 conversations/175 task versions preserved; UOF/DailyLog unchanged |
