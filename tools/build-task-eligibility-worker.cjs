@@ -1,0 +1,14 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict'),crypto=require('crypto');
+const folder=process.argv[2];assert(path.isAbsolute(folder||''));
+let source=fs.readFileSync(folder+'/baseline/worker.mjs','utf8');
+const patch=(a,b)=>{assert.equal(source.split(a).length,2,'Unique current source anchor required: '+a.slice(0,80));source=source.replace(a,b);};
+patch('if (route.endsWith("/self-create"))','if (route.endsWith("/suppress")) return response(await suppressLineTask(value,env,now));\n    if (route.endsWith("/self-create"))');
+patch('contract: ASSIGNMENT_CONTRACT, selfTaskContract:', 'contract: ASSIGNMENT_CONTRACT, taskEligibilityPolicy:"line-task-silent-ineligible-v1", selfTaskContract:');
+patch('if (!permission2(source.sender.account) || !map.has(source.sender.account) || judgment.assignments.some', 'if (source.mentions.some(m=>!permission2(m.account)||!map.has(m.account)) || !permission2(source.sender.account) || !map.has(source.sender.account) || judgment.assignments.some');
+patch('if (!permission2(source.sender.account) || judgment.assignments.some','if (source.mentions.some(m=>!permission2(m.account)) || !permission2(source.sender.account) || judgment.assignments.some');
+fs.writeFileSync(folder+'/candidate/worker.mjs',"import {suppressLineTask} from './line-task-suppression.mjs';\n"+source);
+fs.copyFileSync(path.resolve(__dirname,'../core/line-task-suppression-worker.mjs'),folder+'/candidate/line-task-suppression.mjs');
+const files=(dir,p='')=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(dir+'/'+e.name,p+e.name+'/'):[p+e.name]);
+const signature=Object.fromEntries(files(folder+'/candidate').sort().map(f=>[f,crypto.createHash('sha256').update(fs.readFileSync(folder+'/candidate/'+f)).digest('hex')]));
+fs.writeFileSync(folder+'/review.private.json',JSON.stringify({source:signature,changedModules:['worker.mjs','line-task-suppression.mjs']},null,2));
+console.log(JSON.stringify({built:true,modules:Object.keys(signature).length,onlyMainAndSuppressionModuleChanged:true}));

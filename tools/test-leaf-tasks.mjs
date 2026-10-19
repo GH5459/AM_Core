@@ -5,12 +5,14 @@ const sender='U'+'1'.repeat(32),recipient='U'+'2'.repeat(32),group='C'+'3'.repea
 function event(text='@同仁 請整理本週客訴清單'){return {type:'message',webhookEventId:'fixture-event',timestamp:Date.now(),source:{type:'group',groupId:group,userId:sender},message:{type:'text',id:'fixture-message',text,mention:{mentionees:[{type:'user',userId:recipient,index:0,length:3}]}}};}
 async function fixture({failFirstTenant=false,businessResolution='active',missingRecipient=false,duplicateService=false}={}){let config=null,job=null,judgments=0,issues=0,notices=0,failNotice=false,revoked=false;const paths=[];
  const options={env:{LINE_CHANNEL_SECRET:secret},tenants:failFirstTenant?[{key:'unavailable',runtimeEnabled:true},tenant]:[tenant],store:{service:async t=>{if(t.key==='unavailable')throw Object.assign(Error('synthetic unavailable'),{code:'42501'});return config;},provisionTasks:async()=>{},configureTask:async(t,v)=>config={encrypted_key:{iv:'preserved-calendar',taskService:{baseUrl:v.baseUrl,encryptedKey:v.encryptedKey}}}},router:{resolveGroupBinding:async()=>({tenant,binding:{status:'影子記錄'},resolution:'active'})},line:{lineGet:async p=>({userId:p.split('/').at(-1)})},resolveIdentity:async(u,t)=>revoked?null:({tenantKey:t,account:u===sender?'sender':'recipient',bindingId:'bound-'+u}),platform:{pushLineMessage:async()=>{if(failNotice){failNotice=false;throw Error('synthetic timeout');}notices++;}},llm:{completeJson:async opts=>{judgments++;return JSON.parse(opts.userContent).text.includes('早安')?{assignments:[]}:{assignments:[{title:'整理客訴清單',description:'整理本週客訴清單',recipientIndices:[0]}]};}},logger:{warn(){}},fetchImpl:async(url,init)=>{const path=new URL(url).pathname.split('/').at(-1),input=init.body?JSON.parse(init.body):{};paths.push(path);let output={ok:true};
+ if(path==='meeting-person')output={ok:true,person:{name:'合成同仁'}};
  if(path==='health')output={ok:true,contract:'line-mention-dailylog-immediate-v1',tenant:'fixture'};
  if(path==='intake'){if(!job)job={id:input.id,state:'queued',input,result:null,leaseToken:'synthetic-lease'};else assert.equal(input.id,job.id);}
  if(path==='next')output.job=job&&job.state!=='done'&&job.state!=='suppressed'?structuredClone(job):null;
  if(path==='judgment'){job.result={assignments:input.assignments};job.state=input.assignments.length?'judged':'suppressed';}
  if(path==='issue'){issues++;job.state='issued';job.result={taskIds:['work-synthetic'],notice:'已交辦，請補交辦資料。'};}
  if(path==='notified')job.state='done';
+ if(path==='suppress')job.state='suppressed';
  if(path==='defer')job.state=job.state;
  if(path==='source')job.state=job.state==='issued'?'issued':'suppressed';
  return Response.json(output);}};
@@ -29,7 +31,7 @@ test('source diagnostics expose gate results without task writes or private IDs/
  const f=await fixture(),e=event(),before=f.paths.length;
  const result=await f.service.inspectSource({key:'in:synthetic',event:e});
  assert.equal(result.candidate,true);assert.equal(result.configured,true);assert.equal(result.senderResolved,true);assert.deepEqual(result.recipientResolved,[true]);
- assert.equal(f.paths.length,before);assert.deepEqual(f.counts(),{judgments:0,issues:0,notices:0});
+ assert(f.paths.slice(before).every(p=>p==='meeting-person'));assert.deepEqual(f.counts(),{judgments:0,issues:0,notices:0});
  for(const privateValue of [sender,recipient,group,e.message.text])assert(!JSON.stringify(result).includes(privateValue));
  f.revoke();assert.equal((await f.service.inspectSource({key:'in:synthetic',event:e})).senderResolved,false);
 });
@@ -50,7 +52,7 @@ test('group readiness reads native actors and live membership without changing i
  const result=await f.service.inspectGroup({groupId:group},[sender,recipient]);
  assert.equal(result.observedCurrentMembers,2);assert.equal(result.confirmedCommonTaskService,true);assert.equal(result.groupScope,'all-oa-groups');
  assert.equal(result.members.length,2);assert(result.members.every(m=>m.confirmedTaskIdentity&&!m.ambiguousTaskIdentity));
- assert.equal(f.paths.length,before);for(const id of [group,sender,recipient])assert(!JSON.stringify(result).includes(id));
+ assert(f.paths.slice(before).every(p=>p==='meeting-person'));for(const id of [group,sender,recipient])assert(!JSON.stringify(result).includes(id));
  await assert.rejects(f.service.inspectGroup({groupId:'bad'},[]),/invalid_group_probe/);
 });
 
@@ -68,3 +70,12 @@ test('combined group extraction uses original mention indices and does not call 
   const r=await service.submitSelfTask(tenant,e,prior,draft,confirmation,1);assert.equal(r.taskIds[0],'work-fixture');assert.match(JSON.stringify(r.message),/已建立自己的任務/);assert.equal(f.counts().issues,0);
   await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,{...confirmation,userId:recipient},1));f.revoke();await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,confirmation,1));
  });
+
+test('current disabled recipient is silently rejected before intake, and unavailable roster is not labeled ineligible',async()=>{
+ const f=await fixture(),base=f.options.fetchImpl;let disabled=true,outage=false;
+ f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/meeting-person')){const a=JSON.parse(init.body).account;if(outage)return Response.json({ok:false,code:'SERVICE_UNAVAILABLE'},{status:503});return Response.json({ok:true,person:disabled&&a==='recipient'?null:{name:'合成'}});}return base(url,init);};
+ const s=f.restart();await s.capture([event()]);assert(!f.paths.includes('intake'));assert.equal(f.counts().notices,0);outage=true;await assert.rejects(s.capture([event()]));assert(!f.paths.includes('intake'));outage=false;disabled=false;await s.capture([event()]);await s.drain();assert.equal(f.counts().issues,1);
+});
+test('eligibility lost after queue receipt is terminal and never turns into a deferred login task',async()=>{
+ const f=await fixture();await f.service.capture([event()]);f.revoke();await f.service.drain();assert(f.paths.includes('suppress'));assert(!f.paths.includes('issue'));assert(!f.paths.includes('defer'));assert.equal(f.counts().notices,0);await f.restart().drain();assert.equal(f.counts().issues,0);
+});

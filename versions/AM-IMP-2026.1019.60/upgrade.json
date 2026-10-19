@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1019.60",
+  "name": "群組交辦不合資格安靜略過",
+  "type": "Task eligibility policy",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing AM archive dispatch and DailyLog assignment intake; no schema changes"
+  ],
+  "requiresEnv": [
+    "Existing task service key and OA configuration"
+  ],
+  "requiresScripts": [
+    "tools/build-task-eligibility-worker.cjs",
+    "tools/test-task-eligibility-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "All mentioned people eligible or entire message silently ignored",
+    "No login prompt / backfill for skipped task",
+    "Existing login-waiting task dispatch becomes terminal",
+    "Current access checked before intake and issue including unselected mentions",
+    "Service outage stays silent and distinct from ineligibility",
+    "Already issued work and meeting/self task policies preserved",
+    "Full CI and both production origins verified",
+    "Latest complete DailyLog modules and settings/assets/cron preserved"
+  ]
+}

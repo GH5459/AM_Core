@@ -7,6 +7,7 @@ import {parseAttachmentRequest} from './attachment-retrieval.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,assignmentSchema,TASK_SPEED_POLICY} from './task-judgment.js';
 import {GROUP_INVITE_TIMEOUT_MS,GROUP_INVITE_TIMEOUT_POLICY,invitationTimedOut,cancelTimedOutInvitation} from './group-invite-policy.js';
+import {TASK_ELIGIBILITY_POLICY,isTaskIneligible,wasWaitingForTaskIdentity,ignoreTask} from './task-eligibility-policy.js';
 export const GROUP_MENTION_CONTRACT='line-group-mention-meetings-tasks-v1';
 const user=/^U[a-f0-9]{32}$/i,group=/^C[a-f0-9]{32}$/i;
 const command=e=>String(e.postback?.data||'').match(/^(?:groupcal|grouptask):(confirm|cancel):([a-f0-9]{48}):(\d{1,8})$/u);
@@ -28,7 +29,10 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       if(action){await store.insert(e,'control',{action:action[1],target:action[2],targetRevision:Number(action[3])});claimed.push(e);continue;}
       if(supplement||taskEdit){const edit=taskEdit||supplement;const matches=await store.drafts(e.source.groupId,e.source.userId,edit.topic,taskEdit?'selftask':'meeting');
         if(matches.length===1&&edit.text){await store.insert(e,'control',{action:'edit',target:matches[0].dispatch.id,targetRevision:matches[0].dispatch.revision,correction:edit.text});claimed.push(e);}continue;}
-      const quick=quickCreateIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
+      const proposed=quickCreateIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
+      // A bot mention must not turn a colleague assignment into a self-task
+      // preview and bypass the all-recipient eligibility gate.
+      const quick=proposed?.kind==='selftask'&&peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1?null:proposed;
       if((!quick&&!mentionCandidate(e))||parseAttachmentRequest(e)?.explicitSelf)continue;
       const mentions=e.message.mention.mentionees;
       if(mentions.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!user.test(m.userId||''))||peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>21||e.message.text.length>10000)continue;
@@ -91,8 +95,10 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     if(text)await notify(row,p,text,'control');p.phase='done';
   }
   async function work(row){const p={...row.dispatch};
+    if((p.quickKind==='selftask'||p.mode==='selftask')&&peers(row.event,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1)return store.save(row,ignoreTask({...p,mode:'task'}));
+    if(wasWaitingForTaskIdentity(p))return store.save(row,ignoreTask(p));
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
-    if(p.expiresAt<=now()){await notify(row,p,'這則交辦／活動等待設定已超過 30 天，請重新發送。','expired');p.phase='expired';return store.save(row,p);}
+    if(p.expiresAt<=now()){if(p.mode==='task'||!p.mode&&!p.quickKind)return store.save(row,ignoreTask(p));await notify(row,p,'這則交辦／活動等待設定已超過 30 天，請重新發送。','expired');p.phase='expired';return store.save(row,p);}
     if(p.kind==='control'){const r=await control(row,p);if(r!=='saved')await store.save(row,p);return;}
     const live=await store.active(row);if(!live)return;
     if(live.dispatch.sourceRemoved){p.phase='cancelled';return store.save(row,p);}
@@ -105,6 +111,22 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       }else if(p.mode==='selftask'){p.prepared=await extractSelfTask({text:row.event.message.text,at:row.event.timestamp,llm:engine});p.phase='preview';}else p.phase='task';
     }
     if(p.phase==='confirmation')return store.save(row,p,5);
+    if(p.mode==='task'){
+      // Persist classification before remote checks so an outage cannot use the
+      // old login/deferred notice or lose the terminal decision after restart.
+      if(!await store.checkpoint(row,p))return;
+      if(!(services||await tasks.groupServices()).length)throw Error('task_eligibility_unavailable');
+      const context=await resolve(row,p,services);
+      if(!context.tenant||context.people.some(x=>x.state!=='ready'))return store.save(row,ignoreTask(p));
+      const verified=[];
+      for(const person of context.people){const current=await tasks.resolveTaskGroupIdentity(person.userId,context.tenant,row.event.source.groupId);
+        if(!current||current.account!==person.account||current.bindingId!==person.bindingId)return store.save(row,ignoreTask(p));verified.push({...current,userId:person.userId});}
+      if(p.frozenTaskPeople?.some(prior=>!verified.some(x=>x.userId===prior.userId&&x.account===prior.account&&x.bindingId===prior.bindingId)))return store.save(row,ignoreTask(p));
+      p.tenantKey=context.tenant.key;p.frozenTaskPeople=verified;
+      if(!await store.checkpoint(row,p))return;
+      const current=await store.active(row);if(!current)return;if(current.dispatch.sourceRemoved){p.phase='cancelled';return store.save(row,p);}
+      await tasks.submitGroupTask(context.tenant,row.event,verified,p.taskJudgment);p.phase='done';const saved=await store.save(row,p);tasks.wake?.();return saved;
+    }
     const context=await resolve(row,p,services);p.people=context.people;if(context.tenant)p.tenantKey=context.tenant.key;
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
     if(p.phase==='preview'){
@@ -117,13 +139,6 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     }
     const waiting=p.people.filter(x=>x.state==='login');if(waiting.length)await notify(row,p,'已保留這則'+(p.mode==='task'?'交辦':p.mode==='selftask'?'自己的任務':'邀約')+'。'+waiting.map(x=>x.name).join('、')+'請從葉小蝸一對一聊天開啟「工作日誌」，登入本人公司帳號；完成後會自動接續處理。','login');
     if(!context.tenant){if(!waiting.length)await notify(row,p,'已保留這則交辦／邀約，目前無法確認對應的工作日誌，請聯絡管理者確認；不需要重複登入。','identity-scope');return store.save(row,p,60);}
-    if(p.phase==='task'){
-      if(waiting.length)return store.save(row,p,60);
-      p.frozenTaskPeople ||= p.people.map(({userId,account,bindingId})=>({userId,account,bindingId}));
-      if(!await store.checkpoint(row,p))return;
-      const current=await store.active(row);if(!current)return;if(current.dispatch.sourceRemoved){p.phase="cancelled";return store.save(row,p);}
-      await tasks.submitGroupTask(context.tenant,row.event,p.frozenTaskPeople,p.taskJudgment);p.phase='done';const saved=await store.save(row,p);tasks.wake?.();return saved;
-    }
     if(p.phase==='selfissue'){
       if(!p.confirmation||p.confirmation.userId!==row.event.source.userId||p.prepared.missing.length)throw Error('self_task_confirmation_required');
       const who=p.people[0];if(!who.account)return store.save(row,p,60);
@@ -150,8 +165,14 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
   }
   function drain(){if(!enabled)return Promise.resolve();if(running)return running;running=(async()=>{for(let i=0;i<20;i++){const row=await store.lease();if(!row)break;try{await work(row);}catch(error){const live=await store.active(row);if(!live)continue;const p={...live.dispatch};
       if(invitationTimedOut(live,p,now())){await store.save(row,cancelTimedOutInvitation(p,now()));continue;}
+      if(p.mode==='task'){
+        if(isTaskIneligible(error)||error.lineStatus===404||error.message==='group_identity_changed'||error.message==='group_member_changed')await store.save(row,ignoreTask(p));
+        else await store.save(row,p,60);
+        logger.warn?.('[leaf-groups] task eligibility gate; no group notice');continue;
+      }
+      if(!p.mode&&!p.quickKind){await store.save(row,p,60);continue;}
       if(error.message==='group_identity_changed'){p.phase='cancelled';await notify(row,p,'工作身分已變更，請由發起人重新發送交辦／邀約；已建立的活動會保留。','changed').catch(()=>{});}
       else await notify(row,p,'已保留這則群組交辦／邀約，暫時無法完成處理，系統會自動重試。','deferred').catch(()=>{});
       logger.warn?.('[leaf-groups] processing deferred; original source retained');await store.save(row,p,60);}}})().finally(()=>running=null);return running;}
-  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,identityNoticePolicy:'unlinked-people-only-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
+  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,identityNoticePolicy:'meetings-only-unlinked-people-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
 }
