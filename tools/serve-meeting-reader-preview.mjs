@@ -1,6 +1,7 @@
 // Synthetic data only; no production credentials, messages or work tasks.
 import http from 'node:http';
 import crypto from 'node:crypto';
+import {decisionRecordText} from '../modules/meetings/decision-record.js';
 process.env.MEETING_WORKSPACE_PREVIEW='1';
 const port=Number(process.env.MEETING_READER_PREVIEW_PORT||8842),origin='http://127.0.0.1:'+port;
 const {fixture:f}=await import('./test-meeting-workspace-service.mjs');f.resetMembership();
@@ -11,6 +12,7 @@ f.env.AMCORE_PUBLIC_BASE_URL=origin;
 const row=(await f.pg.query("SELECT * FROM central_archive.meeting_workspaces WHERE state='published'")).rows[0];
 await f.pg.query("INSERT INTO central_archive.jobs(key,conversation_key,event_at,payload,state) VALUES($1,$2,now(),$3::jsonb,'done')",['synthetic-observed-member',row.conversation_key,JSON.stringify({direction:'incoming',event:{source:{userId:'U'+'2'.repeat(32)}}})]);
 const fields={...row.fields,settings:{...row.fields.settings,topic:'合成示例｜每月服務改善會議',date:'2026-10-18'},record:['重點摘要','• 本月服務回饋已整理完成，會議確認接待流程與設備維護的下一步。','• 這份預覽使用合成資料，可練習觀看、編輯與分享。','','會議內容',...Array.from({length:7},(_,i)=>'議題 '+(i+1)+'：團隊逐項討論工作進度、目前問題與可採取的作法。保留完整討論脈絡，讓執行者能清楚知道決議的原因與預期成果。'),'','結論與決議','• 接待資訊改為同一份清單，避免現場使用不同版本。','• 先完成設備盤點，再依影響程度安排處理順序。'].join('\n'),transcript:Array.from({length:35},(_,i)=>`[${String(Math.floor(i/6)).padStart(2,'0')}:${String(i%6*10).padStart(2,'0')}] ${i%2?'同仁乙':'主持人'}：這是第 ${i+1} 段合成逐字稿，完整呈現討論、回覆與後續處理方式。`).join('\n\n')};
+if(process.env.MEETING_DECISION_PREVIEW==='1')fields.record=decisionRecordText([{title:'接待資訊共用同一份清單',summary:'營運與現場使用同一版資訊；同仁乙完成核對後再更新。',status:'方向已確認，核對待完成',evidence:[{timestamp:'00:00',speaker:'主持人',text:'不同版本會讓現場收到不一致的資訊。'},{timestamp:'00:10',speaker:'同仁乙',text:'先核對清單，再讓兩邊取用同一版本。'}]},{title:'先盤點設備，再安排維護順序',summary:'先確認異常與影響範圍，盤點尚未完成，維護時間待確認。',status:'待處理',evidence:[{timestamp:'00:20',speaker:'主持人',text:'依設備對服務的影響安排處理順序。'}]}]);
 for(const k of Object.keys(fields))if(k.startsWith('todo:'))delete fields[k];
 for(let i=0;i<4;i++)fields['todo:'+crypto.randomUUID()]={content:['整理接待資訊清單並核對使用版本','完成現場設備盤點，附上異常說明','彙整本月回饋並提出下月追蹤項目','確認下一次會議的討論資料'][i],ownerId:i===3?'':i%2?'U'+'2'.repeat(32):row.host_id,due:'2026-10-'+(20+i),evidence:'合成會議決議第 '+(i+1)+' 項'};
 await f.pg.query("UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,receipt=jsonb_set(receipt,'{ownerNames}',$3::jsonb),sharing_enabled=false WHERE id=$1",[row.id,JSON.stringify(fields),JSON.stringify({[row.host_id]:'主持人',['U'+'2'.repeat(32)]:'同仁乙'})]);

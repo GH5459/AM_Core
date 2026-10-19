@@ -1,4 +1,5 @@
 import {todos} from './workspace-model.js';
+import {meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 
 // Keep the prior published snapshot readable until the revision's Notion and
 // task receipts have completed. Source pages, recordings and task IDs persist.
@@ -13,11 +14,7 @@ export function workspaceRevisions({pool,store,conversation,assertMember,validat
   if(!receipt.tasksSaved){await taskDispatch.enqueue(r);receipt.tasks=r.receipt.tasks||[];receipt.taskTenant=r.receipt.taskTenant||'';receipt.knownTaskIds=r.receipt.knownTaskIds||[];receipt.tasksSaved=true;await save();}
   if(!receipt.notionSaved){
    const marker='會議修訂 '+job.revision+' · '+r.id,lines=[marker,'修訂者：'+job.actor_name,'會議記錄',job.fields.record,'待辦事項',...todos(job.fields).map((t,i)=>`任務 ${i+1}：${t.content}\n負責人：${t.ownerId?job.owner_names[t.ownerId]||'待確認':'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'逐字稿',job.fields.transcript||'未提供','來源：'+link(r.id)];
-   const chunks=[];for(const line of lines)for(let i=0;i<line.length||i===0;i+=1800)chunks.push(line.slice(i,i+1800));
-   const existing=[];let cursor='';do{const d=await request('/blocks/'+r.receipt.notionId+'/children?page_size=100'+(cursor?'&start_cursor='+cursor:''));existing.push(...d.results);cursor=d.has_more?d.next_cursor:'';}while(cursor);
-   const text=existing.map(b=>(b.paragraph?.rich_text||[]).map(x=>x.plain_text||x.text?.content||'').join('')),start=text.indexOf(marker),done=start<0?[]:text.slice(start);
-   if(done.length>chunks.length||done.some((v,i)=>v!==chunks[i]))throw Error('notion_revision_content_changed');
-   for(let i=done.length;i<chunks.length;i+=50)await request('/blocks/'+r.receipt.notionId+'/children','PATCH',{children:chunks.slice(i,i+50).map(s=>({object:'block',type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:s}}]}}))});receipt.notionSaved=true;await save();
+   await appendVerifiedMeetingBlocks(request,r.receipt.notionId,meetingNotionBlocks(lines),marker);receipt.notionSaved=true;await save();
   }
   await store.locked(r.id,async(current,tx)=>{
    if(Number(current.revision)!==Number(job.base_revision))throw Error('published_revision_changed');

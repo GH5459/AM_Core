@@ -10,6 +10,7 @@ import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
 import {meetingTaskDispatch} from './task-dispatch.js';
+import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 import {sendJson} from '../../core/util.js';
 
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
@@ -148,11 +149,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     }});receipt.notionId=page.id;await save();
    }
    const lines=['會議記錄',r.fields.record,'','待辦事項',...todos(r.fields).map((t,i)=>`${i+1}. ${t.content}\n負責人：${t.ownerId?receipt.ownerNames?.[t.ownerId]||t.ownerId:'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'','逐字稿',r.fields.transcript||r.result.warning||'未提供','',`來源：${row.display_name||'LINE 對話'}／${r.filename}／上傳者 ${r.host_name}／${new Date(r.source.timestamp).toISOString()}／訊息 ${r.message_id}`,`專案／目標：${r.fields.settings.projectGoal||'尚待補充'}`,`原始錄音：${audio.webViewLink}`,`會議連結：${link(r.id)}`,`整理類型：${r.fields.settings.type}\n整理要求：${r.fields.settings.prompt}`];
-   const chunks=[];for(const line of lines)for(let i=0;i<line.length||i===0;i+=1800)chunks.push(line.slice(i,i+1800));
-   const existing=[];let cursor='';do{const data=await request('/blocks/'+receipt.notionId+'/children?page_size=100'+(cursor?'&start_cursor='+cursor:''));existing.push(...data.results);cursor=data.has_more?data.next_cursor:'';}while(cursor);
-   const existingText=existing.map(b=>(b.paragraph?.rich_text||[]).map(x=>x.plain_text||x.text?.content||'').join(''));
-   if(existingText.length>chunks.length||existingText.some((s,i)=>s!==chunks[i]))throw Error('notion_publication_content_changed');
-   for(let i=existing.length;i<chunks.length;i+=50)await request('/blocks/'+receipt.notionId+'/children','PATCH',{children:chunks.slice(i,i+50).map(s=>({object:'block',type:'paragraph',paragraph:{rich_text:rich(s)}}))});
+   await appendVerifiedMeetingBlocks(request,receipt.notionId,meetingNotionBlocks(lines));
    receipt.notionSaved=true;await save();
    await taskDispatch.enqueue({...r,receipt});
    receipt.taskDispatch=true;receipt.tasksSaved=true;await save();
@@ -279,5 +276,5 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    sendJson(res,200,result);return true;
   }catch(e){if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1'})};
+ return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',recordFormat:DECISION_RECORD_CONTRACT})};
 }

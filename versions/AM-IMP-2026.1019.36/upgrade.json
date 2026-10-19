@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1019.36",
+  "name":"重點與決議及可展開的對話依據",
+  "type":"Meeting record format",
+  "portable":true,
+  "status":"Ready",
+  "requiresDatabases":["Existing project-local PostgreSQL workspace and revision tables"],
+  "requiresEnv":["Existing project-local model, Notion and source-member settings"],
+  "requiresScripts":["tools/test-meeting-decision-record.mjs","tools/test-meeting-workspace-generation.mjs","tools/test-meeting-reader-sharing.mjs"],
+  "installTargets":["Original AM platform"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Merged concise topic outcomes with expandable source evidence","Actual transcript times and speakers, no invented completion","Existing tasks, deadlines, progress, source recordings and full transcripts preserved","Nested Notion blocks resume without duplicates or overwriting external edits","Exact production build and explicitly authorized single-record update verified"]
+}

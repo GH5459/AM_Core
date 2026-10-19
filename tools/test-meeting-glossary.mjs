@@ -41,14 +41,14 @@ assert(!glossaryPrompt([{...saved,enabled:false}]).includes(entry.term));
 assert.throws(()=>checkTerm({...entry,term:''}));
 // Both audio recognition and text summary receive the same vocabulary snapshot.
 let reads=0,submitted,summary,fallbackPrompt='';
-const platform={assemblyKey:'fixture',geminiKey:'fixture',meetingGlossary:{snapshot:async()=>{reads++;return [saved,...Array.from({length:199},(_,i)=>({...saved,id:"synthetic-"+i,term:"批次詞"+(i+2),aliases:[],note:""}))];}},llm:{completeJson:async input=>{summary=input;return {title:'合成星河館會議',minutes:[{heading:'討論',points:['檢查合成星河館']}],todos:[]};}}};
+const platform={assemblyKey:'fixture',geminiKey:'fixture',meetingGlossary:{snapshot:async()=>{reads++;return [saved,...Array.from({length:199},(_,i)=>({...saved,id:"synthetic-"+i,term:"批次詞"+(i+2),aliases:[],note:""}))];}},llm:{completeJson:async input=>{summary=input;return {title:'合成星河館會議',topics:[{title:'核對合成星河館資料',summary:'先核對資料內容，尚未完成。',status:'待處理',evidence:[{timestamp:'00:00',speaker:'測試者',text:'檢查合成星河館'}]}],minutes:[{heading:'討論',points:['檢查合成星河館']}],todos:[]};}}};
 meeting.init(platform);
 globalThis.fetch=async(url,options)=>{
  if(String(url).endsWith('/v2/upload'))return Response.json({upload_url:'https://fixture/audio'});
  if(String(url).endsWith('/v2/transcript')){submitted=JSON.parse(options.body);return Response.json({id:'synthetic'});}
  if(String(url).includes('/v2/transcript/'))return Response.json({status:'completed',utterances:[{speaker:'A',start:0,end:1000,text:'檢查合成新河管'}]});
  if(String(url).includes('/upload/v1beta/files'))return Response.json({file:{state:'ACTIVE',uri:'https://fixture/file'}});
- if(String(url).includes(':generateContent')){fallbackPrompt=JSON.parse(options.body).contents[0].parts[1].text;return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({title:'合成星河館會議',minutes:[{heading:'討論',points:['檢查合成星河館']}]})}]}}]});}
+ if(String(url).includes(':generateContent')){fallbackPrompt=JSON.parse(options.body).contents[0].parts[1].text;return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({title:'合成星河館會議',topics:[{title:'核對合成星河館資料',summary:'先核對資料內容，尚未完成。',status:'待處理',evidence:[{timestamp:'00:00',speaker:'測試者',text:'檢查合成星河館'}]}],minutes:[{heading:'討論',points:['檢查合成星河館']}]})}]}}]});}
  throw Error('Unexpected test URL');
 };
 const input={tenant:{key:'synthetic'},buffer:Buffer.from('synthetic'),filename:'synthetic.m4a',contentType:'audio/mp4',settings:{topic:'詞庫校正',date:'2026-10-19',type:'一般',prompt:'忠實整理',speakers:[{name:'測試者'}]}};
