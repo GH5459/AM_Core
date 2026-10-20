@@ -171,7 +171,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
-      - run: node --test tools/test-line-personal-completion-report.mjs tools/test-personal-authority.mjs tools/test-personal-worker-boundary.mjs
+      - run: node --test tools/test-personal-recipient-selection.mjs tools/test-line-personal-completion-report.mjs tools/test-personal-authority.mjs tools/test-personal-worker-boundary.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.30
       - run: node tools/test-line-completion-report.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.14
