@@ -250,9 +250,15 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const result=await call(t,c,'meeting-publish',{id,host,tasks,url,notionId,...revision?{revision,removed,knownTaskIds}:{},date:fields.settings.date,goal:fields.settings.projectGoal,source:{kind:row.source_kind,conversationKey:row.key,messageId:source.message.id,timestamp:source.timestamp,filename:source.message.fileName||''}});return {...result,tenantKey:host.tenantKey};
  }
  async function commonLink(input){const available=await groupServices();if(available.length!==1)throw Error('common_identity_service_ambiguous');const t=available[0],c=await config(t);const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/common-link',c.base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},body:JSON.stringify({tenantKey:t.key,...input}),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('common_identity_service_unavailable');return r.json();}
- const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});
+ async function readMeetingTaskProgress({tenantKey,id,hostId,actorId,todoIds}){
+  const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('meeting_task_service_changed');
+  const host=await meetingIdentity(hostId);if(!host||host.tenantKey!==tenantKey)throw Error('meeting_task_identity_changed');
+  const viewer=await meetingShareIdentity(actorId,tenantKey);
+  return call(t,await config(t),'meeting-progress',{contract:'meeting-live-task-progress-v1',id,host,viewer:viewer||null,todoIds});
+ }
+const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
 
- return {commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,
+ return {commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
   resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,personalCompletionPolicy:PERSONAL_COMPLETION_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
 }

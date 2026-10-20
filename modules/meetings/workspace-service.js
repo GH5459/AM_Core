@@ -11,6 +11,7 @@ import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
 import {meetingTaskDispatch} from './task-dispatch.js';
+import {meetingTaskProgress,TASK_PROGRESS_CONTRACT} from './task-progress.js';
 import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 import {meetingLineRecord,MEETING_LINE_FORMAT} from './line-record.js';
 import {meetingPublication,PUBLICATION_TARGET_CONTRACT} from './publication-target.js';
@@ -29,6 +30,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  const publication=meetingPublication({pool,store,botId,getConversation,assertMember});
  const hub=meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request,publicationReader:publication.reader});
  const taskDispatch=meetingTaskDispatch({pool,store,botId,platform,conversation,assertMember,link,logger});
+ const taskProgress=meetingTaskProgress({pool,platform});
  const revisionJobs=workspaceRevisions({pool,store,conversation,assertMember,validateAssignees,platform,request,link,logger,taskDispatch});
  const audioAccess=()=>audioTickets(platform.publicLinkSecret||env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY||'');
  function loginPage(row,id){
@@ -216,7 +218,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='translate'){sendJson(res,200,await locale.translate(actor,row,input));return true;}
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
    if(!['read','members','history','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
-   if(actor.readOnly){sendJson(res,200,{ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies:r.state==='published'?await locale.list(r):[],host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id))});return true;}
+   if(actor.readOnly){sendJson(res,200,{ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies:r.state==='published'?await locale.list(r):[],host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:await taskProgress(r,actor),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id))});return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
@@ -284,7 +286,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const templates=(await pool.query('SELECT name,prompt,version FROM central_archive.meeting_workspace_templates WHERE conversation_key=$1 ORDER BY name',[row.key])).rows;
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
    const result={ok:true,experience,replies:current.state==='published'?await locale.list(current):[],contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:readerData(current).segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
-   result.canEdit=['review','published'].includes(current.state);result.pendingRevision=await revisionJobs.pending(r.id);result.assignment=await taskDispatch.status(current);
+   result.canEdit=['review','published'].includes(current.state);result.pendingRevision=await revisionJobs.pending(r.id);result.assignment=await taskDispatch.status(current);result.taskProgress=await taskProgress(current,actor);
    const editing=await store.effective(current);result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=await store.changes(r.id);
    result.publication=await publication.status(current,row);
    if(input.action==='publication-targets')result.publicationTargets=await publication.list(current,row,actor);
@@ -296,5 +298,5 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    sendJson(res,200,result);return true;
   }catch(e){if(match[2]==='hub'&&!e.status)logger.warn('Meeting audio/preparation request deferred.',{code:/^[A-Z0-9_]{1,20}$/.test(e.code||'')?e.code:e.name==='TimeoutError'?'timeout':/connection|connect/i.test(e.message||'')?'connection':'internal'});if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',publicationTarget:PUBLICATION_TARGET_CONTRACT,recordFormat:DECISION_RECORD_CONTRACT,lineFormat:MEETING_LINE_FORMAT})};
+ return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,taskProgress:TASK_PROGRESS_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',publicationTarget:PUBLICATION_TARGET_CONTRACT,recordFormat:DECISION_RECORD_CONTRACT,lineFormat:MEETING_LINE_FORMAT})};
 }

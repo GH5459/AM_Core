@@ -3,6 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
+| AM-IMP-2026.1020.26 | Original AM meeting workspace and DailyLog | Ready | Implemented and verified with synthetic service/HTML tests and complete exported Worker + real D1. Not deployed; no live writes or LINE push. |
 | AM-IMP-2026.1020.25 | Original AM meeting workspace | Deployed | PR398 full CI 5m14s passed; AM faeee51 verified on both origins, Render Live 42.8s. Both collapsed panels and original visible fields verified; 237 glossary terms, 13 meetings and 63 todos preserved. |
 | AM-IMP-2026.1020.24 | Original AM meeting workspace | Deployed | PR396 CI passed (5m25s); AM 51d3e1e verified on both origins, Render Live 41.5s. Exact deployed client Chrome checks passed; authenticated read-only list 25 options, original 13 meetings/63 todos/119 conversations/115 settings preserved. DailyLog/UOF unchanged. |
 | AM-IMP-2026.1020.23 | Original AM meeting workspace | Deployed | PR394 full CI5m16s; tested and merged trees equal. AM ef7579c both origins/exact client and speaker helper, Render42.0s Live. Signed-in swap/segment previews and settings round-trip preserve all visible values; deployed HTML synthetic apply/save and 360/390/768/1024 widths pass. 13 meetings/63 todos/119 conversations/115 settings preserved; only dispatch polling timestamps and one cleared retry warning advance. No real content saves, publication, LINE tests or DailyLog/UOF release. |

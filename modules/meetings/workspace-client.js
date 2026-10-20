@@ -82,12 +82,30 @@ export function workspaceClient(BOOT){
  }
 
  function prose(text){return String(text||'尚無會議內容。').split(/\r?\n/).map(line=>{if(!line.trim())return '';const heading=line.match(/^#{1,3}\s+(.+)$/);if(heading||['重點與決議','重點摘要','會議內容','結論與決議','主要結論','下次會議'].includes(line.trim()))return '<h3>'+esc(heading?heading[1]:line)+'</h3>';return '<p'+(/^[•・\-]\s/.test(line)?' class="prose-bullet"':'')+'>'+esc(line)+'</p>';}).join('');}
+ const progressLabels={done:'已完成',pending_confirmation:'待確認成果',in_progress:'進行中',blocked:'卡住',pending:'待處理',unassigned:'待指派',pending_delivery:'待派發',unknown:'暫時無法讀取',withdrawn:'已撤回指派',cancelled:'已取消'};
+ function taskProgressDetail(item){
+  if(!item)return '';
+  let html='<p class="task-progress-state">'+esc(progressLabels[item.status]||progressLabels.unknown)+(item.overdue?' · 已逾期':'')+'</p>';
+  if(item.url){try{const u=new URL(item.url);if(u.protocol==='https:'&&!u.username&&!u.password)html+='<p><a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">開啟原工作日誌任務／填寫成果</a></p>';}catch{}}
+  if(item.result)html+='<details data-task-evidence="'+esc(item.todoId)+'"><summary>成果依據</summary><p class="task-progress-result">'+esc(item.result)+'</p>'+(item.completedAt?'<p class="muted">完成時間：'+esc(new Date(item.completedAt).toLocaleString('zh-TW'))+'</p>':'')+'</details>';
+  else if(item.evidenceRestricted)html+='<p class="muted">已保留成果依據，請由有原任務權限的同仁查看。</p>';
+  else if(item.status==='pending_confirmation')html+='<p class="muted">原任務標為完成，但尚未留下成果，請至原任務補充確認。</p>';
+  return html;
+ }
+ function renderTaskProgress(){
+  const p=data.taskProgress,panel=$('#taskProgressPanel');panel.hidden=data.workspace.state!=='published';if(panel.hidden)return;
+  const summary=$('#taskProgressSummary'),checked=$('#taskProgressChecked');
+  if(!p){summary.textContent='請以本人登入後查看最新任務進度。';checked.textContent='公開連結不提供工作日誌成果內容。';$('#refreshTaskProgress').hidden=true;return;}
+  $('#refreshTaskProgress').hidden=false;
+  summary.innerHTML='<span>共 '+Number(p.counts.total)+' 項</span>'+Object.entries(progressLabels).filter(([k])=>p.counts[k]).map(([k,label])=>'<span>'+esc(label)+' '+Number(p.counts[k])+' 項</span>').join('')+(p.counts.overdue?'<span>已逾期 '+Number(p.counts.overdue)+' 項</span>':'');
+  checked.textContent=(!p.available?'部分進度暫時無法讀取，請稍後重試。 ':'')+(p.checkedAt?'最後讀取：'+new Date(p.checkedAt).toLocaleString('zh-TW'):'尚無已派發任務可讀取。');
+ }
  function seek(seconds){$('#audio').currentTime=Number(seconds);$('#audio').play().catch(error);}
- function renderReader(){const r={...data.reader};if(memberList.length&&data.workspace.fields){const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v);r.todos=(r.todos||[]).map((t,i)=>({...t,owner:memberList.find(p=>p.id===ts[i]?.[1].ownerId)?.name||t.owner}));}const hash=JSON.stringify([r,data.assignment]);if(readingHash===hash)return;readingHash=hash;
+ function renderReader(){const r={...data.reader};if(memberList.length&&data.workspace.fields){const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v);r.todos=(r.todos||[]).map((t,i)=>({...t,owner:memberList.find(p=>p.id===ts[i]?.[1].ownerId)?.name||t.owner}));}const hash=JSON.stringify([r,data.assignment,data.taskProgress?.items]);if(readingHash===hash)return;readingHash=hash;
   const openTopics=new Set(Array.from($('#readingRecordText').querySelectorAll('details[open]')).map(e=>e.dataset.decision));
   $('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';
-  const ts=r.todos||[];$('#readingTodoCount').textContent=ts.length?'（'+ts.length+' 項）':'（無）';$('#readingTodoList').innerHTML=ts.length?'<ol>'+ts.map((t,i)=>'<li><h3>任務 '+(i+1)+'</h3><p>'+esc(t.content)+'</p><dl><div><dt>負責人</dt><dd>'+esc(t.owner)+'</dd></div><div><dt>截止日期</dt><dd>'+esc(t.due)+'</dd></div></dl></li>').join('')+'</ol>':'<p class="muted">本次會議沒有待辦事項。</p>';
-  $('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));
+  const openEvidence=new Set(Array.from($('#readingTodoList').querySelectorAll('details[open]')).map(e=>e.dataset.taskEvidence));const ts=r.todos||[];$('#readingTodoCount').textContent=ts.length?'（'+ts.length+' 項）':'（無）';$('#readingTodoList').innerHTML=ts.length?'<ol>'+ts.map((t,i)=>'<li><h3>任務 '+(i+1)+'</h3><p>'+esc(t.content)+'</p><dl><div><dt>負責人</dt><dd>'+esc(t.owner)+'</dd></div><div><dt>截止日期</dt><dd>'+esc(data.taskProgress?.items[i]?(data.taskProgress.items[i].due||'未設定'):t.due)+'</dd></div></dl>'+taskProgressDetail(data.taskProgress?.items[i])+'</li>').join('')+'</ol>':'<p class="muted">本次會議沒有待辦事項。</p>';
+  $('#readingTodoList').querySelectorAll('details[data-task-evidence]').forEach(e=>e.open=openEvidence.has(e.dataset.taskEvidence));$('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));
  }
 
  function render(){if(!data)return;document.body.classList.toggle('publication-reader',data.access==='publication');let recovered=false;for(const key of dirty.keys())if(!saving.has(key))recovered=recoverSaved(key)||recovered;if(recovered&&!dirty.size&&!saving.size){contentSaveError='';error('');}if(data.access==='member'&&token&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token});const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
@@ -121,7 +139,7 @@ export function workspaceClient(BOOT){
    if(!membersLoaded&&editable())loadMembers().catch(error);
   }
   $('#online').innerHTML=(data.presence||[]).map(p=>'<span class="person" style="--person-color:'+color(p.id)+'">'+esc(p.name)+(p.field?' · 正在編輯':'')+'</span>').join('');
-  renderPublication();contentSaveState();
+  renderPublication();renderTaskProgress();contentSaveState();
  }
  function renderSelected(){const box=$('#sharedPeople');if(!box)return;const key=JSON.stringify(selectedPeople);if(box.dataset.key===key)return;box.dataset.key=key;box.innerHTML=selectedPeople.map(p=>'<span class="selected-person"><span>'+esc(p.name)+' <small>'+esc(p.account)+'</small></span><button class="secondary" aria-label="移除 '+esc(p.name)+' '+esc(p.account)+'" data-account="'+esc(p.account)+'">移除</button></span>').join('')||'<p class="muted">尚未指定分享夥伴。</p>';box.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>{selectedPeople=selectedPeople.filter(p=>p.account!==b.dataset.account);markSharingDirty();$('#sharingStatus').textContent='分享名單尚未儲存';renderSelected();});}
  function transcriptValue(){return dirty.has('transcript')?dirty.get('transcript'):editData().fields.transcript||'';}
@@ -287,9 +305,10 @@ export function workspaceClient(BOOT){
  let audioRetries=0;
  $('#audio').onerror=async()=>{if(audioRetries++<2&&data?.audioUrl&&data.audioUrl!==audioUrl){const player=$('#audio'),at=player.currentTime;audioUrl=data.audioUrl;player.src=audioUrl;player.currentTime=at;$('#audioStatus').textContent='正在更新錄音播放授權，請再按播放。';return;}$('#audioStatus').textContent='錄音暫時無法播放。可重新整理頁面再試，原始錄音仍保留。';};
  window.addEventListener('beforeunload',e=>{if(dirty.size||settingsDirty||sharingDirty||publicationDirty){e.preventDefault();e.returnValue='';}});
- async function refresh(){if(polling||publishing||document.hidden||!data)return;polling=true;try{const active=document.activeElement,field=mode==='edit'?(active?.closest('[data-part]')?.dataset.part||(active?.closest('#setupPanel')?'settings':'')):'';acceptData(await api({action:'read',field}));render();}catch(e){error(e);if(data?.access!=='member'&&[401,403].includes(e.status)){$('#readerPanel').hidden=true;$('#meetingHeading').hidden=true;$('#connection').textContent='此連結已停止對外分享';$('#hostLogin').hidden=false;$('#audio').pause();$('#audio').removeAttribute('src');audioUrl='';}}finally{polling=false;}}
+ async function refresh(){if(polling||publishing||document.hidden||!data)return;polling=true;try{const active=document.activeElement,field=mode==='edit'?(active?.closest('[data-part]')?.dataset.part||(active?.closest('#setupPanel')?'settings':'')):'';acceptData(await api({action:'read',field}));render();}catch(e){error(e);if([401,403].includes(e.status)){data.taskProgress=null;$('#taskProgressPanel').hidden=true;$('#readingTodoList').replaceChildren();readingHash='';}else if(data.taskProgress){$('#taskProgressChecked').textContent='本次更新未完成，以下為先前讀取結果，請重新讀取。';}if(data?.access!=='member'&&[401,403].includes(e.status)){$('#readerPanel').hidden=true;$('#meetingHeading').hidden=true;$('#connection').textContent='此連結已停止對外分享';$('#hostLogin').hidden=false;$('#audio').pause();$('#audio').removeAttribute('src');audioUrl='';}}finally{polling=false;}}
  async function login(){if(!BOOT.liffId||!window.liff)throw Error('LINE 登入尚未設定完成，請聯絡管理者。');await liff.init({liffId:BOOT.liffId});if(!liff.isLoggedIn()){liff.login({redirectUri:location.origin+'/meetings/review/work/'+BOOT.id});return false;}token=liff.getAccessToken();return true;}
  $('#hostLogin').onclick=async()=>{try{if(!await login())return;data=await api({action:'read'});audioUrl='';$('#meetingHeading').hidden=false;render();if(data.access!=='member')error('此身分僅可觀看；編輯限原對話成員。');else error('');}catch(e){error(e);}};
  async function init(){try{if(BOOT.loginUrl&&location.origin!==new URL(BOOT.loginUrl).origin){location.replace(BOOT.loginUrl);return;}if(!BOOT.publicAvailable&&!await login())return;data=await api({action:'read'});render();setInterval(refresh,5000);}catch(e){error(e);$('#connection').textContent='尚未完成身分驗證';$('#hostLogin').hidden=false;}}
+ $('#refreshTaskProgress').onclick=()=>refresh();
  init();
 }

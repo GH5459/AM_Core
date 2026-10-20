@@ -1,17 +1,18 @@
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
 const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
 (async()=>{
- const candidate=folder+'/dailylog/candidate',names=fs.readdirSync(candidate).filter(n=>n.endsWith('.mjs'));
+ const candidate=folder+'/dailylog/candidate',names=fs.readdirSync(candidate).filter(n=>/\.(?:mjs|js)$/.test(n));
  const modules=names.map(name=>({type:'ESModule',path:candidate+'/'+name,contents:fs.readFileSync(candidate+'/'+name,'utf8')+(name==='worker.mjs'?'\nexport {assignmentMachine as testMachine,memoryTaskService as testMemory,taskCore as testCore};':'')}));
  // Locate the actual bundled task core name used by the live Worker.
  const main=modules.find(m=>m.path.endsWith('/worker.mjs')),match=main.contents.match(/memoryTaskService\((dailylogExecutionRelease\.core),/);assert(match,'Find deployed task core');main.contents=main.contents.replace('taskCore as testCore','meetingTestCore as testCore')+'\nconst meetingTestCore='+match[1]+';';
  const entry=`import {testMachine,testMemory,testCore} from './worker.mjs';
  const people=[{account:'111',name:'主持人',id:'uof:111',team:'合成部門',teamId:'fixture'},{account:'222',name:'負責人',id:'uof:222',team:'合成部門',teamId:'fixture'}];
  export default {fetch(request,env){return testMachine(request,env,{directory:async()=>({people,assertCurrent:async()=>{if(request.headers.get('x-fixture-race'))await env.DB.prepare("UPDATE work_items SET revision=revision+1,value=json_set(value,'$.version',revision+1,'$.progressNote','concurrent progress')").run();}}),permission:a=>people.some(p=>p.account===a),makeService:members=>testMemory(testCore,members.people,Date.now,a=>people.some(p=>p.account===a)),publish:()=>{}});}};`;
- const worker={name:'meeting-test',modules:[{type:'ESModule',path:candidate+'/entry.mjs',contents:entry},...modules],modulesRoot:candidate,compatibilityDate:'2026-10-06',bindings:{LEAF_TASK_SERVICE_KEY:'synthetic-meeting-secret'.repeat(3),LEAF_TASK_TENANT:'fixture',PUBLIC_ORIGIN:'https://fixture.example.test'},d1Databases:['DB']};
+ const worker={name:'meeting-test',modules:[{type:'ESModule',path:candidate+'/entry.mjs',contents:entry},...modules],modulesRoot:candidate,compatibilityDate:process.env.MEETING_TEST_COMPATIBILITY_DATE||'2026-10-06',compatibilityFlags:['nodejs_compat'],bindings:{LEAF_TASK_SERVICE_KEY:'synthetic-meeting-secret'.repeat(3),LEAF_TASK_TENANT:'fixture',PUBLIC_ORIGIN:'https://fixture.example.test'},d1Databases:['DB']};
  const options={workers:[worker]},mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
  try{
   const db=await mf.getD1Database('DB');await db.exec(fs.readFileSync(path.resolve(__dirname,'../modules/meetings/dailylog-workspace.sql'),'utf8').replaceAll('\n',' '));await db.exec('CREATE TABLE work_items(id TEXT PRIMARY KEY,level INTEGER,department TEXT,department_id TEXT,value TEXT,revision INTEGER); CREATE TABLE documents(namespace TEXT,key TEXT,value TEXT,revision INTEGER);');
+  await db.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('settings','access',?,1)").bind(JSON.stringify({revision:1,experienceLocales:{}})).run();
   const input={tenantKey:'fixture',id:'a'.repeat(64),host:{userId:'U'+'1'.repeat(32),account:'111',bindingId:'fixture-host'},tasks:[{id:'todo:11111111-1111-4111-8111-111111111111',content:'確認合成來源資料',due:'2026-10-25',evidence:'錄音 01:20 決議',owner:{userId:'U'+'2'.repeat(32),account:'222',bindingId:'fixture-owner'}}],date:'2026-10-17',goal:'追蹤會議決議',source:{messageId:'synthetic',filename:'fixture.m4a',timestamp:Date.now()},url:'https://fixture.example.test/meetings/review/work/'+'a'.repeat(64),notionId:'fixture-page'};
   const call=async(v,auth=true,op='meeting-publish')=>mf.dispatchFetch('https://fixture/api/integrations/leaf-snail/tasks/'+op,{method:'POST',headers:{'Content-Type':'application/json',...auth?{Authorization:'Bearer '+'synthetic-meeting-secret'.repeat(3)}:{}},body:JSON.stringify(v)});
   assert.equal((await call(input,false)).status,401);assert.equal((await call({...input,tenantKey:'other'})).status,403);
@@ -44,7 +45,21 @@ const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
   assert.equal((await call(later)).status,200);assert.equal((await call(later)).status,200);
   assert.equal((await db.prepare('SELECT count(*) AS n FROM work_items').first()).n,3);
   assert.equal((await call({...later,deliverySequence:0})).status,400);
-  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup','deferred delivery sequence at same meeting revision','later connected recipient without duplicate task']},null,2));
+  if(names.includes('meeting-task-progress.mjs')){
+   await db.prepare("UPDATE documents SET value=? WHERE namespace='settings' AND key='access'").bind(JSON.stringify({revision:2,experienceLocales:{'111':'en'}})).run();
+   const query={tenantKey:'fixture',contract:'meeting-live-task-progress-v1',id:input.id,host:input.host,viewer:{account:'111'},todoIds:[input.tasks[0].id]};
+   const taskRow=await db.prepare('SELECT id,value FROM work_items WHERE json_extract(value,\'$.meetingSource.todoId\')=?').bind(input.tasks[0].id).first(),task=JSON.parse(taskRow.value),original=taskRow.value;
+   task.status='done';task.finalResult='完整 Worker 合成成果與附件依據';await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(task),taskRow.id).run();
+   let pr=await call(query,true,'meeting-progress');assert.equal(pr.status,200);let p=await pr.json();assert.equal(p.items[0].status,'done');assert.equal(p.items[0].result,task.finalResult);assert(p.items[0].url.endsWith('/?task='+taskRow.id));
+   p=await (await call({...query,viewer:{account:'not-authorized'}},true,'meeting-progress')).json();assert.equal(p.items[0].result,'');assert(p.items[0].evidenceRestricted);
+   task.finalResult='';await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(task),taskRow.id).run();p=await (await call(query,true,'meeting-progress')).json();assert.equal(p.items[0].status,'pending_confirmation');
+   task.status='in_progress';await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(task),taskRow.id).run();p=await (await call(query,true,'meeting-progress')).json();assert.equal(p.items[0].status,'in_progress');
+   assert.equal(JSON.parse((await db.prepare('SELECT value FROM work_items WHERE id=?').bind(taskRow.id).first()).value).finalResult,'');
+   assert.equal((await call(query,false,'meeting-progress')).status,401);assert.equal((await call({...query,tenantKey:'other'},true,'meeting-progress')).status,403);
+   await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(original,taskRow.id).run();
+   console.log('Progress read through full original authenticated Worker + real D1: original task IDs/links, task-model evidence permissions, missing-result confirmation and reopening passed.');
+  }
+  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup','deferred delivery sequence at same meeting revision','later connected recipient without duplicate task',...names.includes('meeting-task-progress.mjs')?['read-only live progress','original task evidence permissions','completion evidence','reopening']:[]]},null,2));
   console.log('Complete live Worker + real workerd/D1: authenticated meeting task creation, real task model, assignee/deadline/source, atomic receipt and duplicate protection passed.');
  }finally{await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
