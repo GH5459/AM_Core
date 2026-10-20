@@ -3,7 +3,7 @@
   "name": "發布前改選 LINE 群組與發布群組只讀存取",
   "type": "Meeting publication destination",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [
     "central_archive.meeting_workspaces (existing; add publication route guard trigger)"
   ],
