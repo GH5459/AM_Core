@@ -3,7 +3,7 @@
   "name": "會後待辦即時進度與原任務成果",
   "type": "Meeting task progress",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [],
   "requiresScripts": [
