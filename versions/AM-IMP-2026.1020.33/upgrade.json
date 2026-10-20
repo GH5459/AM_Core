@@ -3,12 +3,23 @@
   "name": "會議首頁區塊順序與預設收合",
   "type": "Meeting hub layout",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [],
-  "requiresScripts": ["tools/test-meeting-calendar-week-browser.mjs", "tools/test-meeting-hub.mjs", "tools/test-meeting-shared-inbox.mjs", "tools/test-meeting-list-progress.mjs"],
-  "installTargets": ["Original AM Platform meeting hub"],
-  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "requiresScripts": [
+    "tools/test-meeting-calendar-week-browser.mjs",
+    "tools/test-meeting-hub.mjs",
+    "tools/test-meeting-shared-inbox.mjs",
+    "tools/test-meeting-list-progress.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting hub"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
   "definitionOfDone": [
     "Five meeting sections follow the requested order",
     "Only Google Calendar is open on initial page load",
