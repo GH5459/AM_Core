@@ -5,18 +5,18 @@ AMCore is the version master and core-code holder for the AM family
 `node tools/build-amcore-version.js` from the shared registry, the project
 manifests, and the packages in `versions/`. Do not edit it by hand.
 
-_Last generated: 2026-10-03_
+_Last generated: 2026-10-20_
 
 ## At A Glance
 
 | Field | Value |
 | --- | --- |
-| AMCore version (packages held through) | `AM-IMP-2026.1003.03` |
-| AMCore hub release | `AMCORE-2026.1003.03` |
-| Latest tracked improvement (ecosystem) | `AM-IMP-2026.1003.03` |
+| AMCore version (packages held through) | `AM-IMP-2026.1020.30` |
+| AMCore hub release | `AMCORE-2026.1020.30` |
+| Latest tracked improvement (ecosystem) | `AM-IMP-2026.1020.30` |
 | AMCore current? | Yes — every tracked version is packaged |
-| Packaged versions | 183 |
-| Tracked improvements | 183 |
+| Packaged versions | 265 |
+| Tracked improvements | 265 |
 
 ## Project Heads
 

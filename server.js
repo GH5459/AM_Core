@@ -623,6 +623,10 @@ const server = http.createServer(async (req, res) => {
       const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(input):leafTasks.configureService(input));return sendJson(res,200,result); }
     catch { return sendJson(res,503,{error:'Task service setup unavailable'}); }
   }
+  if (req.method === 'POST' && pathname === '/integrations/task-personal-completion-report') {
+    try { const input=JSON.parse(await readLineIoBody(req,4096)); return sendJson(res,200,await leafTasks.personalCompletionReport(input,String(req.headers.authorization||'').replace(/^Bearer /,''))); }
+    catch(error) { return sendJson(res,error.status||503,{ok:false,error:error.status?error.message:'個人回報暫時無法確認，請稍後重試。'}); }
+  }
   if (req.method === 'POST' && pathname === '/integrations/task-completion-report') {
     try {
       const input=JSON.parse(await readLineIoBody(req,4096));

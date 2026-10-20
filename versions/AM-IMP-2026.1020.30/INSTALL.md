@@ -1,0 +1,3 @@
+# 安裝
+
+取得本項正式發布要求後，先核對最新AM main與兩origin commit、DailyLog實際完整正式版與不可變etag。從最新完整包延伸，新personal模組及最外層接線，不用本機測試public覆蓋正式Assets、不build dirty根。AM變更經完整CI及審查合併main後正式發布；DailyLog及AM兩端都須回讀，並確認原群組回報API與其他功能保持。原OA／服務key與組織名單沿用，不改綁定、權限或任務內容。其他專案不得自動套用。
