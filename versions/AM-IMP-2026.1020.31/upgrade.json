@@ -3,7 +3,7 @@
   "name": "我的會議清單符號進度",
   "type": "Meeting list progress",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [],
   "requiresScripts": [
