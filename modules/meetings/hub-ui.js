@@ -20,7 +20,8 @@ export function hubClient(BOOT){
   for(const [key,symbol] of [['pending_confirmation','🔎'],['in_progress','🔵'],['blocked','⛔'],['overdue','⏰'],['unassigned','👤'],['pending_delivery','⏳']])if(c[key])parts.push(symbol+' '+c[key]);
   if(!p.available||c.unknown)parts.push('⚠️ 待更新');return parts.join('　');
  }
- function updateProgress(){for(const el of document.querySelectorAll('[data-progress-id]')){const x=[...items,...sharedItems].find(x=>x.id===el.dataset.progressId);if(!x)continue;el.textContent=progressLabel(x);const p=progressById.get(x.id);el.title='📋 待辦總數；✅ 已完成；🔎 待確認；🔵 進行中；⛔ 卡住；⏰ 逾期；👤 未分派；⏳ 待同步'+(p?.checkedAt?'；更新：'+new Date(p.checkedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'');el.setAttribute('aria-label',el.title+'。'+el.textContent);}}
+ function paintProgress(el,label){el.replaceChildren();for(const [i,text] of label.split('　').entries()){if(i)el.append(document.createTextNode('　'));const span=document.createElement('span');span.style.whiteSpace='nowrap';span.style.display='inline-block';span.textContent=text;el.append(span);}}
+ function updateProgress(){for(const el of document.querySelectorAll('[data-progress-id]')){const x=[...items,...sharedItems].find(x=>x.id===el.dataset.progressId);if(!x)continue;paintProgress(el,progressLabel(x));const p=progressById.get(x.id);el.title='📋 待辦總數；✅ 已完成；🔎 待確認；🔵 進行中；⛔ 卡住；⏰ 逾期；👤 未分派；⏳ 待同步'+(p?.checkedAt?'；更新：'+new Date(p.checkedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'');el.setAttribute('aria-label',el.title+'。'+el.textContent);}}
  async function loadProgress(){
   if(!token||document.hidden)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
   try{const ids=[...new Set([...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId))];let next=0;
@@ -32,7 +33,7 @@ export function hubClient(BOOT){
   const when=document.createElement('div');when.className='meeting-time';when.textContent=!Number.isFinite(atDate(x.start))?'日期未定':(past?dateKey(atDate(x.start)).slice(5).replace('-','/')+'\n':'')+(x.allDay?'全天':/^\d{4}-\d{2}-\d{2}$/.test(x.start||'')?'時間未定':clock(x.start)+(x.end?'\n– '+clock(x.end):''));
   const body=document.createElement('div');body.className='meeting-info';const title=document.createElement('h3');if(x.calendar)title.textContent=x.topic||'未命名會議';else{const link=document.createElement('a');link.href=x.url;link.textContent=x.topic||'未命名會議';title.append(link);}body.append(title);
   const meta=[x.location,x.calendar?'':stateLabel(x),x.host].filter(Boolean);if(meta.length){const detail=document.createElement('p');detail.className='meeting-meta';detail.textContent=meta.join(' · ');body.append(detail);}
-  if(!x.calendar&&x.state==='published'){const p=document.createElement('p');p.className='meeting-meta meeting-progress';p.dataset.progressId=x.id;p.textContent=progressLabel(x);body.append(p);}
+  if(!x.calendar&&x.state==='published'){const p=document.createElement('p');p.className='meeting-meta meeting-progress';p.dataset.progressId=x.id;paintProgress(p,progressLabel(x));body.append(p);}
   let action;if(x.calendar){action=document.createElement('button');action.textContent='建檔';action.setAttribute('aria-label','建立／開啟會議記錄：'+x.topic);action.onclick=()=>openCalendar(x,action);}else{action=document.createElement('a');action.href=x.url;action.textContent='開啟';action.setAttribute('aria-label','開啟會議記錄：'+x.topic);}
   action.className='meeting-open';article.append(when,body,action);return article;
  }
