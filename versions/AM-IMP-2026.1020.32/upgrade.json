@@ -3,7 +3,7 @@
   "name": "會議清單僅開啟時讀取一次",
   "type": "Meeting list refresh preference",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [],
   "requiresScripts": [
