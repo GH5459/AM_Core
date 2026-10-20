@@ -9,8 +9,23 @@ function build(folder){
  const old=installed?baseline.match(/const personal_completion_worker=\{fetch:async\(request,env,ctx\)=>\{const handled=await personalCompletionRoute[\s\S]*?scheduled:\(\.\.\.args\)=>\w+\.scheduled\(\.\.\.args\)\};/):null;
  if(installed)assert(old,'Installed personal wrapper changed');
  const actualBase=installed?old[0].match(/personalCompletionResponse\(request,await (\w+)\.fetch/)[1]:base;
- const wrapper=`const personal_completion_worker={fetch:async(request,env,ctx)=>withAuthorityInvocation(env,async scoped=>{const read=async(r,e)=>personalAuthority(r,e,readAuthority,async(req,scope)=>{const response=await ${actualBase}.fetch(new Request(new URL('/api/auth/session',req.url),{headers:{Cookie:req.headers.get('cookie')||''}}),scope,ctx);if(!response.ok)throw Object.assign(Error('登入資格暫時無法確認，請稍後重試。'),{status:response.status});if(!(await response.json()).authenticated)throw Object.assign(Error('請先登入。'),{status:401});beginAuthorityStage();});const handled=await personalCompletionRoute(request,scoped,{readAuthority:read,authority:completionReportAuthority});return handled||personalCompletionResponse(request,await ${actualBase}.fetch(request,scoped,ctx));}),scheduled:(...args)=>${actualBase}.scheduled(...args)};`;
- const worker=installed?baseline.replace('import {personalCompletionRoute}', 'import {personalCompletionRoute,personalAuthority}').replace(old[0],wrapper):'import {personalCompletionRoute,personalAuthority} from "./line-personal-completion.mjs";\nimport {personalCompletionResponse} from "./line-personal-completion-response.mjs";\n'+baseline.replace(base+' as default','personal_completion_worker as default')+'\n'+wrapper+'\n';
+ const wrapper=`const personal_completion_worker={
+ async fetch(request,env,ctx){
+  const path=new URL(request.url).pathname;
+  const personal=path==='/api/tasks/personal-completion-directory'||new RegExp('^/api/tasks/work-[0-9a-f-]{36}/line-personal-report$').test(path)||path.startsWith('/api/integrations/leaf-snail/tasks/personal-completion-');
+  if(!personal)return personalCompletionResponse(request,await ${actualBase}.fetch(request,env,ctx));
+  return withAuthorityInvocation(env,async scoped=>{
+   const read=async(r,e)=>personalAuthority(r,e,readAuthority,async(req,scope)=>{
+    const response=await ${actualBase}.fetch(new Request(new URL('/api/auth/session',req.url),{headers:{Cookie:req.headers.get('cookie')||''}}),scope,ctx);
+    if(!response.ok)throw Object.assign(Error('登入資格暫時無法確認，請稍後重試。'),{status:response.status});
+    if(!(await response.json()).authenticated)throw Object.assign(Error('請先登入。'),{status:401});
+    beginAuthorityStage();
+   });
+   const handled=await personalCompletionRoute(request,scoped,{readAuthority:read,authority:completionReportAuthority});
+   return handled||personalCompletionResponse(request,await ${actualBase}.fetch(request,env,ctx));
+  });
+ },scheduled:(...args)=>${actualBase}.scheduled(...args)};`;
+ const worker=installed?baseline.replace('import {personalCompletionRoute}', 'import {personalCompletionRoute,personalAuthority}').replace(old[0],()=>wrapper):'import {personalCompletionRoute,personalAuthority} from "./line-personal-completion.mjs";\nimport {personalCompletionResponse} from "./line-personal-completion-response.mjs";\n'+baseline.replace(base+' as default','personal_completion_worker as default')+'\n'+wrapper+'\n';
  fs.writeFileSync(folder+'/candidate/worker.mjs',worker);
  const walk=(dir,p='')=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(dir+'/'+e.name,p+e.name+'/'):[p+e.name]);
  const sourceHash=Object.fromEntries(walk(folder+'/candidate').sort().map(f=>[f,crypto.createHash('sha256').update(fs.readFileSync(folder+'/candidate/'+f)).digest('hex')]));
