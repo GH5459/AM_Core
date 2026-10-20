@@ -191,6 +191,9 @@ jobs:
       - run: node tools/test-meeting-workspace-service.mjs
       - run: node tools/test-meeting-task-dispatch.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.35
+      - run: node tools/test-meeting-task-progress.mjs
+      - run: node tools/test-meeting-task-progress-client.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.26
       - run: node tools/test-meeting-reader-sharing.mjs
       - run: node tools/test-meeting-glossary.mjs
       - run: node tools/test-meeting-glossary-import.mjs

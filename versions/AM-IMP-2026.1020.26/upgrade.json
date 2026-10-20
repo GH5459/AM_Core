@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1020.26",
+  "name": "會後待辦即時進度與原任務成果",
+  "type": "Meeting task progress",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-task-progress.mjs",
+    "tools/test-meeting-task-progress-client.mjs",
+    "tools/test-meeting-workspace-worker.cjs",
+    "tools/build-meeting-task-progress-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting workspace",
+    "Original DailyLog task service"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Top meeting summary reflects original task states and current due dates",
+    "Original task links and permission-scoped completion evidence",
+    "Missing evidence, reassignment, reopening, failures and revocation handled explicitly",
+    "No task duplication, meeting revision write or new LINE push",
+    "Production deployment is separately verified before Deployed"
+  ]
+}
