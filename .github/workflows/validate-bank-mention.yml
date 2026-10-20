@@ -7,6 +7,8 @@ on:
       - 'core/multilingual*'
       - 'tools/*multilingual*'
       - 'modules/meetings/**'
+      - 'tools/test-meeting-speaker-*'
+      - 'versions/AM-IMP-2026.1020.23/**'
       - 'versions/AM-IMP-2026.1019.01/**'
       - 'versions/AM-IMP-2026.1019.10/**'
       - 'tools/test-meeting-glossary.mjs'
@@ -171,6 +173,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.37
       - run: node tools/test-meeting-workspace.mjs
       - run: node tools/test-meeting-save-version.mjs
+      - run: node tools/test-meeting-speaker-correction.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.23
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.22
       - run: node tools/test-meeting-workspace-service.mjs
       - run: node tools/test-meeting-task-dispatch.mjs

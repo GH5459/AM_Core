@@ -2,6 +2,8 @@ export function workspaceClient(BOOT){
  const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let token='',data=null,memberList=[],membersLoaded=false,settingsDirty=false,settingsVersion=0,renderedSettingsVersion=-1,busy=false,publishing=false,polling=false,audioUrl='',mode='',editSnapshot=null,readingHash='',lastState='',sharingDirty=false,sharingBase=null,selectedPeople=[],historyOffset=0;
  const newBlocks=new Map();
+ const speakerTools=meetingSpeakerTools();
+ let showingSettings=false,speakerPlan=null,speakerUndo=null,segmentsHash='';
  let savingAll=false,contentSaveError='';
  let glossaryEntries=[],glossaryEntry=null,glossaryDirty=false,glossaryBusy=false,glossaryCanEdit=false,glossaryOpened=false,glossaryImportPreview=null,glossaryFileLoading=false,glossaryImportDirty=false;
  const dirty=new Map(),timers=new Map(),saving=new Set(),versions=new Map();
@@ -23,8 +25,8 @@ export function workspaceClient(BOOT){
  function mark(key,value,version){if(!dirty.has(key))versions.set(key,Number(version??editData().versions[key]??0));dirty.set(key,value);const e=document.querySelector('[data-part="'+key+'"]');e?.classList.add('dirty');fieldStatus(key,'尚未儲存');e?.querySelector('[data-save]')?.removeAttribute('disabled');contentSaveError='';contentSaveState();}
  function contentSaveState(){
   const bar=$('#contentSaveBar');bar.hidden=!editable()||!['review','published'].includes(data?.workspace.state);if(bar.hidden)return;
-  const active=savingAll||saving.size>0;if(!dirty.size&&!active)contentSaveError='';$('#saveContent').disabled=!dirty.size||active;
-  const message=contentSaveError||(active?'正在儲存內容，請稍候…':dirty.size?'有 '+dirty.size+' 處內容尚未儲存':data.pendingRevision?'內容已儲存，正在同步正式記錄與任務':'目前所有內容已儲存');
+  const active=savingAll||saving.size>0,count=dirty.size+(settingsDirty?1:0);if(!count&&!active)contentSaveError='';$('#saveContent').disabled=!count||active;
+  const message=contentSaveError||(active?'正在儲存內容，請稍候…':count?'有 '+count+' 處內容尚未儲存':data.pendingRevision?'內容已儲存，正在同步正式記錄與任務':'目前所有內容已儲存');
   if($('#contentSaveStatus').textContent!==message)$('#contentSaveStatus').textContent=message;
   const times=(data.changes||[]).filter(h=>/^(record:|todo:)/.test(h.field)||['record','transcript','published_revision'].includes(h.field)).map(h=>Date.parse(h.created_at)).filter(Number.isFinite);
   const text=times.length?'最近內容儲存：'+new Date(Math.max(...times)).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'';
@@ -65,7 +67,7 @@ export function workspaceClient(BOOT){
  function renumber(){$('#speakers').querySelectorAll('strong').forEach((e,i)=>e.textContent=String.fromCharCode(65+i));}
  function settings(){const type=$('#type').value==='custom'?$('#customType').value.trim():$('#type').value;return {topic:$('#topic').value.trim(),type,...type==='工作會議'?{cycle:{frequency:$('#frequency').value,intervalDays:$('#frequency').value==='custom'?Number($('#intervalDays').value):7,nextDate:$('#nextDate').value}}:{},prompt:$('#prompt').value,date:$('#date').value,projectGoal:$('#projectGoal').value,speakers:[...$('#speakers').children].map(e=>({name:e.querySelector('[data-name]').value,gender:e.querySelector('[data-gender]').value,role:e.querySelector('[data-role]').value}))};}
  function schedulePreview(){const s=settings(),work=s.type==='工作會議';$('#cycleBox').hidden=!work;$('#intervalBox').hidden=$('#frequency').value!=='custom';const due=meetingDueDate(s);$('#duePreview').textContent=due?'新增待辦預設到期日：'+due+'。之後仍可逐項修改。':'未設定固定週期，新增待辦先預填建立當天，仍可修改。';}
- async function saveSettings(){const value=settings();const next=await api({action:'edit',field:'settings',value,version:settingsVersion});data=next;settingsDirty=false;$('#settingsStatus').textContent='設定已儲存';render();}
+ async function saveSettings(){const value=settings();const next=await api({action:'edit',field:'settings',value,version:settingsVersion});acceptData(next);settingsVersion=Number(next.workspace.versions.settings||0);renderedSettingsVersion=settingsVersion;settingsDirty=!sameValue(value,settings());$('#settingsStatus').textContent=settingsDirty?'儲存期間的新輸入仍保留，請再次儲存':'設定已儲存；原會議內容保持';render();}
  function options(selected){return '<option value="">不指定負責人</option>'+memberList.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===selected?'selected':'')+'>'+esc(p.name)+(p.workReady?'':'（待連接工作日誌）')+'</option>').join('')+(selected&&!memberList.some(p=>p.id===selected)?'<option selected value="'+esc(selected)+'">'+esc(data.workspace.ownerNames?.[selected]||'原負責人（待重新確認）')+'</option>':'');}
 
  function todoEditor(key,t,index){let e=document.querySelector('[data-part="'+key+'"]');const created=!e;if(!e){e=document.createElement('li');e.className='todo-line';e.innerHTML='<h3 data-number></h3><div class="paragraph" data-content contenteditable="true" role="textbox" aria-multiline="true" aria-label="任務內容"></div><dl><div><dt>負責人</dt><dd><select data-owner aria-label="負責人"></select></dd></div><div><dt>截止日期</dt><dd><input data-due type="date" aria-label="截止日期"></dd></div></dl><details><summary>來源依據</summary><textarea class="auto-text" data-evidence aria-label="來源依據"></textarea></details>';partControls(key,e);plainEditor(e.querySelector('[data-content]'));
@@ -98,11 +100,13 @@ export function workspaceClient(BOOT){
   const assignments=data.assignment?.items||[],waiting=assignments.filter(t=>t.state==='pending');const deliveryNotice=w.state==='published'&&data.assignment?'個人任務：已派發 '+(assignments.length-waiting.length)+' 項，待派發 '+waiting.length+' 項。'+(data.assignment.message||(waiting.length?'未完成連線者完成 UOF／LINE 與工作日誌連線後，系統會自動補派。':'')):'';
   $('#notice').textContent=[w.warning,w.error,data.pendingRevision?.error_code|| (data.pendingRevision?'修改已儲存，正在依序同步正式記錄；個人任務另行派發。':''),deliveryNotice].filter(Boolean).join('\n');
   if(!audioUrl&&data.audioUrl){audioUrl=data.audioUrl;$('#audio').src=audioUrl;$('#audio').hidden=false;$('#audioStatus').textContent='原始會議錄音，按播放即可收聽。';}
-  $('#setupPanel').hidden=readOnly||!['setup','failed'].includes(w.state);$('#processingPanel').hidden=w.state!=='processing';$('#recordPanel').hidden=!review||reading;$('#todoPanel').hidden=!review||reading;$('#historyPanel').hidden=readOnly||reading;$('#publishPanel').hidden=!review||locked||reading;$('#readerPanel').hidden=!reading;
+  const returned=showingSettings&&w.state==='review'&&data.host&&editable();
+  $('#setupPanel').hidden=readOnly||!['setup','failed'].includes(w.state)&&!returned;$('#processingPanel').hidden=w.state!=='processing';$('#recordPanel').hidden=!review||reading||returned;$('#todoPanel').hidden=!review||reading||returned;$('#historyPanel').hidden=readOnly||reading||returned;$('#publishPanel').hidden=!review||locked||reading||returned;$('#readerPanel').hidden=!reading;
+  $('#reviewNavigation').hidden=!data.host||w.state!=='review'||!editable()||returned;$('#returnReview').hidden=!returned;$('#settingsReviewHint').hidden=!returned;$('#saveType').hidden=returned;
   $('#sharingPanel').hidden=!data.host||mode!=='edit'||w.state==='publishing';if(!sharingDirty){$('#shareEnabled').checked=!!data.sharing?.enabled;selectedPeople=data.sharing?.people||[];}renderSelected();$('#revisionPanel').hidden=true;if(reading)renderReader();if(!data.pendingRevision)document.querySelectorAll('[data-status]').forEach(e=>{if(e.textContent==='已儲存，正在同步正式記錄與任務')e.textContent='已儲存';});
-  document.querySelectorAll('[data-step]').forEach(e=>e.classList.toggle('active',e.dataset.step===(locked?'published':review?'review':'setup')));
-  if(!$('#setupPanel').hidden)setup(w.fields.settings);
-  $('#start').hidden=!data.host;$('#publish').hidden=!data.host||locked;$('#publishText').textContent='原對話成員各自儲存修改後，由主持人首次發布。尚未完成 UOF／LINE 與工作日誌連線的負責人不影響發布；任務先保留待派發，完成連線後自動補派。發布後仍可分段修改並儲存。';
+  document.querySelectorAll('[data-step]').forEach(e=>e.classList.toggle('active',e.dataset.step===(returned?'setup':locked?'published':review?'review':'setup')));
+  if(!readOnly&&['setup','failed','review'].includes(w.state))setup(w.fields.settings);
+  $('#start').hidden=!data.host||w.state==='review';$('#publish').hidden=!data.host||locked;$('#publishText').textContent='原對話成員各自儲存修改後，由主持人首次發布。尚未完成 UOF／LINE 與工作日誌連線的負責人不影響發布；任務先保留待派發，完成連線後自動補派。發布後仍可分段修改並儲存。';
   if(review&&!reading){const editing=editData(),blocks=[...editing.blocks];for(const [key,b]of newBlocks)if(!blocks.some(x=>'record:'+x.id===key))blocks.push({id:key.slice(7),text:dirty.get(key)||''});
    const ids=new Set(blocks.map(b=>'record:'+b.id));for(const e of $('#recordEditor').children)if(!ids.has(e.dataset.part))e.remove();
    for(const b of blocks){const e=blockEditor(b);if(!e.parentNode)$('#recordEditor').append(e);}
@@ -112,12 +116,58 @@ export function workspaceClient(BOOT){
    for(const k of keys){const value=dirty.get(k)||editing.fields[k];if(!value)continue;const e=todoEditor(k,value,++index);if(!e.parentNode)$('#todos').append(e);}
    $('#editTodoCount').textContent=index?'（'+index+' 項）':'（無）';$('#noEditTodos').hidden=!!index;
    $('#addTodo').hidden=!editable();$('#addRecordBlock').hidden=!editable();$('#refreshMembers').hidden=!editable();$('#speakerFix').hidden=!editable();$('#replaceSpeaker').hidden=!editable();
+   renderSpeakerCorrection();
    if(!membersLoaded&&editable())loadMembers().catch(error);
   }
   $('#online').innerHTML=(data.presence||[]).map(p=>'<span class="person" style="--person-color:'+color(p.id)+'">'+esc(p.name)+(p.field?' · 正在編輯':'')+'</span>').join('');
   contentSaveState();
  }
  function renderSelected(){const box=$('#sharedPeople');if(!box)return;const key=JSON.stringify(selectedPeople);if(box.dataset.key===key)return;box.dataset.key=key;box.innerHTML=selectedPeople.map(p=>'<span class="selected-person"><span>'+esc(p.name)+' <small>'+esc(p.account)+'</small></span><button class="secondary" aria-label="移除 '+esc(p.name)+' '+esc(p.account)+'" data-account="'+esc(p.account)+'">移除</button></span>').join('')||'<p class="muted">尚未指定分享夥伴。</p>';box.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>{selectedPeople=selectedPeople.filter(p=>p.account!==b.dataset.account);markSharingDirty();$('#sharingStatus').textContent='分享名單尚未儲存';renderSelected();});}
+ function transcriptValue(){return dirty.has('transcript')?dirty.get('transcript'):editData().fields.transcript||'';}
+ function speakerNames(){const speakers=(data.workspace.state==='review'?settings():editData().fields.settings).speakers||[],full=s=>s.name+(s.role?'('+s.role+')':''),known=speakers.filter(s=>s.name.trim()).map(full),entries=speakerTools.entries(transcriptValue()),observed=entries.filter(e=>e.timestamp||known.includes(e.speaker)||/^講(?:話)?者\s*[A-Z]$/.test(e.speaker)).map(e=>e.speaker);return [...new Set([...known.filter(s=>observed.includes(s)),...observed,...known])];}
+ function renderSpeakerCorrection(){
+  if(speakerUndo&&speakerUndo.every(c=>!dirty.has(c.key)&&Number(editData().versions[c.key]||0)>c.version)){
+   speakerUndo=null;$('#speakerStatus').textContent=data.pendingRevision?'講話者修正已儲存，正在同步正式記錄。':'講話者修正已儲存；待辦負責人保持。';
+  }
+  const names=speakerNames(),html=names.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');
+  for(const [id,index]of [['swapFirst',0],['swapSecond',1]]){const e=$('#'+id);if(e.dataset.options!==html){const previous=e.value;e.innerHTML=html;e.value=names.includes(previous)?previous:names[index]||names[0]||'';e.dataset.options=html;}}
+  $('#swapSpeakers').disabled=names.length<2||saving.size>0||savingAll;
+  $('#undoSpeaker').hidden=!speakerUndo;
+  if(!$('#segmentCorrection').open)return;
+  const text=transcriptValue(),hash=JSON.stringify([text,names]);if(hash===segmentsHash)return;segmentsHash=hash;$('#segments').replaceChildren();
+  for(const entry of speakerTools.entries(text).filter(e=>e.timestamp||names.includes(e.speaker))){const row=document.createElement('div');row.className='speaker-segment';row.dataset.line=entry.line;const label=document.createElement('label');label.textContent=(entry.timestamp?'['+entry.timestamp+'] ':'')+'講話者';const select=document.createElement('select');select.setAttribute('aria-label',label.textContent);select.innerHTML=names.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');select.value=entry.speaker;label.append(select);row.append(label);const p=document.createElement('p');p.textContent=entry.text;row.append(p);
+   if(entry.start!==null){const play=document.createElement('button');play.type='button';play.className='secondary';play.textContent='播放此段';play.onclick=()=>seek(entry.start/1000);row.append(play);}
+   const apply=document.createElement('button');apply.type='button';apply.className='secondary';apply.textContent='套用此段';apply.onclick=()=>{if(transcriptValue()!==text){error('逐字稿剛有修改，請重新選擇這一段。');segmentsHash='';renderSpeakerCorrection();return;}previewSpeakers({[entry.speaker]:select.value},{line:entry.line,time:entry.timestamp||null});};row.append(apply);$('#segments').append(row);
+  }
+  if(!$('#segments').children.length)$('#segments').textContent='尚無可辨識的講話者段落，可在下方逐字稿直接修正。';
+ }
+ function previewSpeakers(mapping,scope={}){
+  if(!editable()||saving.size||savingAll)return;
+  if(Object.entries(mapping).some(([a,b])=>!a.trim()||!b.trim()||b.length>240||/[\r\n：:]/.test(b))){error('請填寫有效的講話者姓名，不可含換行或冒號。');return;}
+  const changes=[],transcript=transcriptValue(),after=speakerTools.replace(transcript,mapping,{line:scope.line??null});
+  if(after!==transcript)changes.push({key:'transcript',before:transcript,after,version:Number(document.querySelector('[data-part="transcript"]').dataset.version)});
+  // Only timestamp-matched evidence follows a single-segment correction.
+  const uniqueTime=scope.time&&speakerTools.entries(transcript).filter(e=>e.timestamp===scope.time&&Object.hasOwn(mapping,e.speaker)).length===1;
+  for(const e of $('#recordEditor').children){const key=e.dataset.part,area=e.querySelector('[contenteditable]'),before=area.innerText,value=scope.line!==undefined&&!uniqueTime?before:speakerTools.replace(before,mapping,{time:scope.time||null});if(value!==before)changes.push({key,before,after:value,version:Number(e.dataset.version)});}
+  if(!changes.length){error('找不到符合的講話者標示，原內容保持。');return;}
+  speakerPlan={changes};$('#speakerPreview').textContent=Object.entries(mapping).map(([a,b])=>a+' → '+b).join('\n')+'\n\n將修改 '+changes.length+' 處內容。'+(scope.line!==undefined?(uniqueTime?'僅此段逐字稿與相同時間的對話依據。':'僅此段逐字稿；時間未能唯一對應，請另行核對會議記錄的對話依據。'):'整份逐字稿及明確講話者標示。')+'\n\n'+changes.slice(0,5).map(c=>'修改前：'+c.before.slice(0,500)+'\n修改後：'+c.after.slice(0,500)).join('\n\n');$('#speakerDialog').showModal();error('');
+ }
+ function setSpeakerValue(key,value,version){const e=document.querySelector('[data-part="'+key+'"]'),area=e.querySelector(key==='transcript'?'textarea':'[contenteditable]');if(key==='transcript')area.value=value;else area.textContent=value;mark(key,value,version);}
+ $('#segmentCorrection').addEventListener('toggle',()=>{if(data&&editable())renderSpeakerCorrection();});
+ $('#swapSpeakers').onclick=()=>{const a=$('#swapFirst').value,b=$('#swapSecond').value;if(a===b){error('請選擇兩位不同的講話者。');return;}previewSpeakers({[a]:b,[b]:a});};
+ $('#replaceSpeaker').onclick=()=>previewSpeakers({[$('#oldSpeaker').value.trim()]:$('#newSpeaker').value.trim()});
+ $('#cancelSpeaker').onclick=()=>{speakerPlan=null;$('#speakerDialog').close();};
+ $('#applySpeaker').onclick=()=>{
+  const plan=speakerPlan;if(!plan||!editable()||saving.size||savingAll)return;
+  if(plan.changes.some(c=>{const e=document.querySelector('[data-part="'+c.key+'"]'),area=e?.querySelector(c.key==='transcript'?'textarea':'[contenteditable]'),text=c.key==='transcript'?area?.value:area?.innerText;return text!==c.before||Number(e?.dataset.version)!==c.version;})){$('#speakerDialog').close();error('預覽期間內容已改變，請重新預覽；你的輸入仍保留。');return;}
+  speakerUndo=plan.changes.map(c=>({...c,wasDirty:dirty.has(c.key),priorValue:structuredClone(dirty.get(c.key)),priorVersion:versions.get(c.key)}));
+  for(const c of plan.changes)setSpeakerValue(c.key,c.after,c.version);speakerPlan=null;$('#speakerDialog').close();$('#speakerStatus').textContent='已套用到畫面，尚未儲存；請檢查講話者，再按「儲存內容修改」。待辦負責人保持。';renderSpeakerCorrection();
+ };
+ $('#undoSpeaker').onclick=()=>{
+  if(!speakerUndo||saving.size||savingAll)return;
+  if(speakerUndo.some(c=>!dirty.has(c.key)||dirty.get(c.key)!==c.after||Number(editData().versions[c.key]||0)!==c.version)){error('內容已另行修改或儲存，請用交換或逐段修正建立新的修改，避免覆蓋後續內容。');return;}
+  for(const c of speakerUndo){setSpeakerValue(c.key,c.before,c.version);if(c.wasDirty){dirty.set(c.key,c.priorValue);versions.set(c.key,c.priorVersion);}else{dirty.delete(c.key);versions.delete(c.key);}}speakerUndo=null;$('#speakerStatus').textContent='已復原上次講話者修正，先前編輯仍保留。';render();
+ };
  function markSharingDirty(base){if(!sharingDirty)sharingBase=base||{version:data.sharing.version};sharingDirty=true;}
 
  async function loadMembers(){membersLoaded=true;$('#membersStatus').textContent='正在讀取成員及工作日誌對應…';try{const j=await api({action:'members',observed:true});memberList=j.members.people;$('#membersStatus').textContent='已列出系統在原對話收過發言、且目前能確認身分的成員；未列出者請先在原群組發言，再重新讀取。';render();}catch(e){membersLoaded=false;throw e;}}
@@ -178,7 +228,7 @@ export function workspaceClient(BOOT){
  };
  function closeGlossary(e){if(glossaryBusy||glossaryFileLoading){e?.preventDefault();return;}if((glossaryDirty||glossaryImportDirty)&&!confirm('詞條或匯入內容尚未儲存，確定關閉詞庫？')){e?.preventDefault();return;}$('#glossaryDialog').close();if(BOOT.glossaryOnly){window.close();location.href='/meetings/review/work/'+BOOT.id;}else $('#openGlossary').focus();}
  $('#closeGlossary').onclick=closeGlossary;$('#glossaryDialog').addEventListener('cancel',e=>{e.preventDefault();closeGlossary(e);});
- $('#setupPanel').addEventListener('input',()=>{settingsDirty=true;$('#settingsStatus').textContent='尚未儲存設定';schedulePreview();});
+ $('#setupPanel').addEventListener('input',()=>{settingsDirty=true;$('#settingsStatus').textContent='尚未儲存設定';schedulePreview();contentSaveState();});
  $('#type').onchange=()=>{const custom=$('#type').value==='custom';$('#customTypeBox').hidden=!custom;if(!custom)$('#prompt').value=data.types.find(t=>t.name===$('#type').value).prompt;settingsDirty=true;schedulePreview();};
  $('#addSpeaker').onclick=()=>{const s=settings().speakers;if(s.length>=40)return;s.push({name:'',gender:'',role:''});renderSpeakers(s);settingsDirty=true;};
  $('#saveSettings').onclick=()=>saveSettings().catch(error);
@@ -186,7 +236,7 @@ export function workspaceClient(BOOT){
  $('#start').onclick=async()=>{if(busy)return;busy=true;try{if(settingsDirty)await saveSettings();data=await api({action:'start',revision:data.workspace.revision});render();}catch(e){error(e);}finally{busy=false;}};
  $('#addTodo').onclick=()=>{const k='todo:'+crypto.randomUUID();mark(k,{content:'',ownerId:'',due:meetingDueDate(editData().fields.settings,new Date(Date.now()+8*3600000).toISOString().slice(0,10)),evidence:''});render();};
  $('#refreshMembers').onclick=()=>loadMembers().catch(error);
- $('#publish').onclick=()=>{if(dirty.size||saving.size){error('尚有內容未儲存，請先完成儲存再發布。');return;}const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v).map(([,v])=>v);if(ts.some(t=>!t.content.trim()||t.ownerId&&!t.due)){error('請補齊待辦內容；已選負責人的待辦必須填截止日期。');return;}$('#confirmText').textContent='會議：'+data.workspace.fields.settings.topic+'。將依連線狀態派發 '+ts.filter(t=>t.ownerId).length+' 項個人任務，保留 '+ts.filter(t=>!t.ownerId).length+' 項未分派待辦。尚未連線者不影響發布，完成連線後自動補派。';$('#confirmError').textContent='';$('#confirmStatus').textContent='';$('#confirmDialog').dataset.revision=data.workspace.revision;$('#confirmDialog').showModal();};
+ $('#publish').onclick=()=>{if(dirty.size||settingsDirty||saving.size){error('尚有內容未儲存，請先完成儲存再發布。');return;}const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v).map(([,v])=>v);if(ts.some(t=>!t.content.trim()||t.ownerId&&!t.due)){error('請補齊待辦內容；已選負責人的待辦必須填截止日期。');return;}$('#confirmText').textContent='會議：'+data.workspace.fields.settings.topic+'。將依連線狀態派發 '+ts.filter(t=>t.ownerId).length+' 項個人任務，保留 '+ts.filter(t=>!t.ownerId).length+' 項未分派待辦。尚未連線者不影響發布，完成連線後自動補派。';$('#confirmError').textContent='';$('#confirmStatus').textContent='';$('#confirmDialog').dataset.revision=data.workspace.revision;$('#confirmDialog').showModal();};
  $('#cancelPublish').onclick=()=>$('#confirmDialog').close();
  $('#confirmDialog').addEventListener('cancel',e=>{if(publishing)e.preventDefault();});
  $('#confirmPublish').onclick=async()=>{if(busy)return;busy=true;publishing=true;error('');$('#confirmStatus').textContent='正在核對身分並送出發布，請稍候…';$('#confirmPublish').textContent='正在確認發布…';for(const id of ['confirmPublish','cancelPublish','refreshPublish'])$('#'+id).disabled=true;try{data=await api({action:'publish',revision:Number($('#confirmDialog').dataset.revision)});$('#confirmDialog').close();render();}catch(e){error(e);}finally{busy=false;publishing=false;$('#confirmStatus').textContent='';$('#confirmPublish').textContent='確認發布';for(const id of ['confirmPublish','cancelPublish','refreshPublish'])$('#'+id).disabled=false;}};
@@ -195,10 +245,12 @@ export function workspaceClient(BOOT){
  $('#loadHistory').onclick=async()=>{try{historyOffset=0;$('#history').innerHTML='';await loadHistory();}catch(e){error(e);}};
  async function loadHistory(){const j=await api({action:'history',offset:historyOffset});$('#history').insertAdjacentHTML('beforeend',j.history.map(h=>'<details style="--change-color:'+esc(h.color||color(h.actor_id))+'"><summary><span class="edit-author">'+esc(h.actor_name)+' 編輯</span> · '+esc(h.field.startsWith('todo:')?'待辦事項':h.field.startsWith('record:')?'會議段落':({settings:'會議設定',record:'會議記錄',transcript:'逐字稿',sharing:'分享權限',published_revision:'正式會議修訂'}[h.field]||h.field))+' · '+esc(new Date(h.created_at).toLocaleString('zh-TW'))+'</summary><div class="change-text">'+changeText(h)+'</div></details>').join('')||'尚無人工修改紀錄。');historyOffset+=j.history.length;$('#moreHistory').hidden=j.history.length<100;}
  $('#moreHistory').onclick=()=>loadHistory().catch(error);
- $('#replaceSpeaker').onclick=()=>{const old=$('#oldSpeaker').value,next=$('#newSpeaker').value;if(!old||!next)return;for(const e of $('#recordEditor').children){const key=e.dataset.part,area=e.querySelector('[contenteditable]');if(area?.innerText.includes(old)){area.textContent=area.innerText.split(old).join(next);mark(key,area.innerText,Number(e.dataset.version));}}const tr=document.querySelector('[data-part="transcript"] textarea');if(tr?.value.includes(old)){tr.value=tr.value.split(old).join(next);mark('transcript',tr.value,Number(tr.closest('[data-part]').dataset.version));}};
+
  $('#addRecordBlock').onclick=()=>{const key='record:'+crypto.randomUUID().replaceAll('-',''),blocks=[...editData().blocks,...[...newBlocks.keys()].map(k=>({id:k.slice(7)}))];newBlocks.set(key,{after:blocks.at(-1)?.id||null});mark(key,'',0);render();document.querySelector('[data-part="'+key+'"] [contenteditable]').focus();};
+ $('#backSettings').onclick=()=>{if(!data.host||data.workspace.state!=='review')return;showingSettings=true;render();$('#setupPanel').scrollIntoView?.({block:'start'});};
+ $('#returnReview').onclick=()=>{showingSettings=false;render();$('#recordPanel').scrollIntoView?.({block:'start'});};
  $('#viewMode').onclick=()=>{mode='view';render();};
- $('#saveContent').onclick=async()=>{if(savingAll||saving.size||!editable())return;savingAll=true;contentSaveError='';contentSaveState();try{for(const key of [...dirty.keys()])await save(key);}catch(err){error(err);}finally{savingAll=false;contentSaveState();}};
+ $('#saveContent').onclick=async()=>{if(savingAll||saving.size||!editable())return;savingAll=true;contentSaveError='';contentSaveState();try{if(settingsDirty){await saveSettings();if(settingsDirty)throw Error('設定仍有新輸入，請再次儲存。');}for(const key of [...dirty.keys()])await save(key);}catch(err){error(err);}finally{savingAll=false;contentSaveState();}};
  $('#editMode').onclick=()=>{if(!data.canEdit)return;mode='edit';render();};
  $('#shareEnabled').onchange=()=>{markSharingDirty();$('#sharingStatus').textContent='尚未儲存分享設定';};
  $('#choosePeople').onclick=async()=>{const button=$('#choosePeople');button.disabled=true;try{$('#organizationStatus').textContent='正在讀取最新組織架構…';const j=await api({action:'organization'}),base={version:data.sharing.version},original=selectedPeople.map(p=>p.account).sort().join(','),picked=await window.chooseMeetingPeople({organization:j.organization,selected:selectedPeople,title:'選擇分享對象'});if(picked){if(picked.map(p=>p.account).sort().join(',')!==original){markSharingDirty(base);$('#sharingStatus').textContent='分享名單尚未儲存';}if(sharingDirty)selectedPeople=picked;renderSelected();}$('#organizationStatus').textContent='選好後請按「儲存分享設定」才會生效。';}catch(e){$('#organizationStatus').textContent='組織架構讀取未完成，原分享名單保持。';error(e);}finally{button.disabled=false;button.focus();}};
