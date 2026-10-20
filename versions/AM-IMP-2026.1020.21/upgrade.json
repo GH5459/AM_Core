@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1020.21",
+  "name":"LINE會議報告分層圓點與縮排",
+  "type":"Meeting LINE presentation",
+  "portable":true,
+  "status":"Ready",
+  "requiresDatabases":["Existing project-local meeting workspace and notification receipts"],
+  "requiresEnv":["Existing original LINE and meeting settings"],
+  "requiresScripts":["tools/test-meeting-line-record.mjs","tools/test-meeting-workspace-service.mjs","tools/dryrun-meetings.mjs"],
+  "installTargets":["Original AM platform"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Indented plain-text LINE topics without Markdown or a transcript evidence dump","Wrapped lines keep their indentation and all messages fit the existing LINE limit","Pending states and full meeting link retained","Original one-time notification retry key, source data, assignments, progress, audio and full transcript retained","Exact tested main commit verified on both production origins; no real LINE test messages"]
+}

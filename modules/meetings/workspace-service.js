@@ -12,6 +12,7 @@ import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
 import {meetingTaskDispatch} from './task-dispatch.js';
 import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
+import {meetingLineRecord,MEETING_LINE_FORMAT} from './line-record.js';
 import {sendJson} from '../../core/util.js';
 
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
@@ -156,7 +157,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    await taskDispatch.enqueue({...r,receipt});
    receipt.taskDispatch=true;receipt.tasksSaved=true;await save();
    if(!receipt.notified){
-    const summary='會議記錄已發布：'+r.fields.settings.topic+'\n主持人：'+r.host_name+'\n已指定負責人 '+todos(r.fields).filter(t=>t.ownerId).length+' 項，未分派 '+todos(r.fields).filter(t=>!t.ownerId).length+' 項。個人任務依連線狀態派發，未連線者完成後自動補派。\n'+r.fields.record.slice(0,1800)+'\n\n完整會議記錄：\n'+link(r.id);
+    const summary='會議記錄已發布：'+r.fields.settings.topic+'\n主持人：'+r.host_name+'\n已指定負責人 '+todos(r.fields).filter(t=>t.ownerId).length+' 項，未分派 '+todos(r.fields).filter(t=>!t.ownerId).length+' 項。個人任務依連線狀態派發，未連線者完成後自動補派。\n\n'+meetingLineRecord(r.fields.record)+'\n\n完整會議記錄：\n'+link(r.id);
     await platform.pushLineMessage(row.source_id,summary,undefined,{retryKey:'workspace-published:'+r.id});receipt.notified=true;await save();
    }
    await pool.query(`UPDATE central_archive.meeting_workspaces SET state='published',error_code='',lease_until=NULL,updated_at=now() WHERE id=$1 AND state='publishing'`,[r.id]);
@@ -285,5 +286,5 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    sendJson(res,200,result);return true;
   }catch(e){if(match[2]==='hub'&&!e.status)logger.warn('Meeting audio/preparation request deferred.',{code:/^[A-Z0-9_]{1,20}$/.test(e.code||'')?e.code:e.name==='TimeoutError'?'timeout':/connection|connect/i.test(e.message||'')?'connection':'internal'});if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',recordFormat:DECISION_RECORD_CONTRACT})};
+ return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',recordFormat:DECISION_RECORD_CONTRACT,lineFormat:MEETING_LINE_FORMAT})};
 }

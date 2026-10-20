@@ -1,5 +1,6 @@
 import {DECISION_RECORD_INSTRUCTIONS,normalizeDecisionTopics,decisionRecordText,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 import {glossaryPrompt} from './glossary.js';
+import {meetingLineRecord} from './line-record.js';
 // AM Platform 模組:meetings
 // 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
 // ─────────────────────────────────────────────────────────────────────────
@@ -178,7 +179,8 @@ function meetingLineText({ parsed, legendLine, date, type, url, publicUrl, defau
   const L = [`📋 會議記錄|${date} ${parsed.title || defaultTitle}`];
   if (legendLine) L.push(`講者:${legendLine}`);
   const hi = parsed.highlights || [];
-  if (hi.length) L.push(`\n💡 ${parsed.topics?.length?'重點與決議':'重點摘要'}\n${hi.map((h) => `・${h}`).join('\n')}`);
+  if(parsed.topics?.length)L.push('\n'+meetingLineRecord(decisionRecordText(parsed.topics)));
+  else if (hi.length) L.push(`\n💡 重點摘要\n${hi.map((h) => `・${h}`).join('\n')}`);
   const con = parsed.conclusions || [];
   if (con.length) L.push(`\n✅ 主議題結論\n${con.map((c) => `・${c}`).join('\n')}`);
   const todos = parsed.todos || [];
