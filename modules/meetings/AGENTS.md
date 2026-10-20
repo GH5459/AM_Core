@@ -2,7 +2,7 @@
 
 ## 首頁排列與預設收合（2026-10-20）
 
-AM-IMP-2026.1020.33：Ready。首頁固定依序為 Google Calendar 的活動、未完成的會議、已結束的會議、分享給我的會議、較早的會議。五區皆使用可展開／收起標題，首次開頁只有 Google Calendar 展開。重新讀取及日期切換保留手動收合，重新開頁恢復預設；未完成為零仍保留入口。詳見 docs/upgrades/meeting-hub-section-order-20261020.md。
+AM-IMP-2026.1020.33：Deployed。PR410受測程式完整CI通過，AM0f7fbce兩站與Render43.2秒Live確認；本人首頁五區／預設與原18列連結保持。首頁固定依序為 Google Calendar 的活動、未完成的會議、已結束的會議、分享給我的會議、較早的會議。五區皆使用可展開／收起標題，首次開頁只有 Google Calendar 展開。重新讀取及日期切換保留手動收合，重新開頁恢復預設；未完成為零仍保留入口。詳見 docs/upgrades/meeting-hub-section-order-20261020.md。
 ## 清單僅開啟時讀取（2026-10-20，使用者最新偏好）
 
 AM-IMP-2026.1020.32：Deployed。PR409完整CI4分19秒通過；AM精確提交440aadd兩站回讀與受測程式一致，Render58.5秒Live。正式本人清單開啟正常讀取，停留超過30秒數字與讀取時間保持，重新開啟取得新讀取時間。清單取消30秒與切回頁面更新，每次開啟每場只讀一次，保留手動重新讀取。此偏好優先於下方1020.31歷史說明。原會議內共同編輯、任務、成果與權限保持，無新增LINE推播；DailyLog／UOF未重發。詳見docs/upgrades/meeting-list-open-once-20261020.md。
