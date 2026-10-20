@@ -89,5 +89,5 @@ const blocks=pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].
 assert.equal((await api({action:'edit',field:'record',value:'舊頁偷改',version:1})).status,409);
 foreign=true;assert.equal((await api({action:'read'},'member')).status,403);
 if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
-export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
+export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,pushes,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');
