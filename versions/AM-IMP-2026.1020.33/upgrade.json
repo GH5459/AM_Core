@@ -1,0 +1,19 @@
+{
+  "id": "AM-IMP-2026.1020.33",
+  "name": "會議首頁區塊順序與預設收合",
+  "type": "Meeting hub layout",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/test-meeting-calendar-week-browser.mjs", "tools/test-meeting-hub.mjs", "tools/test-meeting-shared-inbox.mjs", "tools/test-meeting-list-progress.mjs"],
+  "installTargets": ["Original AM Platform meeting hub"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Five meeting sections follow the requested order",
+    "Only Google Calendar is open on initial page load",
+    "Manual toggles survive list refreshes and date navigation",
+    "Existing links, access checks and meeting content remain unchanged",
+    "Both production origins verified before Deployed"
+  ]
+}

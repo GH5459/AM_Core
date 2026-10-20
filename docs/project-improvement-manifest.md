@@ -3,6 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
+| AM-IMP-2026.1020.33 | Original AM meeting hub | Ready | Five sections in requested order; only Google Calendar initially open; manual toggle state retained during refresh and navigation. Production verification pending. |
 | AM-IMP-2026.1020.31 | Original AM meeting hub | Deployed | PR407 full CI4m12s; AM7c94f73 both origins, Render1m45s Live; signed-in11 summary rows/10 meetings match original live tasks, original18 rows/links retained. Original13 meetings/246 tasks and history retained, including2 natural updates/1 completion with evidence. Mobile390 verified; counts-only fresh authorization, no added LINE push, DailyLog/UOF unchanged. |
 | AM-IMP-2026.1020.26 | Original AM meeting workspace and DailyLog | Deployed | PR402/404 full CI passed; AM 94b642e both origins, Render 42.7s Live; DailyLog 1f8759ad /56 modules retains other54 and all settings/assets/secrets/cron. Original13 meetings/63 todos/246 task values and versions preserved; natural pending revisions retained. Live23 task states/links and3 results match sources; signed-in6 items/2 done/2 evidence, no business test writes or added LINE push. |
 | AM-IMP-2026.1020.25 | Original AM meeting workspace | Deployed | PR398 full CI 5m14s passed; AM faeee51 verified on both origins, Render Live 42.8s. Both collapsed panels and original visible fields verified; 237 glossary terms, 13 meetings and 63 todos preserved. |
