@@ -3,7 +3,7 @@
   "name": "LINE 共用登入首次回傳修復",
   "type": "Compatible LIFF redirect repair",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "installTargets": [
     "Current shared AM Platform runtime"
   ],
