@@ -1,0 +1,26 @@
+{
+  "id": "AM-IMP-2026.1020.32",
+  "name": "會議清單僅開啟時讀取一次",
+  "type": "Meeting list refresh preference",
+  "portable": true,
+  "status": "Installed",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-list-progress.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting hub"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Read each meeting once when the hub opens",
+    "No periodic or visibility-triggered status reads",
+    "Explicit refresh retained; no business writes or added LINE push",
+    "Verify exact production commit before Deployed"
+  ]
+}

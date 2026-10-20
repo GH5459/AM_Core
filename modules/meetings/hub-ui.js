@@ -23,8 +23,8 @@ export function hubClient(BOOT){
  function paintProgress(el,label){el.replaceChildren();for(const [i,text] of label.split('　').entries()){if(i)el.append(document.createTextNode('　'));const span=document.createElement('span');span.style.whiteSpace='nowrap';span.style.display='inline-block';span.textContent=text;el.append(span);}}
  function updateProgress(){for(const el of document.querySelectorAll('[data-progress-id]')){const x=[...items,...sharedItems].find(x=>x.id===el.dataset.progressId);if(!x)continue;paintProgress(el,progressLabel(x));const p=progressById.get(x.id);el.title='📋 待辦總數；✅ 已完成；🔎 待確認；🔵 進行中；⛔ 卡住；⏰ 逾期；👤 未分派；⏳ 待同步'+(p?.checkedAt?'；更新：'+new Date(p.checkedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'');el.setAttribute('aria-label',el.title+'。'+el.textContent);}}
  async function loadProgress(){
-  if(!token||document.hidden)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
-  try{const ids=[...new Set([...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId))];let next=0;
+  if(!token)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
+  try{const ids=[...new Set([...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId))].filter(id=>!progressById.has(id));let next=0;
    await Promise.all(Array.from({length:Math.min(3,ids.length)},async()=>{while(next<ids.length){const id=ids[next++];try{const r=await api({action:'task-progress',id});progressById.set(id,r.progress);}catch{progressById.set(id,{available:false});}updateProgress();}}));
   }finally{progressBusy=false;if(progressAgain){progressAgain=false;void loadProgress();}}
  }
@@ -62,7 +62,7 @@ export function hubClient(BOOT){
  let sharedOffset=0,sharedItems=[],sharedBusy=false;
  async function loadShared(reset=false){
   if(sharedBusy)return;sharedBusy=true;$('#refreshShared').disabled=true;$('#sharedMore').disabled=true;
-  if(reset){sharedOffset=0;sharedItems=[];$('#sharedItems').replaceChildren();$('#sharedMore').hidden=true;}
+  if(reset){for(const x of sharedItems)progressById.delete(x.id);sharedOffset=0;sharedItems=[];$('#sharedItems').replaceChildren();$('#sharedMore').hidden=true;}
   $('#sharedStatus').textContent='正在讀取分享給我的會議…';
   try{const r=await api({action:'list',scope:'shared',offset:sharedOffset});sharedItems=[...new Map([...sharedItems,...r.items].map(x=>[x.id,x])).values()];sharedOffset=r.next;
    $('#sharedItems').replaceChildren(...sharedItems.map(x=>row({...x,start:x.date,host:'分享者：'+x.host},true)));
@@ -72,7 +72,6 @@ export function hubClient(BOOT){
   finally{sharedBusy=false;$('#refreshShared').disabled=false;$('#sharedMore').disabled=false;}
  }
  $('#refreshShared').onclick=()=>loadShared(true);$('#sharedMore').onclick=()=>loadShared();
- setInterval(()=>void loadProgress(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void loadProgress();});
  async function setup(){const [s,o]=await Promise.all([api({action:'sources'}),api({action:'organization'})]);$('#source').innerHTML=s.sources.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.name)+'</option>').join('');const org=o.organization;
   const selected=new Set();$('#chooseNewPeople').onclick=async()=>{const chosen=await window.chooseMeetingPeople({organization:org,selected:org.people.filter(p=>selected.has(p.account)),title:'選擇會議參與者'});if(chosen){selected.clear();for(const p of chosen)selected.add(p.account);$('#selected').textContent='已選：'+(chosen.map(p=>p.name+'（'+p.account+'）').join('、')||'尚未選擇');}};
   $('#form').onsubmit=async e=>{e.preventDefault();const b=$('#create');b.disabled=true;try{const r=await api({action:'create',operationId,...calendarRef?{calendarRef}:{},conversationKey:$('#source').value,topic:$('#topic').value,start:$('#start').value+':00+08:00',end:$('#end').value+':00+08:00',location:$('#location').value,accounts:[...selected],calendar:$('#calendar').checked,cancelled:false});location.assign(r.url);}catch(e){fail(e);b.disabled=false;}};
