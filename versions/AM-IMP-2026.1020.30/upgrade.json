@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.1020.30",
+  "name": "儲存並回報 LINE 個人與組織選人",
+  "type": "Explicit personal task completion report",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing DailyLog documents, work_items, central organization and verified identities"
+  ],
+  "requiresEnv": [
+    "Existing encrypted task-service and original OA credentials"
+  ],
+  "requiresScripts": [
+    "tools/test-line-personal-completion-report.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Explicit recipient selection from original organization",
+    "Save acknowledgment before preview; explicit confirmation before personal push",
+    "Direct assignment and meeting task compatibility",
+    "Current identity/access/completion snapshot recheck",
+    "Receipt lease and original LINE retry key; no automatic resend",
+    "Existing assets/config/data/other features preserved",
+    "Reviewed main CI and live readback before Deployed"
+  ]
+}
