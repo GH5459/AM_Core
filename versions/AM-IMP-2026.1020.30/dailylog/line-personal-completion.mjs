@@ -4,6 +4,12 @@ const err=(message,status=409)=>Object.assign(Error(message),{status});
 const json=(v,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store'}});
 const hash=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(b=>b.toString(16).padStart(2,'0')).join('');
 const decode=s=>JSON.parse(s);
+export async function personalAuthority(request,env,readAuthority,refresh){
+ let auth=await readAuthority(request,env);
+ if(!auth){await refresh(request,env);auth=await readAuthority(request,env);}
+ if(!auth)throw err('名單更新中，請稍後重試。',503);
+ return auth;
+}
 async function body(r){if(Number(r.headers.get('Content-Length')||0)>20000)throw err('內容太長。',413);const reader=r.body?.getReader();if(!reader)throw err('缺少確認內容。',400);let s='',n=0;const d=new TextDecoder();for(;;){const v=await reader.read();if(v.done)break;n+=v.value.length;if(n>20000){await reader.cancel();throw err('內容太長。',413);}s+=d.decode(v.value,{stream:true});}try{return JSON.parse(s+d.decode());}catch{throw err('確認內容格式錯誤。',400);}}
 async function load(db,id){const r=await db.prepare('SELECT value,revision FROM documents WHERE namespace=? AND key=?').bind(ns,id).first();return r?{value:decode(r.value),revision:r.revision}:null;}
 async function save(db,id,value,revision){const r=revision===null?await db.prepare('INSERT OR IGNORE INTO documents(namespace,key,value,revision) VALUES(?,?,?,1)').bind(ns,id,JSON.stringify(value)).run():await db.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(value),ns,id,revision).run();return r.meta.changes===1;}

@@ -81,6 +81,7 @@ on:
       - 'versions/AM-IMP-2026.1016.01/**'
       - 'core/line-personal-completion-report.js'
       - 'tools/test-line-personal-completion-report.mjs'
+      - 'tools/test-personal-authority.mjs'
       - 'versions/AM-IMP-2026.1020.30/**'
       - 'core/line-completion-report.js'
       - 'tools/test-line-completion-report.mjs'
@@ -169,7 +170,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
-      - run: node --test tools/test-line-personal-completion-report.mjs
+      - run: node --test tools/test-line-personal-completion-report.mjs tools/test-personal-authority.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.30
       - run: node tools/test-line-completion-report.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.14
