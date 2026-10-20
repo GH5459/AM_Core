@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.1020.01",
+  "name": "LINE 共用登入首次回傳修復",
+  "type": "Compatible LIFF redirect repair",
+  "portable": true,
+  "status": "Installed",
+  "installTargets": [
+    "Current shared AM Platform runtime"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing registered meeting LIFF endpoint and ID"
+  ],
+  "requiresScripts": [
+    "tools/test-common-line-identity.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Primary redirect initializes LINE SDK in place",
+    "Destination read only after SDK initialization",
+    "Original identity and permission guards pass",
+    "Reviewed main deployed and both origins verified"
+  ]
+}
