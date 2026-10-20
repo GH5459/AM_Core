@@ -11,7 +11,8 @@ export function createWorkspaceStore(pool){
    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb) ON CONFLICT(conversation_key,message_id) DO NOTHING`,[id,key,event.message.id,event.source.userId,hostName,JSON.stringify({type:'message',source:event.source,message:{id:event.message.id,type:event.message.type,fileName:filename},timestamp:event.timestamp}),filename,JSON.stringify(initialFields(event))]);return get(id);
  }
  async function edit(id,actor,{field,value,version}){checkField(field,value);return locked(id,async(r,db)=>{
-  if(!['setup','review','failed'].includes(r.state)||field==='settings'&&r.state==='review')throw failure(409,'此階段不可修改這個欄位。');
+  if(!['setup','review','failed'].includes(r.state))throw failure(409,'此階段不可修改這個欄位。');
+  if(field==='settings'&&r.state==='review'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以返回修改會議設定。');
   const current=Number(r.field_versions[field]||0);
   if(version!==current)throw failure(409,'這個欄位已被其他人修改，請比較最新內容後再儲存；你的輸入仍保留在畫面。');
   const fields={...r.fields,[field]:value},revision=Number(r.revision)+1;

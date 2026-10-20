@@ -1,0 +1,21 @@
+{
+  "id": "AM-IMP-2026.1020.23",
+  "name": "第二步講話者交換、逐段修正與返回設定",
+  "type": "Meeting speaker correction",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/test-meeting-speaker-correction.mjs", "tools/test-meeting-save-version.mjs", "tools/test-meeting-workspace.mjs", "tools/test-meeting-collaboration.mjs"],
+  "installTargets": ["Original AM Platform meeting workspace"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Simultaneous A/B replacement changes only explicit speaker labels",
+    "Single-segment correction preserves transcript words and timestamps",
+    "Task content, assignees, due dates and evidence remain independent",
+    "Host can return to settings during review without regeneration or losing local edits",
+    "Original per-part save versions, conflicts and audit history remain enforced",
+    "Reader playback labels follow the saved transcript",
+    "Production status requires exact deployed version verification"
+  ]
+}

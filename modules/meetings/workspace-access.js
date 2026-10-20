@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {failure,todos} from './workspace-model.js';
+import {meetingSpeakerTools} from './workspace-speakers.js';
 
 // A shared link grants published content and audio only. It never grants editor,
 // member-directory, history, source identifiers or integration access.
@@ -8,7 +9,7 @@ export function readerData(r){return {
  topic:r.fields.settings.topic,date:r.fields.settings.date,type:r.fields.settings.type,
  hostName:r.host_name,filename:r.filename,record:r.fields.record||'',transcript:r.fields.transcript||'',
  todos:todos(r.fields).map(t=>({content:t.content,owner:t.ownerId?r.receipt.ownerNames?.[t.ownerId]||'待確認負責人':'未分派',due:t.due||'未設定'})),
- warning:r.result.warning||'',segments:(r.result.segments||[]).map(s=>({start:s.start,speaker:s.speaker,text:s.text}))
+ warning:r.result.warning||'',segments:meetingSpeakerTools().segments(r.fields.transcript)
 };}
 export function audioTickets(secret,now=Date.now){
  const signature=s=>crypto.createHmac('sha256',secret).update('meeting-audio-v1:'+s).digest('base64url');

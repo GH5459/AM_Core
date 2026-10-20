@@ -1,0 +1,26 @@
+// Synthetic browser check; every network request is intercepted locally.
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {chromium}=require(process.argv[2]||'playwright');
+(async()=>{
+ const {workspaceHtml}=await import('../modules/meetings/workspace-ui.js'),id='f'.repeat(64),block='a'.repeat(32),key='record:'+block,todo='todo:11111111-1111-4111-8111-111111111111';
+ const fields={settings:{topic:'合成範例：講話者核對',date:'2026-10-20',type:'工作會議',prompt:'依議題整理',projectGoal:'合成目標',cycle:{frequency:'daily',intervalDays:7,nextDate:''},speakers:[{name:'同仁甲',gender:'',role:''},{name:'同仁乙',gender:'',role:''}]},record:'- [0:01] 同仁甲：先確認現場情況。',transcript:'[0:01] 同仁甲：先確認現場情況。\n[0:05] 同仁乙：我會整理結果。',[todo]:{content:'合成待辦',ownerId:'original-owner',due:'2026-10-25',evidence:'合成會議依據'}};
+ let state={ok:true,access:'member',host:true,canEdit:true,actor:{id:'synthetic-host',name:'合成主持人'},types:[],sharing:{enabled:false,people:[],version:0},workspace:{state:'review',revision:1,fields,versions:{[key]:0,[todo]:0,transcript:0,settings:0},ownerNames:{'original-owner':'合成負責人'}},editing:{fields,versions:{[key]:0,[todo]:0,transcript:0,settings:0},blocks:[{id:block,text:fields.record}],revision:1},changes:[],presence:[],members:{people:[]}};
+ const originalTodo=structuredClone(fields[todo]),requests=[],browser=await chromium.launch({channel:'chrome',headless:true});
+ try{const context=await browser.newContext({viewport:{width:390,height:844}}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.route('**/*',async route=>{const req=route.request(),url=req.url();if(url.includes('static.line-scdn.net'))return route.fulfill({contentType:'application/javascript',body:'window.liff={init:async()=>{},isLoggedIn:()=>true,getAccessToken:()=>"synthetic"};'});
+   if(req.method()==='POST'){const input=req.postDataJSON();requests.push(input);if(['save-part','edit'].includes(input.action)){assert.equal(input.version,state.editing.versions[input.field]||0);state=structuredClone(state);state.editing.fields[input.field]=input.value;state.editing.versions[input.field]++;state.editing.revision++;if(input.field===key){state.editing.blocks[0].text=input.value;state.editing.fields.record=input.value;}state.workspace={...state.workspace,fields:state.editing.fields,versions:state.editing.versions,revision:state.editing.revision};}return route.fulfill({json:url.endsWith('/hub')?{ok:true,plan:null}:state});}
+   return route.fulfill({contentType:'text/html',body:workspaceHtml({id,liffId:'synthetic'})});
+  });
+  await page.goto('https://meeting.example.test/meetings/review/work/'+id);await page.waitForSelector('#recordPanel:not([hidden])');
+  await page.locator('[data-part="'+key+'"] [contenteditable]').fill('- [0:01] 同仁甲：保留人工編輯。');
+  await page.click('#speakerCorrection > summary');await page.click('#swapSpeakers');await page.waitForSelector('#speakerDialog[open]');await page.click('#applySpeaker');
+  assert.equal(await page.locator('[data-part="transcript"] textarea').inputValue(),'[0:01] 同仁乙：先確認現場情況。\n[0:05] 同仁甲：我會整理結果。');
+  await page.click('#segmentCorrection > summary');await page.locator('#segments select').first().selectOption('同仁甲');await page.locator('#segments .speaker-segment').first().getByRole('button',{name:'套用此段'}).click();await page.click('#applySpeaker');
+  await page.click('#backSettings');await page.waitForSelector('#setupPanel:not([hidden])');await page.fill('#projectGoal','保留返回設定後的編輯');await page.click('#returnReview');assert((await page.locator('[data-part="'+key+'"] [contenteditable]').innerText()).includes('保留人工編輯'));
+  for(const width of [360,390,768,1024]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Overflow at '+width);}
+  await page.setViewportSize({width:390,height:844});await page.locator('#speakerCorrection').scrollIntoViewIfNeeded();if(process.argv[3]){fs.mkdirSync(process.argv[3],{recursive:true});await page.screenshot({path:process.argv[3]+'/speaker-correction-390.png',fullPage:true});}
+  await page.click('#saveContent');await page.waitForFunction(()=>document.querySelector('#saveContent').disabled&&document.querySelector('#contentSaveStatus').textContent.includes('目前所有內容已儲存'));
+  assert.deepEqual(state.editing.fields[todo],originalTodo);assert.equal(state.editing.fields.settings.projectGoal,'保留返回設定後的編輯');assert.equal(requests.filter(r=>['publish','start','sharing'].includes(r.action)).length,0);assert.deepEqual(errors,[]);
+  console.log('Headless Chrome: swap, per-segment correction, settings return, preserved manual text/assignee/deadline, persistence, zero page errors and 360/390/768/1024 widths passed.');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});
