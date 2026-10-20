@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.1020.24",
+  "name": "發布前改選 LINE 群組與發布群組只讀存取",
+  "type": "Meeting publication destination",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "central_archive.meeting_workspaces (existing; add publication route guard trigger)"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-publication-target.mjs",
+    "tools/test-meeting-publication-client.mjs",
+    "tools/test-meeting-collaboration.mjs",
+    "tools/test-meeting-hub.mjs",
+    "tools/install-meeting-publication-target.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting workspace"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Host selects a verified same-OA same-tenant group before publication",
+    "Selection preserves the source recording, Notion database, editors, task IDs, owners and dates",
+    "Destination has independent version checks and an attributed audit record",
+    "Group save sends no LINE and preserves unsaved content",
+    "Published destination members can read and play audio without draft or write privileges",
+    "Destination membership, bot identity and tenant changes revoke access",
+    "Publishing freezes the recipient, message text and original retry key",
+    "Exact production code and existing business data are verified before Deployed status",
+    "Database protection prevents legacy workers and older clients from sending a new destination publication to the original source"
+  ]
+}
