@@ -1,0 +1,26 @@
+{
+  "id": "AM-IMP-2026.1020.31",
+  "name": "我的會議清單符號進度",
+  "type": "Meeting list progress",
+  "portable": true,
+  "status": "Installed",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-list-progress.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting hub"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Per-meeting list shows live task and completion counts",
+    "Counts only with fresh access checks; failures do not claim stale completion",
+    "Existing meeting evidence and task workflows preserved; no new LINE push",
+    "Production verified before Deployed"
+  ]
+}
