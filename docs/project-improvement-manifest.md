@@ -62,4 +62,4 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.71 | 會議日曆連接修復及今日已結束行程 | Deployed | PR385完整CI4分17秒；AM59e5ff3兩站／Render42.6秒Live；DailyLog f6116dca完整51模組只改2個，其餘49與原設定／資產／秘密／排程保持。原農曆至2100年結果一致；本人正式清單顯示指定已結束行程且可開建檔預覽，原9會議／113對話／54段及相關資料保持。UOF不重發，未代建真人會議或上傳錄音。 |
 | AM-IMP-2026.1019.80 | 群組未連線停止重試與安靜有限退避 | Installed | 未連線停止、暫時故障最多三次且不發一般重試提示；原來源與已建立行程保留。正式版本驗證待完成。 |
 
-| AM-IMP-2026.1020.21 | LINE會議分層圓點與縮排 | Installed | 三層／續行縮排、字數限制與原單次通知及來源保留通過；正式版本待驗證。 |
+| AM-IMP-2026.1020.21 | LINE會議分層圓點與縮排 | Deployed | PR390完整CI3分12秒；AMd200c8b兩站／Render58.7秒Live。三層／續行縮排、390寬預覽、字數及原單次通知通過；10會議／119對話與全部原內容／收據保持，DailyLog／UOF不重發，未傳真人LINE測試。 |
