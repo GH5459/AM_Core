@@ -4,7 +4,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {commonLine} from '../versions/AM-IMP-2026.1019.50/common-line-uof.mjs';
 import {commonLineIdentity} from '../versions/AM-IMP-2026.1019.50/common-line-dailylog.mjs';
 import {commonPersonnelInventory,commonMeetingRecheck} from '../versions/AM-IMP-2026.1019.50/common-line-management.mjs';
-import {commonLineHtml,createCommonLineEntry} from '../core/common-line-entry.js';
+import {commonLineHtml,commonLineClient,createCommonLineEntry} from '../core/common-line-entry.js';
+import vm from 'node:vm';
 const bot='U'+'a'.repeat(32),user='U'+'b'.repeat(32),other='U'+'c'.repeat(32),channel='123456',token='synthetic-owner-token';
 function fixture({legacy=[],projectFail=false,enabled=true}={}){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec('CREATE TABLE documents(namespace TEXT,key TEXT,value TEXT,revision INTEGER DEFAULT 1,PRIMARY KEY(namespace,key))');
@@ -36,3 +37,29 @@ test('management recognizes native identity and rechecks before any setting writ
 test('common page has no native identifiers and three destinations; script parses',()=>{const html=commonLineHtml({liffId:'fixture',destinations:{dailylog:'https://work.invalid',meetings:'/meetings/review/hub',uof:'https://uof.invalid'}});new Function(html.match(/<script>\(([\s\S]+)<\/script>/)[0].replace(/^<script>|<\/script>$/g,''));assert(html.includes('連結並繼續'));assert(html.includes('maxlength="500"'));});
 test('entry requires expected origin and bearer identity',async()=>{let called=0;const entry=createCommonLineEntry({env:{AMCORE_MEETINGS_LIFF_ID:'fixture'},call:async()=>{called++;}});for(const headers of [{},{origin:'https://evil.invalid',authorization:'Bearer synthetic'}]){const res={setHeader(){},end(){}};await entry.handle({method:'POST',headers},res,new URL('https://am.hozorental.com/meetings/review/connect/api'));assert([401,403].includes(res.statusCode));}assert.equal(called,0);});
 test('journal text navigation preserves new common menu URL and keeps legacy private-entry fallback',()=>{const entry=createCommonLineEntry({call:async()=>{}}),action={type:'uri',uri:'https://am.hozorental.com/meetings/review/connect?app=dailylog'};assert.equal(entry.journalAction(action),action);assert.equal(entry.journalAction({...action,uri:'https://dailylog.chatgpt-673.workers.dev/'}),null);assert.equal(entry.journalAction({...action,uri:'https://evil.invalid/meetings/review/connect?app=dailylog'}),null);});
+
+test('LINE primary redirect serves the SDK in place for all three apps without identity calls',async()=>{
+ let called=0;const entry=createCommonLineEntry({env:{AMCORE_MEETINGS_LIFF_ID:'fixture',AMCORE_MEETINGS_LIFF_ENDPOINT_URL:'https://entry.invalid/meetings/review'},call:async()=>{called++;}});
+ for(const app of ['dailylog','meetings','uof']){
+  const url=new URL('https://entry.invalid/meetings/review?liff.state='+encodeURIComponent('/connect?app='+app)),original=url.href,headers={};let body='';
+  const res={setHeader(k,v){headers[k]=v;},end(v){body=v;}};
+  assert.equal(await entry.handle({method:'GET'},res,url),true);assert(body.includes('liff.init'));assert.equal(headers['Cache-Control'],'no-store');assert.equal(headers['X-Frame-Options'],'DENY');assert.equal(headers.Location,undefined);assert.equal(url.href,original);
+ }
+ assert.equal(called,0);
+ for(const state of ['/hub','/connect/api','//evil.invalid/connect','https://evil.invalid/connect','/connect-other','/%63onnect']){
+  assert.equal(await entry.handle({method:'GET'},{setHeader(){},end(){}},new URL('https://entry.invalid/meetings/review?liff.state='+encodeURIComponent(state))),false);
+ }
+ assert.equal(await entry.handle({method:'POST'},{setHeader(){},end(){}},new URL('https://entry.invalid/meetings/review?liff.state=%2Fconnect')),false);
+});
+
+test('destination is restored after LIFF init; each app retains its original permission check',async()=>{
+ for(const app of ['dailylog','meetings','uof'])for(const allowed of [true,false]){
+  const nodes=new Map(),calls=[],replaced=[],destinations={dailylog:'https://work.invalid/',meetings:'/meetings/review/hub',uof:'https://uof.invalid/'};
+  let resolveInit;const initialized=new Promise(r=>resolveInit=r),location={href:'https://entry.invalid/meetings/review?liff.state='+encodeURIComponent('/connect?app='+app),replace:v=>replaced.push(v),reload(){}};
+  const context={URL,location,document:{querySelector(s){if(!nodes.has(s))nodes.set(s,{});return nodes.get(s);}},liff:{init:()=>initialized,isLoggedIn:()=>true,getAccessToken:()=>token},fetch:async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>({ok:true,linked:true,permissions:{[app]:allowed}})};}};
+  vm.runInNewContext('('+commonLineClient.toString()+')(boot)',{...context,boot:{liffId:'fixture',destinations}});
+  assert.equal(calls.length,0);location.href='https://entry.invalid/meetings/review/connect?app='+app;resolveInit();await new Promise(r=>setImmediate(r));
+  assert.equal(calls.length,1);assert.deepEqual(JSON.parse(calls[0].opts.body),{action:'status'});assert.deepEqual(replaced,allowed?[destinations[app]]:[]);
+  if(!allowed)assert(nodes.get('#status').textContent.includes('尚未開通'));
+ }
+});

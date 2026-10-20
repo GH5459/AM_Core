@@ -2,6 +2,8 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'core/common-line-entry.js'
+      - 'tools/test-common-line-identity.mjs'
       - 'core/multilingual*'
       - 'tools/*multilingual*'
       - 'modules/meetings/**'
