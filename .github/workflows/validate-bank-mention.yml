@@ -194,6 +194,7 @@ jobs:
       - run: node tools/test-meeting-task-progress.mjs
       - run: node tools/test-meeting-task-progress-client.mjs
       - run: node tools/test-meeting-list-progress.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.32
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.31
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.26
       - run: node tools/test-meeting-reader-sharing.mjs
