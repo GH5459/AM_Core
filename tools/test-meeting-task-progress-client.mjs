@@ -7,7 +7,7 @@ const dom=new JSDOM(workspaceHtml({id,liffId:'synthetic'}),{url:'https://meeting
 w.structuredClone=structuredClone;w.setInterval=fn=>{timers.push(fn);return timers.length;};w.liff={init:async()=>{},isLoggedIn:()=>true,getAccessToken:()=> 'synthetic'};
 w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
 let status=200;
-w.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:status===200,status,json:async()=>status===200?structuredClone(state):{error:'權限已撤銷'}};};
+w.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:status===200,status,json:async()=>status===200?structuredClone(state):{error:status===503?'讀取暫時失敗':'權限已撤銷'}};};
 for(const script of w.document.querySelectorAll('script:not([src])'))w.eval(script.textContent);
 w.initializeMeetingHub=()=>{};
 const tick=async()=>{for(let i=0;i<10;i++)await new Promise(setImmediate);},$=s=>w.document.querySelector(s);
@@ -16,6 +16,9 @@ assert.equal($('#error').textContent,'');assert.equal($('#taskProgressPanel').hi
 assert.equal($('#readingTodoList a').href,'https://fixture.example/?task=original');assert($('#readingTodoList').textContent.includes('2026-10-21'));assert($('#readingTodoList').textContent.includes('成果 <script>'));assert(!$('#readingTodoList script'));
 state.taskProgress.items[0].status='in_progress';state.taskProgress.items[0].result='';state.taskProgress.counts={total:1,done:0,in_progress:1,overdue:0};await timers[0]();await tick();assert($('#taskProgressSummary').textContent.includes('進行中 1 項'));assert(!$('#readingTodoList').textContent.includes('成果 <script>'));
 state.taskProgress.items[0].status='pending_confirmation';state.taskProgress.items[0].url='javascript:alert(1)';state.taskProgress.counts={total:1,pending_confirmation:1,overdue:0};await $('#refreshTaskProgress').onclick();await tick();assert($('#readingTodoList').textContent.includes('請至原任務補充確認'));assert(!$('#readingTodoList a'));
+status=503;await timers[0]();await tick();assert.equal($('#error').textContent,'讀取暫時失敗');assert($('#taskProgressChecked').textContent.includes('先前讀取結果'));
+status=200;await timers[0]();await tick();assert.equal($('#error').textContent,'');assert($('#taskProgressChecked').textContent.includes('最後讀取'));
+$('#error').textContent='另外一項檢查提示';await timers[0]();await tick();assert.equal($('#error').textContent,'另外一項檢查提示','A successful read must not clear unrelated feedback');
 status=403;await timers[0]();await tick();assert($('#taskProgressPanel').hidden);assert.equal($('#readingTodoList').textContent,'');
 assert(requests.every(r=>r.action==='read'),'No writes or push operations from progress UI');
 dom.window.close();console.log('Actual meeting HTML: top summary, original task link, live reopening, latest due, escaped evidence, safe URLs, manual refresh, revoked-access cleanup and read-only polling passed.');
