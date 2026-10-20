@@ -1,0 +1,13 @@
+{
+ "id":"AM-IMP-2026.1020.22",
+ "name":"會議編輯保存後版本同步與回應遺失恢復",
+ "type":"Meeting editor reliability",
+ "portable":true,
+ "status":"Ready",
+ "requiresDatabases":[],
+ "requiresEnv":[],
+ "requiresScripts":["tools/test-meeting-save-version.mjs","tools/test-meeting-collaboration.mjs","tools/test-meeting-workspace-service.mjs"],
+ "installTargets":["Original AM Platform meeting editor"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Focused paragraph, todo and transcript editors advance their saved version immediately","Identical newer saved values recover from a lost response without another write","Different concurrent edits retain comparison and explicit overwrite confirmation","Typing during save remains dirty against the acknowledged version","Older polling responses never regress the accepted member content revision","Full CI passes and exact merged main verified on both original production origins","No meeting publication, task creation or LINE test messages and no DailyLog/UOF redeployment"]
+}
