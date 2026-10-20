@@ -11,11 +11,29 @@ export function hubClient(BOOT){
  const dateKey=ms=>new Date(ms+8*3600000).toISOString().slice(0,10),dateLabel=value=>new Date(value+'T00:00:00+08:00').toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',weekday:'short'});
  const clock=value=>new Date(atDate(value)).toLocaleTimeString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
  function stateLabel(x){return x.cancelled?'已取消':({published:'會議記錄',setup:'尚未整理',processing:'正在整理',failed:'整理未完成'}[x.state]||'待確認／發布');}
+ const progressById=new Map();let progressBusy=false,progressAgain=false;
+ function progressLabel(x){
+  const p=progressById.get(x.id),n=p?.counts?.total??x.taskTotal;
+  if(!p)return '📋 '+(n??'—')+'　✅ …';
+  const c=p.counts;if(!c)return '📋 '+(n??'—')+'　✅ —　⚠️ 讀取未完成';
+  const parts=['📋 '+c.total,'✅ '+c.done];
+  for(const [key,symbol] of [['pending_confirmation','🔎'],['in_progress','🔵'],['blocked','⛔'],['overdue','⏰'],['unassigned','👤'],['pending_delivery','⏳']])if(c[key])parts.push(symbol+' '+c[key]);
+  if(!p.available||c.unknown)parts.push('⚠️ 待更新');return parts.join('　');
+ }
+ function paintProgress(el,label){el.replaceChildren();for(const [i,text] of label.split('　').entries()){if(i)el.append(document.createTextNode('　'));const span=document.createElement('span');span.style.whiteSpace='nowrap';span.style.display='inline-block';span.textContent=text;el.append(span);}}
+ function updateProgress(){for(const el of document.querySelectorAll('[data-progress-id]')){const x=[...items,...sharedItems].find(x=>x.id===el.dataset.progressId);if(!x)continue;paintProgress(el,progressLabel(x));const p=progressById.get(x.id);el.title='📋 待辦總數；✅ 已完成；🔎 待確認；🔵 進行中；⛔ 卡住；⏰ 逾期；👤 未分派；⏳ 待同步'+(p?.checkedAt?'；更新：'+new Date(p.checkedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'');el.setAttribute('aria-label',el.title+'。'+el.textContent);}}
+ async function loadProgress(){
+  if(!token||document.hidden)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
+  try{const ids=[...new Set([...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId))];let next=0;
+   await Promise.all(Array.from({length:Math.min(3,ids.length)},async()=>{while(next<ids.length){const id=ids[next++];try{const r=await api({action:'task-progress',id});progressById.set(id,r.progress);}catch{progressById.set(id,{available:false});}updateProgress();}}));
+  }finally{progressBusy=false;if(progressAgain){progressAgain=false;void loadProgress();}}
+ }
  function row(x,past=false){
   const article=document.createElement('article');article.className='meeting-row';article.dataset.start=x.start;
   const when=document.createElement('div');when.className='meeting-time';when.textContent=!Number.isFinite(atDate(x.start))?'日期未定':(past?dateKey(atDate(x.start)).slice(5).replace('-','/')+'\n':'')+(x.allDay?'全天':/^\d{4}-\d{2}-\d{2}$/.test(x.start||'')?'時間未定':clock(x.start)+(x.end?'\n– '+clock(x.end):''));
   const body=document.createElement('div');body.className='meeting-info';const title=document.createElement('h3');if(x.calendar)title.textContent=x.topic||'未命名會議';else{const link=document.createElement('a');link.href=x.url;link.textContent=x.topic||'未命名會議';title.append(link);}body.append(title);
   const meta=[x.location,x.calendar?'':stateLabel(x),x.host].filter(Boolean);if(meta.length){const detail=document.createElement('p');detail.className='meeting-meta';detail.textContent=meta.join(' · ');body.append(detail);}
+  if(!x.calendar&&x.state==='published'){const p=document.createElement('p');p.className='meeting-meta meeting-progress';p.dataset.progressId=x.id;paintProgress(p,progressLabel(x));body.append(p);}
   let action;if(x.calendar){action=document.createElement('button');action.textContent='建檔';action.setAttribute('aria-label','建立／開啟會議記錄：'+x.topic);action.onclick=()=>openCalendar(x,action);}else{action=document.createElement('a');action.href=x.url;action.textContent='開啟';action.setAttribute('aria-label','開啟會議記錄：'+x.topic);}
   action.className='meeting-open';article.append(when,body,action);return article;
  }
@@ -30,6 +48,7 @@ export function hubClient(BOOT){
   const pending=saved.filter(x=>!x.cancelled&&x.state!=='published'&&atDate(x.end||x.start)<Date.now()).sort((a,b)=>atDate(b.start)-atDate(a.start));$('#pendingMeetings').replaceChildren(...pending.map(x=>row(x,true)));$('#pendingCount').textContent=String(pending.length);$('#pendingSection').hidden=!pending.length;
   const pendingIds=new Set(pending.map(x=>x.id));
   const ended=saved.filter(x=>!pendingIds.has(x.id)&&(atDate(x.end||x.start)<Date.now()||x.cancelled)).sort((a,b)=>atDate(b.start)-atDate(a.start));$('#ended').replaceChildren(...ended.map(x=>row(x,true)));$('#endedCount').textContent=String(ended.length);
+  updateProgress();
  }
  function calendarMode(enabled){for(const id of ['topic','start','end','location'])$('#'+id).disabled=enabled;for(const id of ['chooseNewPeople','selected'])$('#'+id).hidden=enabled;$('#form h3').hidden=enabled;$('#calendar').closest('label').hidden=enabled;$('#calendar').closest('label').nextElementSibling.hidden=enabled;$('#calendar').disabled=enabled;}
  async function openCalendar(event,button){button.disabled=true;try{await setup();calendarMode(true);calendarRef=event.calendarRef;$('#newPanel').hidden=false;$('#topic').value=event.topic;const local=t=>new Date(Date.parse(t+(event.allDay?'T00:00:00+08:00':''))+8*3600000).toISOString().slice(0,16);$('#start').value=local(event.start);$('#end').value=local(event.end);$('#location').value=event.location;$('#calendar').checked=false;$('#calendar').disabled=true;$('#create').textContent='建立會議工作頁（不新增日曆行程）';$('#status').textContent='請選擇本次會議使用的來源對話，再建立工作頁。名稱、時間與地點取自原 Calendar；私人行程請選個人來源。';$('#newPanel').scrollIntoView({behavior:'smooth'});}catch(e){fail(e);}finally{button.disabled=false;}}
@@ -39,7 +58,7 @@ export function hubClient(BOOT){
  for(const [id,direction]of [['previousWeek',-1],['nextWeek',1]])$('#'+id).onclick=()=>{weekStart=dateKey(Math.max(atDate(today()),atDate(weekStart)+direction*(view==='day'?1:7)*dayMs));loadCalendar().catch(fail);};
  for(const mode of ['day','week'])$('#'+mode+'View').onclick=()=>{view=mode;navigation();render();};
  $('#currentWeek').onclick=()=>{weekStart=today();loadCalendar().catch(fail);};
- async function load(reset=false){if(reset){offset=0;items=[];}const r=await api({action:'list',offset});items.push(...r.items);offset=r.next;render();renderCalendar();$('#more').hidden=offset===null;$('#status').textContent='已讀取 '+items.length+' 場會議';}
+ async function load(reset=false){if(reset){offset=0;items=[];progressById.clear();}const r=await api({action:'list',offset});items.push(...r.items);offset=r.next;render();renderCalendar();updateProgress();void loadProgress();$('#more').hidden=offset===null;$('#status').textContent='已讀取 '+items.length+' 場會議';}
  let sharedOffset=0,sharedItems=[],sharedBusy=false;
  async function loadShared(reset=false){
   if(sharedBusy)return;sharedBusy=true;$('#refreshShared').disabled=true;$('#sharedMore').disabled=true;
@@ -47,11 +66,13 @@ export function hubClient(BOOT){
   $('#sharedStatus').textContent='正在讀取分享給我的會議…';
   try{const r=await api({action:'list',scope:'shared',offset:sharedOffset});sharedItems=[...new Map([...sharedItems,...r.items].map(x=>[x.id,x])).values()];sharedOffset=r.next;
    $('#sharedItems').replaceChildren(...sharedItems.map(x=>row({...x,start:x.date,host:'分享者：'+x.host},true)));
+   updateProgress();void loadProgress();
    $('#sharedStatus').textContent=sharedItems.length?'共有 '+sharedItems.length+' 份分享給你的會議記錄':'目前沒有分享給你的會議記錄。';$('#sharedMore').hidden=sharedOffset===null;
   }catch(e){$('#sharedStatus').textContent='分享清單暫時無法讀取，請重新讀取。'+e.message;}
   finally{sharedBusy=false;$('#refreshShared').disabled=false;$('#sharedMore').disabled=false;}
  }
  $('#refreshShared').onclick=()=>loadShared(true);$('#sharedMore').onclick=()=>loadShared();
+ setInterval(()=>void loadProgress(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void loadProgress();});
  async function setup(){const [s,o]=await Promise.all([api({action:'sources'}),api({action:'organization'})]);$('#source').innerHTML=s.sources.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.name)+'</option>').join('');const org=o.organization;
   const selected=new Set();$('#chooseNewPeople').onclick=async()=>{const chosen=await window.chooseMeetingPeople({organization:org,selected:org.people.filter(p=>selected.has(p.account)),title:'選擇會議參與者'});if(chosen){selected.clear();for(const p of chosen)selected.add(p.account);$('#selected').textContent='已選：'+(chosen.map(p=>p.name+'（'+p.account+'）').join('、')||'尚未選擇');}};
   $('#form').onsubmit=async e=>{e.preventDefault();const b=$('#create');b.disabled=true;try{const r=await api({action:'create',operationId,...calendarRef?{calendarRef}:{},conversationKey:$('#source').value,topic:$('#topic').value,start:$('#start').value+':00+08:00',end:$('#end').value+':00+08:00',location:$('#location').value,accounts:[...selected],calendar:$('#calendar').checked,cancelled:false});location.assign(r.url);}catch(e){fail(e);b.disabled=false;}};
