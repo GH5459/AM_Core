@@ -62,6 +62,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function offer(row,event,filename,hostName){
   if(!row.enabled||!uid(event.source.userId))return;
   const r=await store.create(row.key,event,filename,hostName);
+  if(!r.host_name&&hostName)await pool.query("UPDATE central_archive.meeting_workspaces SET host_name=$2 WHERE id=$1 AND host_name=''",[r.id,hostName]);
   if(r.receipt.offerSent||r.state!=='offered')return r;
   const message={type:'template',altText:'是否將錄音建立為會議記錄？',template:{type:'confirm',text:'收到錄音「'+filename.slice(0,70)+'」，是否要建立會議記錄？',actions:[
    {type:'postback',label:'是，建立會議記錄',data:'meetingwork:yes:'+r.id},{type:'postback',label:'這次不用',data:'meetingwork:no:'+r.id}
@@ -73,6 +74,11 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   const m=String(event.postback?.data||'').match(/^meetingwork:(yes|no):([a-f0-9]{64})$/);if(!m)return false;
   const r=await store.get(m[2]);if(!r||r.conversation_key!==key||event.source.userId!==r.host_id)return true;
   const row=await conversation(r);await assertMember(row,event.source.userId);if(!row.enabled)return true;
+  if(!r.host_name&&platform.resolveSenderName){
+   try{const name=await platform.resolveSenderName(event.source);
+    if(name)await pool.query("UPDATE central_archive.meeting_workspaces SET host_name=$2 WHERE id=$1 AND host_name=''",[r.id,name]);
+   }catch{logger.warn('Meeting host display name deferred; verified consent remains available.');}
+  }
   await store.locked(r.id,async(current,db)=>{
    if(current.state==='declined'||m[1]==='no'&&current.state!=='offered')return;
    if(current.state==='offered')await db.query('UPDATE central_archive.meeting_workspaces SET state=$2,updated_at=now() WHERE id=$1',[r.id,m[1]==='yes'?'setup':'declined']);

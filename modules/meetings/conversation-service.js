@@ -113,7 +113,9 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       filename:event.message?.fileName||`audio-${event.message?.id}.m4a`,...extra};
   }
   async function capture(events){
-    await store.seed();const claimed=[];
+    const sources=events.filter(e=>['user','group','room'].includes(e.source?.type));
+    if(!sources.length)return [];
+    await store.seed([...new Set(sources.map(e=>keyFor(botId,e.source)))]);const claimed=[];
     for(const event of events){
       if(!['user','group','room'].includes(event.source?.type))continue;
       const key=keyFor(botId,event.source);const row=await store.get(key);if(!row)continue;
@@ -135,6 +137,12 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       if(payload.message){const {quoteToken,...message}=payload.message;payload.message=message;}
       await pool.query(`INSERT INTO central_archive.meeting_events(event_key,conversation_key,event_at,payload)
         VALUES($1,$2,$3,$4::jsonb) ON CONFLICT DO NOTHING`,['event:'+key+':'+(event.webhookEventId||event.message.id),key,new Date(event.timestamp).toISOString(),JSON.stringify(payload)]);
+      // The source and recovery job are durable before sending. Consent does not
+      // need Drive, Notion, tenant discovery, profiles or older meeting recovery.
+      if(audio&&event.timestamp>=Number(env.AMCORE_MEETING_WORKSPACE_CUTOVER_AT||'0')&&await workspace.accepts(event)){
+        try{await workspace.offer(row,payload,event.message.fileName||`audio-${event.message.id}.m4a`,'');}
+        catch{logger.warn('Meeting receipt deferred; durable event retained for recovery.');}
+      }
     }
     return claimed;
   }
@@ -235,5 +243,5 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       await capture([event]);drain().catch(()=>logger.warn('Meeting intake deferred.'));return true;
     }});
   return {enabled,store,ensureDatabase,tenantFor,capture,drain,handle,settle:()=>Promise.all([...active.values()]),
-    workspace,health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'meeting-switch-only',groupDefaults:'enabled-on-first-registration-v1',workspace:workspace.health()})};
+    workspace,health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'meeting-switch-only',groupDefaults:'enabled-on-first-registration-v1',audioReceipt:'persisted-intake-before-background-v1',workspace:workspace.health()})};
 }

@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1021.03",
+  "name": "錄音確認優先回覆",
+  "type": "Conversation meeting intake latency",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing central_archive meeting schema; no migration"],
+  "requiresEnv": ["Existing conversation meeting configuration"],
+  "requiresScripts": ["tools/test-meeting-audio-receipt.mjs", "tools/test-conversation-meetings.mjs", "tools/test-meeting-workspace-service.mjs"],
+  "installTargets": ["Original AM Platform; standalone project adoption separately"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Durable source precedes receipt", "Background recovery and profile lookup cannot delay initial consent", "Original retry identity and consent boundaries retained", "Disabled, personal and legacy settings retained", "Reviewed main CI and actual production health readback"]
+}

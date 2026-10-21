@@ -464,9 +464,12 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
+    const intakeStartedAt=Date.now();
+    const audioEvents=body.events.filter(e=>e.type==='message'&&modules.get('meetings')?.isAudio(e.message));
     // Capture every verified event before private-assistant pause, command and business-module filters.
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
+    const archiveCapturedAt=Date.now();
     const portalEvents = body.events.filter(portalCommandEntry.matches);
     body.events = body.events.filter(event => !portalCommandEntry.matches(event));
     // Consume public help before business classifiers, retaining the signed
@@ -476,6 +479,10 @@ const server = http.createServer(async (req, res) => {
 
     try {
       const meetingEvents=await conversationMeetings.capture(body.events);
+      if(audioEvents.length)logger.log('Meeting audio intake timing:',{
+        eventAgeAtIntakeMs:Math.max(...audioEvents.map(e=>Number.isFinite(e.timestamp)?Math.max(0,intakeStartedAt-e.timestamp):0)),
+        archiveCaptureMs:archiveCapturedAt-intakeStartedAt,meetingCaptureMs:Date.now()-archiveCapturedAt
+      });
       // Keep existing subscribed input feeds and conversation observations even
       // when the meeting workflow consumes the business event locally.
       if(meetingEvents.length)await lineIo.capture(meetingEvents,{excludeEvents:event=>Boolean(parseAttachmentRequest(event))});
