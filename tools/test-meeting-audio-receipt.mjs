@@ -70,4 +70,15 @@ const originalPush=platform.pushLineMessage;platform.pushLineMessage=async(to,me
 await service.workspace.choice({source:event('one').source,postback:{data:'meetingwork:yes:'+first.id}},key);
 const chosen=await service.workspace.store.get(first.id);assert.equal(chosen.state,'setup');assert.equal(chosen.host_name,'合成主持人');
 platform.pushLineMessage=originalPush;
+// Reproduce the production pool limit: archive lock + dispatch lock + query.
+// Holding the outer conversation lock here would consume the last connection.
+let leased=0;
+const connect=pool.connect;
+pool.connect=async()=>{assert(leased<3,'three-connection pool exhausted by nested recovery locks');leased++;
+ return {query:(...a)=>pg.query(...a),release(){leased--;}};};
+pool.query=async(...a)=>{const db=await pool.connect();try{return await db.query(...a);}finally{db.release();}};
+const archiveLock=await pool.connect();let dispatchQueryFinished=false;
+service.workspace.drain=async()=>{const dispatchLock=await pool.connect();try{await pool.query('SELECT 1');dispatchQueryFinished=true;}finally{dispatchLock.release();}throw Error('end-pool-probe');};
+await assert.rejects(service.drain(),/end-pool-probe/);assert(dispatchQueryFinished);assert.equal(leased,1);
+archiveLock.release();pool.query=query;pool.connect=connect;
 await pg.close();console.log(JSON.stringify({passed:true,syntheticFirstReceiptMs:firstMs,blockedBackgroundIndependent:true,retryAndRedelivery:true,sourceAndConsentRetained:true}));

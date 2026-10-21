@@ -156,11 +156,14 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
   }
   async function drain(){if(draining)return draining;
     draining=(async()=>{
+      // Recovery jobs already claim their own work. Do not hold the conversation
+      // lock's connection while they acquire a dispatch lock and issue queries:
+      // the shared three-connection pool must retain room for incoming sources.
+      await workspace.drain();
       const db=await pool.connect();let locked=false;
       try{
         locked=(await db.query('SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',['conversation-meetings:'+botId])).rows[0].acquired;
         if(!locked)return;
-        await workspace.drain();
         await restore();
         const rows=(await db.query(`SELECT e.* FROM central_archive.meeting_events e JOIN central_archive.conversations c ON c.key=e.conversation_key
           WHERE e.state='pending' AND c.bot_id=$1 ORDER BY e.event_at,e.event_key LIMIT 10`,[botId])).rows;
@@ -192,12 +195,12 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
             await db.query(`UPDATE central_archive.meeting_events SET state='completed' WHERE event_key=$1`,[job.event_key]);
           }catch{await db.query(`UPDATE central_archive.meeting_events SET state='failed',error_code='meeting_processing_failed' WHERE event_key=$1`,[job.event_key]);logger.warn('Conversation meeting processing failed; original retained.');}
         }
-        // New verified conversations receive their own empty meeting database;
-        // this does not turn on recording or reprocess historical messages.
-        const missing=(await db.query(`SELECT c.key FROM central_archive.conversations c JOIN central_archive.meeting_settings s ON s.conversation_key=c.key
-          WHERE c.bot_id=$1 AND s.database_id IS NULL ORDER BY c.created_at LIMIT 2`,[botId])).rows;
-        for(const item of missing)await ensureDatabase(await store.get(item.key));
       }finally{if(locked)await db.query('SELECT pg_advisory_unlock(hashtext($1))',['conversation-meetings:'+botId]);db.release();}
+      // Provisioning has its own settings row lock; release the queue connection
+      // before holding that lock across remote Notion calls.
+      const missing=(await pool.query(`SELECT c.key FROM central_archive.conversations c JOIN central_archive.meeting_settings s ON s.conversation_key=c.key
+          WHERE c.bot_id=$1 AND s.database_id IS NULL ORDER BY c.created_at LIMIT 2`,[botId])).rows;
+      for(const item of missing)await ensureDatabase(await store.get(item.key));
     })().finally(()=>{draining=null;});return draining;
   }
   async function handle(req,res,url){

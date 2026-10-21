@@ -1,6 +1,7 @@
 # 驗證
 
 - `node tools/test-meeting-audio-receipt.mjs`：先保存後回覆；背景卡住、姓名／單位／附件不可用仍先回覆；重送與失敗恢復使用同一工作頁及重試鍵；停用、私人預設及舊事件不變。
+- 三條連線限制：附件鎖、派發鎖與一般查詢可同時完成，外層佇列不先占用第三條。
 - `node tools/test-conversation-meetings.mjs`
 - `node tools/test-meeting-workspace-service.mjs`
 - `node --check server.js`
