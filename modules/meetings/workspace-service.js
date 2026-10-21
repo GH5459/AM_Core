@@ -42,8 +42,8 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function conversation(r){const row=await getConversation(r.conversation_key);if(!row||row.bot_id!==botId)throw failure(404,'找不到這場會議。');return row;}
  async function assertMember(row,userId){
   if(!uid(userId))throw failure(403,'請先登入。');
-  if(row.source_kind==='user'){if(userId!==row.source_id)throw failure(403,'這是私人會議，僅本人可開啟。');return;}
-  try{const p=await platform.lineGet(`/v2/bot/${row.source_kind}/${row.source_id}/member/${userId}`,{timeoutMs:8000});if(p.userId!==userId)throw Error('mismatch');}
+  if(row.source_kind==='user'){if(userId!==row.source_id)throw failure(403,'這是私人會議，僅本人可開啟。');return {userId,displayName:row.display_name};}
+  try{const p=await platform.lineGet(`/v2/bot/${row.source_kind}/${row.source_id}/member/${userId}`,{timeoutMs:8000});if(p.userId!==userId)throw Error('mismatch');return p;}
   catch{throw failure(403,'無法確認你仍是來源對話的成員，請從原對話重新開啟。');}
  }
  async function liffFor(row){return tenantFor(row).config.meetings.liffId;}
@@ -73,12 +73,8 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function choice(event,key){
   const m=String(event.postback?.data||'').match(/^meetingwork:(yes|no):([a-f0-9]{64})$/);if(!m)return false;
   const r=await store.get(m[2]);if(!r||r.conversation_key!==key||event.source.userId!==r.host_id)return true;
-  const row=await conversation(r);await assertMember(row,event.source.userId);if(!row.enabled)return true;
-  if(!r.host_name&&platform.resolveSenderName){
-   try{const name=await platform.resolveSenderName(event.source);
-    if(name)await pool.query("UPDATE central_archive.meeting_workspaces SET host_name=$2 WHERE id=$1 AND host_name=''",[r.id,name]);
-   }catch{logger.warn('Meeting host display name deferred; verified consent remains available.');}
-  }
+  const row=await conversation(r),member=await assertMember(row,event.source.userId);if(!row.enabled)return true;
+  if(!r.host_name&&member?.displayName)await pool.query("UPDATE central_archive.meeting_workspaces SET host_name=$2 WHERE id=$1 AND host_name=''",[r.id,member.displayName]);
   await store.locked(r.id,async(current,db)=>{
    if(current.state==='declined'||m[1]==='no'&&current.state!=='offered')return;
    if(current.state==='offered')await db.query('UPDATE central_archive.meeting_workspaces SET state=$2,updated_at=now() WHERE id=$1',[r.id,m[1]==='yes'?'setup':'declined']);

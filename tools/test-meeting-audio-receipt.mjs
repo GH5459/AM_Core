@@ -18,7 +18,7 @@ await pg.query('INSERT INTO central_archive.meeting_workspace_release(contract,c
 const pushes=[],warnings=[];let failPush=false,profileCalls=0;
 const forbidden=async()=>{throw Error('external dependency must not precede receipt');};
 const platform={publicBaseUrl:'https://example.test',resolveSenderName:async()=>{profileCalls++;return '合成主持人';},
- lineGet:async()=>({userId:host}),pushLineMessage:async(to,message,_mention,delivery)=>{
+ lineGet:async()=>({userId:host,displayName:'合成主持人'}),pushLineMessage:async(to,message,_mention,delivery)=>{
   assert.equal(to,group);
   const durable=await pg.query("SELECT * FROM central_archive.meeting_events WHERE payload->'message'->>'id'=$1",[current.message.id]);
   assert(durable.rows.length,'persist the recovery event before sending');
