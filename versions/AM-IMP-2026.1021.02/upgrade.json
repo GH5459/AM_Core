@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1021.02",
+  "name": "新群組預設開啟會議記錄",
+  "type": "Conversation meeting defaults",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing central_archive conversations and meeting_settings"],
+  "requiresEnv": ["Existing conversation meetings configuration"],
+  "requiresScripts": ["tools/test-conversation-meetings.mjs"],
+  "installTargets": ["Original AM Platform", "Original UOF management UI"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["New group and room enabled", "Existing opt-out and personal settings retained", "Same OA isolation", "Reviewed main CI and actual production readback", "Existing groups enabled via authorized management controls"]
+}
