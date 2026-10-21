@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1021.04",
+  "name": "發布中的會議沿用正常觀看版",
+  "type": "Meeting presentation state correction",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing meeting workspace; no migration"],
+  "requiresEnv": ["Existing meeting configuration"],
+  "requiresScripts": ["tools/test-meeting-publishing-reader.mjs", "tools/test-meeting-publication-client.mjs", "tools/test-meeting-save-version.mjs", "tools/test-meeting-topic-hierarchy.mjs"],
+  "installTargets": ["Original AM Platform; standalone adoption separately"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Initial and transitioned publishing use formatted reader", "Topic and evidence default closed and retain user expansion", "Published deliberate editing remains available", "No save or publication caused by rendering", "Full CI and exact reviewed main production readback", "Original signed-in affected page visually verified without business saves"]
+}
