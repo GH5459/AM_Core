@@ -37,7 +37,7 @@ const mod={isAudio:m=>m?.type==='audio',hasPending:(t,id)=>memory.has(id),onAudi
 const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret,AMCORE_MEETING_WORKSPACE_CUTOVER_AT:'9999999999999'};
 let resolvedRoute={};
 const service=createConversationMeetings({env,archive,platform,router:{resolveGroupBinding:async()=>resolvedRoute},tenants:[tenant],meetingModule:mod});
-await service.store.seed();assert.equal((await service.store.list()).length,3);assert((await service.store.list()).every(r=>!r.enabled&&r.todo_mode==='record_only'));
+await service.store.seed();assert.equal((await service.store.list()).length,3);assert((await service.store.list()).every(r=>r.enabled===(r.source_kind!=='user')&&r.todo_mode==='record_only'));
 // Read the signed management API: lifecycle changes hide options, not history.
 async function readOptions(){const path='/integrations/meeting-management/conversations',timestamp=String(Date.now()),actor='123';let output,status;const headers={'x-meeting-time':timestamp,'x-meeting-actor':actor,'x-meeting-signature':managementSignature(secret,{method:'GET',path,timestamp,actor})};await service.handle({method:'GET',url:path,headers},{setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},end(v){output=JSON.parse(v);}},new URL('https://example.test'+path));assert.equal(status,200);return output.conversations;}
 assert.equal((await readOptions()).length,3);
@@ -45,6 +45,19 @@ const optionGroupKey=keyFor(bot,event('audio','group').source);
 await pg.query("UPDATE central_archive.meeting_settings SET connection_state='left' WHERE conversation_key=$1",[optionGroupKey]);assert.equal((await readOptions()).length,2);assert.equal((await service.store.list()).length,3);
 await pg.query("UPDATE central_archive.meeting_settings SET connection_state='active' WHERE conversation_key=$1",[optionGroupKey]);assert.equal((await readOptions()).length,3);
 const liveRead=platform.lineGet;platform.lineGet=async()=>{throw Object.assign(Error('missing'),{lineStatus:404});};assert.equal((await readOptions()).length,1,'missing groups hidden; private conversation retained');platform.lineGet=liveRead;
+// A later seed/list/intake must retain an administrator's explicit opt-out.
+const disabledGroupKey=keyFor(bot,event('audio','group').source);
+await service.store.change({key:disabledGroupKey,enabled:false,todoMode:'record_only',tenantKey:'',version:1,operationId:'group-opt-out-00000001'},'123');
+const optedOut=await service.store.get(disabledGroupKey);
+await service.store.seed();await service.store.list();
+assert.deepEqual(await service.store.get(disabledGroupKey),optedOut);
+const futureSource={type:'group',groupId:'C'+'8'.repeat(32)},futureKey=keyFor(bot,futureSource);
+await pool.query('INSERT INTO central_archive.conversations(key,bot_id,source_kind,source_id,display_name) VALUES($1,$2,$3,$4,$5)',[futureKey,bot,'group',futureSource.groupId,'synthetic future group']);
+await service.store.seed();assert.equal((await service.store.get(futureKey)).enabled,true);
+// The store must not initialize conversations belonging to another OA.
+const foreignBot='U'+'9'.repeat(32),foreignKey=keyFor(foreignBot,futureSource);
+await pool.query('INSERT INTO central_archive.conversations(key,bot_id,source_kind,source_id,display_name) VALUES($1,$2,$3,$4,$5)',[foreignKey,foreignBot,'group',futureSource.groupId,'synthetic foreign group']);
+await service.store.seed();assert.equal((await pool.query('SELECT * FROM central_archive.meeting_settings WHERE conversation_key=$1',[foreignKey])).rows.length,0);
 const key=keyFor(bot,event('audio').source),input={key,enabled:true,todoMode:'record_only',tenantKey:'',version:1,operationId:'operation-0000000001'};
 const result=await service.store.change(input,'123');assert.equal(result.version,2);assert.deepEqual(await service.store.change(input,'123'),result);
 await assert.rejects(()=>service.store.change({...input,enabled:false},'123'),/操作識別/);

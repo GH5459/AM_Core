@@ -237,5 +237,5 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       await capture([event]);drain().catch(()=>logger.warn('Meeting intake deferred.'));return true;
     }});
   return {enabled,store,ensureDatabase,tenantFor,capture,drain,handle,settle:()=>Promise.all([...active.values()]),
-    workspace,health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'meeting-switch-only',workspace:workspace.health()})};
+    workspace,health:()=>({enabled:true,contract:CONVERSATION_MEETINGS_CONTRACT,storage:'notion-per-conversation+drive-original',settings:'meeting-switch-only',groupDefaults:'enabled-on-first-registration-v1',workspace:workspace.health()})};
 }
