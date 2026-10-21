@@ -12,9 +12,11 @@ export function validateChange(input) {
 }
 export function createMeetingConversationStore(pool,botId) {
   async function transaction(work){const db=await pool.connect();try{await db.query('BEGIN');const result=await work(db);await db.query('COMMIT');return result;}catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}finally{db.release();}}
-  async function seed(){await pool.query(`INSERT INTO central_archive.meeting_settings(conversation_key,enabled)
-    SELECT key,source_kind IN ('group','room') FROM central_archive.conversations WHERE bot_id=$1 AND source_kind IN ('user','group','room')
-    ON CONFLICT DO NOTHING`,[botId]);}
+  async function seed(keys=null){await pool.query(`INSERT INTO central_archive.meeting_settings(conversation_key,enabled)
+    SELECT c.key,c.source_kind IN ('group','room') FROM central_archive.conversations c
+    WHERE c.bot_id=$1 AND c.source_kind IN ('user','group','room') AND ($2::text[] IS NULL OR c.key=ANY($2))
+    AND NOT EXISTS (SELECT 1 FROM central_archive.meeting_settings s WHERE s.conversation_key=c.key)
+    ON CONFLICT DO NOTHING`,[botId,keys]);}
   async function list(){await seed();return(await pool.query(`SELECT c.key,c.source_kind,c.source_id,c.display_name,c.drive_folder_id,
     s.*, (SELECT max(j.event_at) FROM central_archive.jobs j WHERE j.conversation_key=c.key) AS last_activity,
     (SELECT p.state FROM central_archive.meeting_pending p WHERE p.conversation_key=c.key) AS processing_state,
