@@ -32,12 +32,19 @@ const request=async(path,method='GET',body)=>{
  throw Error('Unexpected Notion path '+path);
 };
 const archive={pool,config:{botId:bot},notion:{request},original:async(messageId,source)=>{assert.equal(typeof messageId,'string');assert(source.userId||source.groupId);return {file:{webViewLink:'https://drive.google.com/file/d/synthetic/view'}};}};
-const platform={registerTenantDataSource:async(t,ds)=>{assert.equal(t.parentPageId,parent);assert(ds.startsWith('source-'));},resolveSenderName:async()=> '本人'};
+const platform={lineGet:async path=>path.endsWith('/summary')?{groupId:path.split('/')[4]}:{count:2},registerTenantDataSource:async(t,ds)=>{assert.equal(t.parentPageId,parent);assert(ds.startsWith('source-'));},resolveSenderName:async()=> '本人'};
 const mod={isAudio:m=>m?.type==='audio',hasPending:(t,id)=>memory.has(id),onAudio:async ctx=>{calls.push({audio:ctx.groupId});memory.add(ctx.groupId);await platform.saveMeetingPending({tenant:ctx.tenant,archiveSource:ctx,filename:ctx.filename,createdAt:ctx.createdAt||Date.now()});},onMessage:async ctx=>{calls.push({roster:ctx.groupId});await platform.completeMeetingPending(ctx.tenant,'processing');memory.delete(ctx.groupId);await platform.completeMeetingPending(ctx.tenant,'completed');}};
 const env={AMCORE_CONVERSATION_MEETINGS_ENABLED:'1',AMCORE_MEETINGS_PARENT_PAGE_ID:parent,AMCORE_MEETING_MANAGEMENT_SECRET:secret,AMCORE_MEETING_WORKSPACE_CUTOVER_AT:'9999999999999'};
 let resolvedRoute={};
 const service=createConversationMeetings({env,archive,platform,router:{resolveGroupBinding:async()=>resolvedRoute},tenants:[tenant],meetingModule:mod});
 await service.store.seed();assert.equal((await service.store.list()).length,3);assert((await service.store.list()).every(r=>r.enabled===(r.source_kind!=='user')&&r.todo_mode==='record_only'));
+// Read the signed management API: lifecycle changes hide options, not history.
+async function readOptions(){const path='/integrations/meeting-management/conversations',timestamp=String(Date.now()),actor='123';let output,status;const headers={'x-meeting-time':timestamp,'x-meeting-actor':actor,'x-meeting-signature':managementSignature(secret,{method:'GET',path,timestamp,actor})};await service.handle({method:'GET',url:path,headers},{setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},end(v){output=JSON.parse(v);}},new URL('https://example.test'+path));assert.equal(status,200);return output.conversations;}
+assert.equal((await readOptions()).length,3);
+const optionGroupKey=keyFor(bot,event('audio','group').source);
+await pg.query("UPDATE central_archive.meeting_settings SET connection_state='left' WHERE conversation_key=$1",[optionGroupKey]);assert.equal((await readOptions()).length,2);assert.equal((await service.store.list()).length,3);
+await pg.query("UPDATE central_archive.meeting_settings SET connection_state='active' WHERE conversation_key=$1",[optionGroupKey]);assert.equal((await readOptions()).length,3);
+const liveRead=platform.lineGet;platform.lineGet=async()=>{throw Object.assign(Error('missing'),{lineStatus:404});};assert.equal((await readOptions()).length,1,'missing groups hidden; private conversation retained');platform.lineGet=liveRead;
 // A later seed/list/intake must retain an administrator's explicit opt-out.
 const disabledGroupKey=keyFor(bot,event('audio','group').source);
 await service.store.change({key:disabledGroupKey,enabled:false,todoMode:'record_only',tenantKey:'',version:1,operationId:'group-opt-out-00000001'},'123');

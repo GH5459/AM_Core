@@ -190,24 +190,23 @@ export function workspaceClient(BOOT){
  function markSharingDirty(base){if(!sharingDirty)sharingBase=base||{version:data.sharing.version};sharingDirty=true;}
  function renderPublication(){
   const p=data.publication,panel=$('#publicationPanel');panel.hidden=!p||!data.host||mode!=='edit';if(panel.hidden)return;
-  const select=$('#publicationTarget'),selected=publicationDirty?select.value:p.key;$('#publicationCurrent').textContent=' · '+p.name+(p.locked?'（已鎖定）':'');
-  const choices=[...publicationChoices];if(!choices.some(x=>x.key===p.key))choices.unshift(p);
-  if(publicationDirty&&publicationDraft&&!choices.some(x=>x.key===selected))choices.push(publicationDraft);
-  const html=choices.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.name)+(x.key===data.publication.key&&data.publication.original?'（原來源）':'')+'</option>').join('');
-  if(select.dataset.options!==html){select.innerHTML=html;select.dataset.options=html;}select.value=selected;
+  const select=$('#publicationTarget'),selected=publicationDirty?(publicationDraft?.key||select.value):p.key;$('#publicationCurrent').textContent=' · '+p.name+(p.locked?'（已鎖定）':'');
+  const choices=[...publicationChoices];
+  const html='<option value="">請選擇目前可用的群組</option>'+choices.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.name)+(x.key===data.publication.key&&data.publication.original?'（原來源）':'')+'</option>').join('');
+  if(select.dataset.options!==html){select.innerHTML=html;select.dataset.options=html;}select.value=choices.some(x=>x.key===selected)?selected:'';
   if(!publicationDirty)publicationBase=p.version;
-  select.disabled=p.locked||publicationLoading||publicationSaving;
-  $('#loadPublicationTargets').disabled=p.locked||publicationLoading||publicationSaving;$('#savePublicationTarget').disabled=p.locked||!publicationDirty||publicationLoading||publicationSaving;
+  select.disabled=p.locked||publicationLoading||publicationSaving||!choices.length;
+  $('#loadPublicationTargets').disabled=p.locked||publicationLoading||publicationSaving;$('#savePublicationTarget').disabled=p.locked||!publicationDirty||publicationLoading||publicationSaving||!choices.some(x=>x.key===selected);
   $('#cancelPublicationTarget').hidden=!publicationDirty;$('#cancelPublicationTarget').disabled=publicationSaving;
  }
- $('#publicationTarget').onchange=()=>{if(!publicationDirty)publicationBase=data.publication.version;publicationDirty=true;publicationDraft={key:$('#publicationTarget').value,name:$('#publicationTarget').selectedOptions[0].textContent};$('#publicationStatus').textContent='發布群組尚未儲存；會議文字與待辦保持。';renderPublication();};
+ $('#publicationTarget').onchange=()=>{if(!$('#publicationTarget').value)return;if(!publicationDirty)publicationBase=data.publication.version;publicationDirty=true;publicationDraft={key:$('#publicationTarget').value,name:$('#publicationTarget').selectedOptions[0].textContent};$('#publicationStatus').textContent='發布群組尚未儲存；會議文字與待辦保持。';renderPublication();};
  $('#cancelPublicationTarget').onclick=()=>{publicationDirty=false;publicationDraft=null;$('#publicationStatus').textContent='已取消本次改選，沿用目前已儲存的發布群組；會議編輯保持。';renderPublication();};
  $('#loadPublicationTargets').onclick=async()=>{
   if(publicationLoading||publicationSaving)return;publicationLoading=true;renderPublication();
-  try{const next=await api({action:'publication-targets'});acceptData(next);publicationChoices=next.publicationTargets;$('#publicationStatus').textContent='已讀取 '+publicationChoices.length+' 個可用對話。未列出者可能不在同一單位，或目前無法核對本人成員資格；可稍後重新讀取。'+(publicationDirty?'本次尚未儲存的選擇仍保留。':'選擇後請按「儲存發布群組」。');render();}catch(e){error(e);}finally{publicationLoading=false;renderPublication();}
+  try{const next=await api({action:'publication-targets'});acceptData(next);publicationChoices=next.publicationTargets;$('#publicationStatus').textContent='已讀取 '+publicationChoices.length+' 個可用對話。未列出者可能不在同一單位，或目前無法核對本人成員資格；可稍後重新讀取。'+(publicationDirty?(publicationChoices.some(x=>x.key===publicationDraft?.key)?'本次尚未儲存的選擇仍保留。':'原選擇已不在可用名單，請重新選擇或取消改選。'):'選擇後請按「儲存發布群組」。');render();}catch(e){error(e);}finally{publicationLoading=false;renderPublication();}
  };
  async function savePublication(){
-  if(!publicationDirty||publicationSaving)return;const key=$('#publicationTarget').value,version=publicationBase;publicationSaving=true;renderPublication();$('#publicationStatus').textContent='正在儲存發布群組…';
+  if(!publicationDirty||publicationSaving||!publicationChoices.some(x=>x.key===$('#publicationTarget').value))return;const key=$('#publicationTarget').value,version=publicationBase;publicationSaving=true;renderPublication();$('#publicationStatus').textContent='正在儲存發布群組…';
   try{acceptData(await api({action:'publication-target',key,version}));publicationDirty=false;publicationDraft=null;$('#publicationStatus').textContent='發布群組已儲存。只有按下確認發布才會傳送，會議文字與待辦保持。';error('');render();}
   catch(e){let read=false;try{acceptData(await api({action:'read'}));read=true;}catch{}
    if(read&&data.publication.key===key&&data.publication.version>version){publicationDirty=false;publicationDraft=null;$('#publicationStatus').textContent='已重新確認發布群組儲存成功；會議文字與待辦保持。';error('');render();}

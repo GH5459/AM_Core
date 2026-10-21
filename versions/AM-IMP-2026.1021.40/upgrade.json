@@ -1,0 +1,34 @@
+{
+  "definitionOfDone": [
+    "Disabled/left/unavailable groups omitted from all current option endpoints",
+    "Live group/room confirmation before selection; original authorization retained",
+    "History and business records preserved; no quiet-group expiry",
+    "Reviewed CI and explicit deployment scope plus live readback before Deployed"
+  ],
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing central_archive and original LINE directory; no new schema"
+  ],
+  "name": "LINE群組選單只列目前可用群組",
+  "portable": true,
+  "requiresEnv": [
+    "Existing OA credentials and tenant settings"
+  ],
+  "dataIsolation": {
+    "canCopySecrets": false,
+    "canCopyData": false,
+    "canCopyCode": true
+  },
+  "id": "AM-IMP-2026.1021.40",
+  "type": "Shared LINE group option availability",
+  "requiresScripts": [
+    "tools/test-line-group-availability.mjs",
+    "tools/test-line-directory.mjs",
+    "tools/test-conversation-meetings.mjs",
+    "tools/test-meeting-publication-target.mjs",
+    "tools/test-meeting-hub.mjs"
+  ],
+  "installTargets": [
+    "Original AM platform; original DailyLog/UOF projections consume the existing management API"
+  ]
+}

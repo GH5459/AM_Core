@@ -34,3 +34,4 @@
 
 | AM-IMP-2026.1008.03 | Deployed | MIME-aware video/audio download filenames | 88 attachment/archive tests, server webhook, 19 core checks | Production main f8b9e7b, old-link MIME/extension and original byte equality verified. Existing valid links retain exact original bytes and receive correct extensions. |
 
+| AM-IMP-2026.1021.40 | Ready | LINE群組選項僅列目前可用群組 | 四新案例、原目錄六項、會議來源／發布／管理與權限及停止回歸通過 | 未部署；不刪歷史或寫真人群組狀態；待正式發布範圍確認及完整CI。 |

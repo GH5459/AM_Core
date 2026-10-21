@@ -1,3 +1,4 @@
+import {createLineGroupAvailability} from '../../core/line-group-availability.js';
 // AM Platform groups — 租戶群組治理後臺
 //
 // Core/router.js 只負責解析與快取；本模組提供人可編輯的介面。
@@ -112,10 +113,10 @@ async function listBindings(tenant) {
     const result = await platformRef.notionRequest(`/v1/data_sources/${encodeURIComponent(tenant.dataSources.groupBindings)}/query`, {
       method: 'POST', tenantKey: tenant.key, body,
     });
-    rows.push(...(result.results || []).map(pageModel));
+    rows.push(...(result.results || []).filter(p=>!p.archived&&!p.in_trash).map(pageModel));
     cursor = result.has_more ? result.next_cursor : null;
   } while (cursor);
-  return rows;
+  return createLineGroupAvailability((...args)=>platformRef.lineGet(...args)).filter(rows);
 }
 
 function renderUnauthorized(tenant) {

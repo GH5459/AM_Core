@@ -3,6 +3,7 @@ import {verifyManagementRequest} from './management-auth.js';
 import {readTaskOrigins} from './task-origins.js';
 import {sendJson} from '../../core/util.js';
 import {createMeetingWorkspace} from './workspace-service.js';
+import {createLineGroupAvailability,LINE_GROUP_OPTIONS_POLICY} from '../../core/line-group-availability.js';
 
 export const CONVERSATION_MEETINGS_CONTRACT='all-line-conversations-meetings-v1';
 const id=v=>String(v||'').replaceAll('-','');
@@ -19,7 +20,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
   const pool=archive.pool,botId=archive.config.botId,store=createMeetingConversationStore(pool,botId);
   const request=injectedRequest||((path,method='GET',body)=>archive.notion.request(path,method,body));
   let draining=null;
-  const active=new Map();
+  const active=new Map(),groupOptions=createLineGroupAvailability((...args)=>platform.lineGet(...args));
   const workspace=createMeetingWorkspace({pool,botId,platform,archive,env,context,tenantFor,getConversation:store.get,ensureDatabase,request,meetingModule,logger});
   async function limitedBody(req){let size=0;const chunks=[];for await(const chunk of req){size+=Buffer.byteLength(chunk);if(size>20000)throw Object.assign(Error('設定資料過大。'),{status:413});chunks.push(Buffer.from(chunk));}return Buffer.concat(chunks).toString('utf8');}
 
@@ -36,6 +37,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
         groupName:row.display_name||'LINE 對話',members:binding.members||{}}};
   }
   async function validate(input,row){
+    if(!await groupOptions.available(row))throw Object.assign(Error('此群組目前不可用，請重新讀取名單。'),{status:409});
     const tenant=tenants.find(t=>t.key===input.tenantKey&&t.runtimeEnabled!==false);
     if(input.tenantKey&&!tenant)throw Object.assign(Error('所屬單位不可用。'),{status:400});
     if(row.tenant_key&&row.tenant_key!==input.tenantKey)
@@ -203,7 +205,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
         return sendJson(res,200,await readTaskOrigins(JSON.parse(body),{pool,botId})),true;
       }
       if(req.method==='GET'&&url.pathname==='/integrations/meeting-management/conversations'){
-        const rows=await store.list();return sendJson(res,200,{contract:CONVERSATION_MEETINGS_CONTRACT,conversations:rows.map(r=>({
+        const rows=await groupOptions.filter(await store.list());return sendJson(res,200,{contract:CONVERSATION_MEETINGS_CONTRACT,groupOptionsPolicy:LINE_GROUP_OPTIONS_POLICY,conversations:rows.map(r=>({
           key:r.key,name:r.display_name||'尚未取得名稱',type:r.source_kind,status:r.legacy_status||'啟用',connection:r.connection_state,
           enabled:r.enabled,todoMode:r.todo_mode,tenantKey:r.tenant_key,version:Number(r.version),lastActivity:r.last_activity,
           processingState:r.processing_state||'',processingUpdatedAt:r.processing_updated_at,settingsUpdatedAt:r.updated_at,

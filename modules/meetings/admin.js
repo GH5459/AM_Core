@@ -1,3 +1,4 @@
+import {createLineGroupAvailability} from '../../core/line-group-availability.js';
 // AM Platform meetings — tenant/group rollout administration page.
 //
 // This file deliberately owns no tenant identifiers or credentials. Every
@@ -177,10 +178,10 @@ async function listBindings(platform, tenant) {
       `/v1/data_sources/${encodeURIComponent(tenant.dataSources.groupBindings)}/query`,
       { method: 'POST', tenantKey: tenant.key, body },
     );
-    rows.push(...(response.results || []).map(pageModel));
+    rows.push(...(response.results || []).filter(p=>!p.archived&&!p.in_trash).map(pageModel));
     cursor = response.has_more ? response.next_cursor : null;
   } while (cursor);
-  return rows;
+  return createLineGroupAvailability((...args)=>platform.lineGet(...args)).filter(rows);
 }
 
 function adjustedBinding(binding, mode, { preview = false } = {}) {

@@ -24,7 +24,7 @@ async function harness(t, options = {}) {
   const line = { configured:true,
     listGroupMemberIds:options.enumerate || (async () => { throw Object.assign(new Error('private provider error'),{ lineStatus:403 }); }),
     lineGet:options.get || (async (path) => {
-      if (path.endsWith('/summary')) return { groupName:path.includes(a) ? 'A verified' : 'B verified' };
+      if (path.endsWith('/summary')) return { groupId:path.split('/')[4],groupName:path.includes(a) ? 'A verified' : 'B verified' };
       if (path.endsWith('/count')) return { count:3 };
       if (path.endsWith(v)) throw Object.assign(new Error('hidden profile'),{ lineStatus:404 });
       return { displayName:'Known member' };
@@ -76,7 +76,7 @@ test('403 enumeration falls back to verified known users; profiles and group fai
   assert.equal(JSON.stringify(result).includes('hidden profile'),false);
   await assert.rejects(directory.groups(admin,url('?limit=51')),{ code:'invalid_pagination' });
   const h = await harness(t,{ get:async () => { throw new Error('network timeout'); } });
-  assert.equal((await h.directory.groups(admin,url())).groups[0].selectable,false);
+  assert.equal((await h.directory.groups(admin,url())).groups.length,0);
   await assert.rejects(h.directory.members(admin,a,url()),{ code:'group_verification_unavailable' });
 });
 
