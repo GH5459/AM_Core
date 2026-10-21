@@ -3,7 +3,7 @@
   "name": "新群組預設開啟會議記錄",
   "type": "Conversation meeting defaults",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": ["Existing central_archive conversations and meeting_settings"],
   "requiresEnv": ["Existing conversation meetings configuration"],
   "requiresScripts": ["tools/test-conversation-meetings.mjs"],
