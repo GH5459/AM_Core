@@ -19,6 +19,7 @@ globalThis.fetch=async(url,opts)=>{
 };
 const workId=id=>({userId:id,account:id===host?'111':'222',bindingId:'binding-'+id,name:id===host?'主持人':'編輯者',tenantKey:'fixture'});
 const platform={publicBaseUrl:'https://meeting.example.test',publicLinkSecret:'synthetic-audio-secret-not-production',drive:{getAccessToken:async()=> 'fixture'},lineGet:async path=>{
+ if(path.endsWith('/summary'))return {groupId:group};
  if(path.includes('/members/ids')){if(idsUnavailable)throw Error('unavailable');return {memberIds:[host,member]};}
  const userId=path.split('/').at(-1);if(userId===outsider||foreign&&userId===member)throw Error('not_member');return {userId,displayName:userId===host?'主持人':'編輯者'};
 },pushLineMessage:async(to,message,mention,delivery)=>pushes.push({to,message,key:delivery.retryKey}),meetingTaskIdentity:async id=>{identityCalls.push(id);return missingIdentity?null:workId(id);},meetingTaskDirectory:async()=>[{userId:member},{userId:outsider}],publishMeetingTasks:async input=>{
