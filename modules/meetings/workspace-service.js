@@ -27,7 +27,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
  const link=id=>base()+'/meetings/review/work/'+id;
- const publication=meetingPublication({pool,store,botId,getConversation,assertMember});
+ const publication=meetingPublication({pool,store,botId,getConversation,assertMember,lineGet:(...args)=>platform.lineGet(...args)});
  const hub=meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request,publicationReader:publication.reader});
  const taskDispatch=meetingTaskDispatch({pool,store,botId,platform,conversation,assertMember,link,logger});
  const taskProgress=meetingTaskProgress({pool,platform});

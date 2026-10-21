@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'core/common-line-entry.js'
+      - 'core/line-group-availability.js'
+      - 'tools/test-line-group-availability.mjs'
+      - 'versions/AM-IMP-2026.1021.40/**'
       - 'tools/test-common-line-identity.mjs'
       - 'core/multilingual*'
       - 'tools/*multilingual*'
@@ -304,6 +307,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.03
+      - run: node --test tools/test-line-group-availability.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1021.40
       - run: node --test tools/test-line-directory.mjs
       - run: node --test tools/test-line-bindings.mjs
       - run: node --test tools/test-line-capture-latency.mjs

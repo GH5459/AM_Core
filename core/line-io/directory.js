@@ -74,6 +74,7 @@ export function createDirectory({ store, router, line, clients, ioState, now = D
   async function summary(groupId) {
     try {
       const value = await line.lineGet(`/v2/bot/group/${groupId}/summary`,{ timeoutMs:4000 });
+      if(value.groupId!==groupId)throw Error('group_identity_mismatch');
       return { presence:'present',name:value.groupName || '',checkedAt:new Date(now()).toISOString() };
     } catch (e) {
       return { presence:'unknown',checkedAt:new Date(now()).toISOString(),
@@ -86,6 +87,7 @@ export function createDirectory({ store, router, line, clients, ioState, now = D
     const groups = (await concurrent(page.rows,async (row) => {
       try { await authorize(client,row.groupId); } catch (e) { if (e.status === 403) return null; throw e; }
       const verified = await summary(row.groupId);
+      if(row.presence==='left'||verified.presence!=='present'||routes.get(row.groupId)?.status==='停用')return null;
       return { groupId:row.groupId,name:verified.name || row.name,presence:verified.presence,
         observedPresence:row.presence,lastSeenAt:iso(row.lastSeenAt),presenceCheckedAt:verified.checkedAt,
         selectable:verified.presence === 'present',warning:verified.warning || null,

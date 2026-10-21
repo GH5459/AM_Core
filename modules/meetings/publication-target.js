@@ -1,18 +1,21 @@
 import {failure} from './workspace-model.js';
+import {createLineGroupAvailability,groupOptionEnabled} from '../../core/line-group-availability.js';
 
 export const PUBLICATION_TARGET_CONTRACT='host-selected-published-group-reader-v1';
 const stages=new Set(['setup','processing','review','failed']);
 // The recording's conversation is immutable. Only this explicit publication
 // destination changes; task identities, Notion storage and draft editors do not.
-export function meetingPublication({pool,store,botId,getConversation,assertMember}){
+export function meetingPublication({pool,store,botId,getConversation,assertMember,lineGet}){
+ const groupOptions=createLineGroupAvailability(lineGet);
  const describe=row=>({key:row.key,botId:row.bot_id,sourceId:row.source_id,kind:row.source_kind,tenantKey:row.tenant_key||'',name:row.display_name||(row.source_kind==='user'?'個人對話':'LINE 群組')});
- const active=row=>row?.bot_id===botId&&!['left','blocked'].includes(row.connection_state);
+ const active=row=>row?.bot_id===botId&&groupOptionEnabled(row);
  async function protectedRoute(db=pool){const result=await db.query(`SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='central_archive.meeting_workspaces'::regclass AND tgname='meeting_publication_route_guard' AND NOT tgisinternal AND tgenabled IN ('O','A')) AS ready`);if(!result.rows[0].ready)throw failure(503,'發布群組保護尚未安裝完成，原內容與群組保持，請聯絡管理者。');}
  async function status(r,source){const target=r.receipt?.publicationTarget||describe(source);let name=target.name;if(target.key!==source.key){const current=await getConversation(target.key);if(current?.bot_id===target.botId&&current.source_id===target.sourceId&&current.source_kind===target.kind&&current.tenant_key===target.tenantKey)name=current.display_name||name;}return {key:target.key,name,kind:target.kind,original:target.key===r.conversation_key,version:Number(r.field_versions.publication_target||0),locked:!stages.has(r.state)};}
  async function checked(r,source,key,actorId,reading=false,db=pool){
   if(!active(source)||!reading&&!source.enabled)throw failure(409,'來源對話目前不可用，請重新讀取群組。');
   const target=key===source.key?source:await getConversation(key,db);
   if(!active(source)||!active(target))throw failure(409,'來源或發布群組目前不可用，請重新讀取群組。');
+  if(!reading&&!await groupOptions.available(target))throw failure(409,'此群組目前不可用，請重新讀取群組。');
   if(key!==source.key){
    if(!['group','room'].includes(target.source_kind))throw failure(400,'請選擇 LINE 群組或多人聊天室。');
    if(!source.tenant_key||target.tenant_key!==source.tenant_key)throw failure(403,'只能選擇與來源相同單位的群組。');
@@ -23,7 +26,7 @@ export function meetingPublication({pool,store,botId,getConversation,assertMembe
  async function list(r,source,actor){
   if(actor.id!==r.host_id)throw failure(403,'只有主持人可以選擇發布群組。');
   const rows=source.tenant_key?(await pool.query(`SELECT c.key FROM central_archive.conversations c JOIN central_archive.meeting_settings s ON s.conversation_key=c.key WHERE c.bot_id=$1 AND c.source_kind IN ('group','room') AND s.tenant_key=$2 AND s.connection_state NOT IN ('left','blocked') ORDER BY c.display_name,c.key`,[botId,source.tenant_key])).rows:[];
-  const choices=[describe(source)];for(let i=0;i<rows.length;i+=5)await Promise.all(rows.slice(i,i+5).map(async({key})=>{if(key===source.key)return;try{choices.push(describe(await checked(r,source,key,actor.id)));}catch{ /* Unverified membership never exposes a group name. */ }}));
+  const choices=[];try{choices.push(describe(await checked(r,source,source.key,actor.id)));}catch{}for(let i=0;i<rows.length;i+=5)await Promise.all(rows.slice(i,i+5).map(async({key})=>{if(key===source.key)return;try{choices.push(describe(await checked(r,source,key,actor.id)));}catch{ /* Unverified membership never exposes a group name. */ }}));
   return choices.map(({key,name,kind})=>({key,name,kind})).sort((a,b)=>a.key===source.key?-1:b.key===source.key?1:a.name.localeCompare(b.name,'zh-Hant')||a.key.localeCompare(b.key));
  }
  async function save(r,actor,input){

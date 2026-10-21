@@ -1,3 +1,4 @@
+import {createLineGroupAvailability} from '../../core/line-group-availability.js';
 // 合約發包管理(/contracts)——抽自 BuildAM src/contracts.js,改為多租戶。
 // 授權/scope 由 index.js 的 webRoute(走 core.portal)注入 URL(不信任前端原始參數);權限鍵 per-tenant:am-<tenant>-contract。
 // 合約簽約/金額異動會自動回寫該租戶「預算控制」的已發包金額/對象/日期/狀態。
@@ -401,7 +402,7 @@ async function buildOverview(deps, scope) {
     rows.sort((a, b) => (b.number || '').localeCompare(a.number || ''));
     project.rows = rows;
     project.budgetItems = budgetItems;
-    project.groups = groups;
+    project.groups = await createLineGroupAvailability((...args)=>deps.lineGet(...args)).filter(groups,g=>({...g,groupId:g.lineGroupId}));
     project.committed = rows.filter((r) => COMMITTED_STATUSES.has(r.status)).reduce((sum, r) => sum + r.amount, 0);
     project.pending = rows.filter((r) => !COMMITTED_STATUSES.has(r.status) && r.status !== '作廢').length;
   }
@@ -1059,4 +1060,4 @@ load();
 </html>`;
 }
 
-export const __test = { renderContractsPage };
+export const __test = { renderContractsPage, buildOverview };

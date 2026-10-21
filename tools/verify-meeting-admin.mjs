@@ -56,7 +56,7 @@ const multi = (...values) => ({ multi_select: values.map((name) => ({ name })) }
 function bindingPage({
   id = 'binding-1',
   name = '測試群組一',
-  groupId = 'C_SERVER_GROUP_1',
+  groupId = ('C'+'1'.repeat(32)),
   status = '啟用',
   capabilities = ['會議', '待辦'],
   mode = '',
@@ -118,6 +118,7 @@ function makeHarness({ schema = propertySchema(), pages = [bindingPage()], acces
   const invalidated = [];
   const currentTenant = tenant();
   const platform = {
+    lineGet:async path=>({groupId:path.split('/')[4]}),
     publicBaseUrl: 'https://safe.example.test',
     publicLinkSecret: 'DO_NOT_RENDER_PUBLIC_LINK_SECRET',
     driveConfigured: true,
@@ -225,7 +226,7 @@ async function postReview(path, body, sessionTenant) {
     'DO_NOT_RENDER_PUBLIC_LINK_SECRET',
     'configured-not-returned',
     'U_SECRET_MEMBER_1',
-    'C_SERVER_GROUP_1',
+    ('C'+'1'.repeat(32)),
     DATA_SOURCE_ID,
   ]) assert.ok(!res.body.includes(secret), `HTML 不可包含 ${secret}`);
   assert.match(res.body, /Forest AM/);
@@ -328,8 +329,8 @@ async function postReview(path, body, sessionTenant) {
 // 批次更新必須逐群成功寫入、保留稽核版本，並用伺服器查出的 groupId 清除路由快取。
 {
   const pages = [
-    bindingPage({ id: 'binding-1', name: '群組一', groupId: 'C_SERVER_GROUP_1' }),
-    bindingPage({ id: 'binding-2', name: '群組二', groupId: 'C_SERVER_GROUP_2' }),
+    bindingPage({ id: 'binding-1', name: '群組一', groupId: ('C'+'1'.repeat(32)) }),
+    bindingPage({ id: 'binding-2', name: '群組二', groupId: ('C'+'2'.repeat(32)) }),
   ];
   const h = makeHarness({ accessContext: access({ platformOwner: true }), pages });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
@@ -346,15 +347,15 @@ async function postReview(path, body, sessionTenant) {
   assert.equal(writes[0].opts.body.properties['會議待辦模式'].select.name, '完整確認');
   assert.equal(writes[1].opts.body.properties['會議待辦模式'].select.name, '僅記錄');
   assert.equal(writes[0].opts.body.properties['會議設定版本'].rich_text[0].text.content, MEETING_ADMIN_SCHEMA_VERSION);
-  assert.deepEqual(h.invalidated, ['C_SERVER_GROUP_1', 'C_SERVER_GROUP_2']);
+  assert.deepEqual(h.invalidated, [('C'+'1'.repeat(32)), ('C'+'2'.repeat(32))]);
   assert.ok(!h.invalidated.includes('C_BROWSER_FORGED'));
 }
 
 // 任一群組被 preflight 阻擋時，整批不可先寫入前面的成功項目。
 {
   const pages = [
-    bindingPage({ id: 'binding-1', groupId: 'C_SERVER_GROUP_1' }),
-    bindingPage({ id: 'binding-shadow', groupId: 'C_SERVER_SHADOW', status: '影子記錄' }),
+    bindingPage({ id: 'binding-1', groupId: ('C'+'1'.repeat(32)) }),
+    bindingPage({ id: 'binding-shadow', groupId: ('C'+'3'.repeat(32)), status: '影子記錄' }),
   ];
   const h = makeHarness({ accessContext: access({ platformOwner: true }), pages });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
