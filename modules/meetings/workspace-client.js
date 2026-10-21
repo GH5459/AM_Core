@@ -109,7 +109,9 @@ export function workspaceClient(BOOT){
  }
 
  function render(){if(!data)return;document.body.classList.toggle('publication-reader',data.access==='publication');let recovered=false;for(const key of dirty.keys())if(!saving.has(key))recovered=recoverSaved(key)||recovered;if(recovered&&!dirty.size&&!saving.size){contentSaveError='';error('');}if(data.access==='member'&&token&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token});const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
-  if(!mode||w.state==='published'&&lastState&&lastState!=='published')mode=w.state==='published'?'view':'edit';lastState=w.state;if(readOnly)mode='view';
+  // Publishing is locked too. Keep its content in the same formatted, folded
+  // reader as the published result, including while a background retry waits.
+  if(!mode||locked&&lastState!==w.state)mode=locked?'view':'edit';lastState=w.state;if(readOnly||w.state==='publishing'||review&&!data.canEdit)mode='view';
   const reading=review&&mode==='view';document.body.classList.toggle('reader-mode',reading);document.body.classList.toggle('collaboration-mode',review&&!reading);$('#pageHeading').textContent=reading?'會議記錄':'會議工作頁';
   $('#glossaryPageLink').href='/meetings/review/work/'+BOOT.id+'/glossary';
   if(BOOT.glossaryOnly&&!readOnly){document.body.classList.add('glossary-page');$('#pageHeading').textContent='共用會議詞庫';$('#pageSubtitle').textContent='管理正確用詞、同音字與背景說明';if(!glossaryOpened){glossaryOpened=true;$('#openGlossary').click();}}
@@ -189,7 +191,7 @@ export function workspaceClient(BOOT){
  };
  function markSharingDirty(base){if(!sharingDirty)sharingBase=base||{version:data.sharing.version};sharingDirty=true;}
  function renderPublication(){
-  const p=data.publication,panel=$('#publicationPanel');panel.hidden=!p||!data.host||mode!=='edit';if(panel.hidden)return;
+  const p=data.publication,panel=$('#publicationPanel');panel.hidden=!p||!data.host||mode!=='edit';if(!p)return;
   const select=$('#publicationTarget'),selected=publicationDirty?select.value:p.key;$('#publicationCurrent').textContent=' · '+p.name+(p.locked?'（已鎖定）':'');
   const choices=[...publicationChoices];if(!choices.some(x=>x.key===p.key))choices.unshift(p);
   if(publicationDirty&&publicationDraft&&!choices.some(x=>x.key===selected))choices.push(publicationDraft);

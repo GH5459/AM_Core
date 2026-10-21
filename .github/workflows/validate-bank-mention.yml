@@ -20,6 +20,8 @@ on:
       - 'versions/AM-IMP-2026.1016.06/**'
       - 'tools/test-conversation-meetings.mjs'
       - 'tools/test-meeting-audio-receipt.mjs'
+      - 'tools/test-meeting-publishing-reader.mjs'
+      - 'versions/AM-IMP-2026.1021.04/**'
       - 'versions/AM-IMP-2026.1021.03/**'
       - 'tools/test-task-origins.mjs'
       - 'versions/AM-IMP-2026.1019.37/**'
@@ -189,6 +191,8 @@ jobs:
       - run: node tools/test-meeting-speaker-correction.mjs
       - run: node tools/test-meeting-publication-target.mjs
       - run: node tools/test-meeting-publication-client.mjs
+      - run: node tools/test-meeting-publishing-reader.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1021.04
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.24
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.23
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.22
