@@ -6,6 +6,7 @@ on:
       - 'tools/*xiaoye*'
       - 'assets/line/leaf-report*'
       - 'versions/AM-IMP-2026.1022.50/**'
+      - 'versions/AM-IMP-2026.1022.60/**'
       - 'core/common-line-entry.js'
       - 'tools/test-common-line-identity.mjs'
       - 'core/multilingual*'
@@ -180,6 +181,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node --test tools/test-xiaoye-line.mjs
       - run: node --check core/xiaoye-secretary-dailylog.mjs
+      - run: node --check core/xiaoye-secretary-events.mjs
+      - run: node --check tools/xiaoye-event-bridge.cjs
+      - run: node --test tools/test-xiaoye-event-bridge.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.60
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.50
       - run: npm run check
       - run: node --test tools/test-personal-recipient-selection.mjs tools/test-line-personal-completion-report.mjs tools/test-personal-authority.mjs tools/test-personal-worker-boundary.mjs

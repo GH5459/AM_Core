@@ -1,3 +1,5 @@
+2026-10-22，本人已明確要求實作並正式部署「有回報才啟動」，AM-IMP-2026.1022.60／ADR-38／E80執行中，尚未聲稱部署。授權本項隔離實作、CI與PR合併、DailyLog最新完整包必要事件binding／SQLite類別與增量outbox、原本機隱藏事件接收器及正式回讀。原五分鐘automation ai維持PAUSED，不得用另一個定時AI輪詢替代。有正式回報、有效補充或本人對目前版方案核准才處理一次；原逐版核准、同卡、失效守衛、事實日誌及同仁確認保留。沒有事件不啟動AI；連線保活／故障重連不讀問題queue、不啟動AI。不另開API帳號／模型或LINE帳號，不以真人業務測寫。沿真正最新來源、不build dirty根、不重發舊包；保留原Assets／秘密／其他bindings／兩cron與並行資料。
+
 2026-10-22，E78／ADR-38／AM-IMP-2026.1022.50葉小蝸AI秘書試行已正式啟用。PR422／423完整CI39715533473通過，AM95bc2db1兩站及Render Live；DailyLog897134a2-e7ca-4b6a-976a-bdfd8e8074b9／100%完整61模組，由2d16712c／59延伸，其餘58bytes及原Assets／設定／bindings／秘密／兩cron保持。既有OA工作身分ai-xiaoye已接入、未新建LINE帳號、無真人登入／UOF假員工，精確加入四既有專案。原318工作均保留，四會員增量及自然並行變更不回灌。本人逐版核准後每次一件；補充／撤回／暫緩失效舊核准，完成有證據、同仁確認結案及事實日誌。每5分鐘本機heartbeat無進展安靜，私有完整包與回執只留DailyLog .dailylog-data/xiaoye-secretary-pilot-20261022。後續沿真正最新來源完整包，不build dirty根或重發舊包；無真人LINE／任務／日誌／Google／UOF測寫，自然新訊息驗收獨立；OA改名由本人自行操作。
 
 # AMCore Agent Guide
