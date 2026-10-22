@@ -16,7 +16,7 @@ export async function eventCall(env, route, value = {}) {
 }
 export async function prepareXiaoyeEvent(env, task, operationId, action) {
   if (!env.XIAOYE_EVENTS) return null;
-  const kind = action === 'approve' ? 'execute' : ['intake','supplement','reopen'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
+  const kind = action === 'approve' ? 'execute' : ['intake','supplement','reopen','feedback'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
   if (!kind) return null;
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(operationId)));
   const id = [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');

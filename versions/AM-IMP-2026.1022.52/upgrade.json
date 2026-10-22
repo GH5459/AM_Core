@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.1022.52",
+  "name": "葉小蝸提案卡與主管建議",
+  "type": "Structured LINE proposal and owner revision workflow",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing DailyLog work items, journal, operations and attachments",
+    "Existing reviewed event outbox and original event processor"
+  ],
+  "requiresEnv": [
+    "Original OA and original task service configuration; retain existing secrets"
+  ],
+  "requiresScripts": [
+    "tools/test-xiaoye-proposal-card.mjs",
+    "tools/test-xiaoye-feedback.cjs",
+    "tools/test-xiaoye-feedback-browser.cjs",
+    "tools/test-xiaoye-line.mjs",
+    "tools/test-xiaoye-feedback-events.cjs",
+    "tools/test-xiaoye-feedback-codex.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Four clearly separated proposal sections and two exact-version actions",
+    "Authenticated owner feedback with original report and image preservation",
+    "Feedback atomically fences old approval and execution",
+    "Monotonic revised proposal version and fresh owner approval",
+    "Current latest complete release retained, isolated tests, CI and live readback",
+    "No idle AI polling or real-business test writes"
+  ]
+}
