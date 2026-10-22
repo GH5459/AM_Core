@@ -75,3 +75,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1019.80 | 群組未連線停止重試與安靜有限退避 | Installed | 未連線停止、暫時故障最多三次且不發一般重試提示；原來源與已建立行程保留。正式版本驗證待完成。 |
 
 | AM-IMP-2026.1020.21 | LINE會議分層圓點與縮排 | Deployed | PR390完整CI3分12秒；AMd200c8b兩站／Render58.7秒Live。三層／續行縮排、390寬預覽、字數及原單次通知通過；10會議／119對話與全部原內容／收據保持，DailyLog／UOF不重發，未傳真人LINE測試。 |
+
+| AM-IMP-2026.1022.52 | 葉小蝸提案卡與主管建議 | Deployed | PR425／CI39721083350；AM4d559675兩站及Render41.2秒，DailyLog dad102c9／65完整模組，保留其他60與最新私密區及原事件接線；原327工作保留、自然1筆變更、身分設定0變更。主管建議觸發新版並重新核准，ai heartbeat維持PAUSED；未真人測寫。 |
