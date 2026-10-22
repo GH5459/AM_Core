@@ -184,6 +184,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node --test tools/test-xiaoye-line.mjs tools/test-xiaoye-proposal-card.mjs
       - run: node --check core/xiaoye-secretary-dailylog.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.52
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs

@@ -5,7 +5,8 @@
   "portable": true,
   "status": "Ready",
   "requiresDatabases": [
-    "Existing DailyLog work items, journal, operations and attachments"
+    "Existing DailyLog work items, journal, operations and attachments",
+    "Existing reviewed event outbox and original event processor"
   ],
   "requiresEnv": [
     "Original OA and original task service configuration; retain existing secrets"
@@ -14,7 +15,9 @@
     "tools/test-xiaoye-proposal-card.mjs",
     "tools/test-xiaoye-feedback.cjs",
     "tools/test-xiaoye-feedback-browser.cjs",
-    "tools/test-xiaoye-line.mjs"
+    "tools/test-xiaoye-line.mjs",
+    "tools/test-xiaoye-feedback-events.cjs",
+    "tools/test-xiaoye-feedback-codex.cjs"
   ],
   "installTargets": [
     "Original AM Platform",
