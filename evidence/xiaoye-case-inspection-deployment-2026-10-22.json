@@ -1,0 +1,87 @@
+{
+  "sourceId": "E87",
+  "package": "AM-IMP-2026.1022.63",
+  "status": "Installed / Deployed",
+  "pullRequest": "https://github.com/GH5459/AM_Core/pull/439",
+  "ciPassed": true,
+  "merged": true,
+  "head": "7dd0787efae24fe9dd32c155c14aa5ba3b07bd99",
+  "merge": "fa7f021f99d9a12ad6e5c34a40821f0d2b229fc6",
+  "run": 39754050835,
+  "checkRun": 119741459076,
+  "at": "2026-10-22T09:23:52.308Z",
+  "dailylog": {
+    "passed": true,
+    "version": "adf7af15-a526-421f-94ac-0c8a52a553d3",
+    "modules": 70,
+    "originalWork": 338,
+    "currentWork": 338,
+    "missingWork": 0,
+    "naturalConcurrentChanges": 1,
+    "identityAndSettingsChanges": 0,
+    "unchangedOriginalModules": 67,
+    "settingsPreserved": true,
+    "schedulesPreserved": true,
+    "assetsPreserved": true,
+    "at": "2026-10-22T09:23:08.811Z"
+  },
+  "production": {
+    "publicChecks": [
+      {
+        "path": "/xiaoye/inspect",
+        "status": 200
+      },
+      {
+        "path": "/api/xiaoye-inspection/data",
+        "status": 405
+      },
+      {
+        "path": "/xiaoye",
+        "status": 303
+      },
+      {
+        "path": "/api/xiaoye-inspection/data",
+        "anonymousPost": 403
+      }
+    ],
+    "am": [
+      {
+        "host": "https://am.hozorental.com",
+        "commit": "248b2ab67e5f3c2d7bb70e49436137a76c940e33"
+      },
+      {
+        "host": "https://am-platform-2ymf.onrender.com",
+        "commit": "248b2ab67e5f3c2d7bb70e49436137a76c940e33"
+      }
+    ],
+    "realCaseTicketsCreated": 0,
+    "humanLoginUsed": false
+  },
+  "validation": {
+    "inspectionWorkerFlows": 6,
+    "originalWorkerFlows": 21,
+    "nativeOwnerEventFlows": 2,
+    "unitAndIdleFlows": 6,
+    "browserWidths": 6,
+    "realBusinessTestWrites": 0,
+    "messagesSent": 0
+  },
+  "boundaries": {
+    "existingAiServiceIdentity": true,
+    "caseAndVersionAndEventBound": true,
+    "readOnly": true,
+    "singleUseEntry": true,
+    "maxLifetimeSeconds": 300,
+    "noHumanSession": true,
+    "perVersionOwnerApprovalRetained": true,
+    "noCrossCaseImages": true,
+    "auditWithoutTokens": true,
+    "heartbeatPaused": true,
+    "noEventReplay": true,
+    "noCloudMigration": true
+  },
+  "localRuntime": {
+    "runnerAndPromptUpdated": true,
+    "restarted": false
+  }
+}
