@@ -220,7 +220,10 @@ export async function xiaoyeGuard(request,env,readAuthority){
  if(attachment&&request.method!=='GET')return json({error:'補圖請在原 LINE 回報期間傳送，或先從原問題頁補充說明。'},409);if(task&&request.method!=='GET')return json({error:'請從小葉問題頁核准、確認或重新開啟，原任務保留。',url:link(env,t.id)},409);return null;
 }
 export async function xiaoyeResponse(request,response,env,readAuthority){
- const path=new URL(request.url).pathname;if(response.status!==200)return response;
+ const url=new URL(request.url),path=url.pathname,returnTo=url.searchParams.get('returnTo'),safeReturn=typeof returnTo==='string'&&/^\/xiaoye(?:\?issue=work-[a-f0-9-]{36})?$/.test(returnTo);
+ if(['/login','/login.html'].includes(path)&&safeReturn&&[301,302,303,307,308].includes(response.status)){const dest=new URL(response.headers.get('Location')||'/',env.PUBLIC_ORIGIN);if(dest.origin===env.PUBLIC_ORIGIN&&dest.pathname==='/'){const headers=new Headers(response.headers);headers.set('Location',returnTo);return new Response(response.body,{status:response.status,headers});}}
+ if(response.status!==200)return response;
+ if(path==='/login.js'){const source=await response.text(),marker='const workTarget=';if(source.split(marker).length!==2)return new Response(source,{status:200,headers:response.headers});const added="const xiaoyeReturn=new URLSearchParams(location.search).get('returnTo');const workTarget=/^\\/xiaoye(?:\\?issue=work-[a-f0-9-]{36})?$/.test(xiaoyeReturn||'')?xiaoyeReturn:";return new Response(source.replace(marker,added),{status:200,headers:response.headers});}
  if(path==='/'&&response.headers.get('Content-Type')?.includes('text/html')){const content=await response.text();return new Response(content.replace('</body>','<a href="/xiaoye" style="display:block;padding:12px;text-align:center">小葉 AI 秘書・問題與處理進度</a></body>'),{status:response.status,headers:response.headers});}
  if(!path.startsWith('/api/tasks')||!response.headers.get('Content-Type')?.includes('application/json'))return response;
  let c;try{c=await settings(env);}catch{return response;}const a=await readAuthority(request,env);if(!a)return response;
