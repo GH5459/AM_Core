@@ -20,3 +20,11 @@ test('notification only sends to current verified recipient, retaining one stabl
  const x=createXiaoyeSecretary({tasks,line:{pushLineMessage:async(...v)=>{pushes.push(v);return {requestId:'fixture'};}},logger:{warn(){}}});await x.drain();assert.equal(pushes.length,1);assert.equal(pushes[0][0],user);assert.equal(pushes[0][3].retryKey,'xiaoye:fixture-notice');assert.equal(calls.findLast(c=>c.action==='notifications/receipt').v.state,'sent');
  iteration=0;recipient={userId:'U'+'d'.repeat(32)};await x.drain();assert.equal(pushes.length,1);assert.notEqual(calls.findLast(c=>c.action==='notifications/receipt').v.state,'sent');
 });
+test('rich menu starts guided drafting, keeps photos in the same conversation and offers completion/history',async()=>{
+ const calls=[],replies=[];const postback=data=>event('',{type:'postback',replyToken:'fixture-token',postback:{data},message:undefined});
+ const tasks={meetingShareIdentity:async()=>({account:'fictional',tenantKey:'fixture'}),secretaryCall:async(action,input)=>{calls.push({action,input});return input.begin?{ok:true,handled:true,draft:true,begun:true,open:2,url:'https://example.test/xiaoye'}:input.finish?{ok:true,handled:true,submitted:true,title:'隔離問題',url:'https://example.test/xiaoye?issue=fixture'}:{ok:true,handled:true,draft:true,texts:1,images:1};}};
+ const x=createXiaoyeSecretary({tasks,line:{replyLineMessage:async(token,message)=>replies.push(message),downloadLineContent:async()=>({buffer:new Uint8Array([137,80,78,71]).buffer})},env:{AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID:bot}});
+ assert.deepEqual(secretaryCommand(postback('xiaoye:report')),{begin:true});assert.equal(secretaryCommand(postback('unrelated')),null);
+ assert.equal((await x.capture([postback('xiaoye:report')])).length,1);assert(calls.at(-1).input.begin);assert(replies.at(-1).text.includes('有什麼問題'));assert(replies.at(-1).text.includes('2 件'));assert(replies.at(-1).quickReply.items.some(i=>i.action.type==='uri'));
+ await x.capture([event('儲存出現錯誤'),event('',{message:{type:'image',id:'fixture-image'}})]);assert(calls.at(-1).input.image.base64);await x.capture([postback('xiaoye:finish')]);assert(calls.at(-1).input.finish);assert(replies.at(-1).text.includes('已建立問題'));
+});

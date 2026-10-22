@@ -6,4 +6,6 @@
 
 以私人一次性安裝確認記錄固定四個專案與原OWNER_ACCOUNT，獨立隨機runner credential只存原目標私人檔，D1只保存hash。安裝端點在同一交易新增AI服務帳號及四個協作關聯，保存原真人、權限、來源、任務及Notion接線；先保持收件未啟用。本人工作帳號／UOF／LINE身分不能假造。
 
+使用者追加指定沿用內建瀏覽器的既有葉小蝸OA，名稱仍為葉小蝸，不另外建立LINE帳號。原OA憑證核對bot/info與指定basicId，私人記錄OA對應；內部registry只是該OA的工作身分。Rich Menu另保存原default完整定義及PNG，原三個action原值保持、重新分為四格；新增最右625px區為postback `xiaoye:report`、`inputOption:closeRichMenu`。新圖沿原SVG風格，仍2500×422。LINE驗證、服務啟用回讀後再切原default，不改個別使用者選單，不群發訊息；正式回讀定義／圖hash與三原action。
+
 完整Worker-D1、手機／桌面及原功能回歸通過，AM PR完整CI合併及兩原目標必要試行發布後，核對兩站來源與契約，再啟用本項收件。背景執行使用原目標runner helper；每次工作與正式發布必須受該題本人方案核准及最新來源限制。啟用後刪除一次性安裝確認，保留私人回退。

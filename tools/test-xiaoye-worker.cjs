@@ -98,6 +98,24 @@ test('clarification is logged once and a later web supplement continues the same
  await a.db.prepare("DELETE FROM documents WHERE namespace='xiaoye-intake-sessions'").run();const resumed=await a.ok(await a.intake({start:false,resumeTaskId:t.id,text:'接續補圖'}));assert.equal(resumed.taskId,t.id);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,1);
  }finally{await a.close();}
 });
+test('guided report persists texts and original image before one explicit submission; replay and later web supplements retain one card',async()=>{
+ const a=await setup();try{
+  const source=()=>({botUserId:bot,type:'user',conversationId:user,userId:user,eventId:op(),messageId:op(),timestamp:Date.now()});
+  const begin={start:false,begin:true,text:'',source:source()};let r=await a.ok(await a.intake(begin));assert(r.draft&&r.begun);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,0);
+  const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVZkAAAAASUVORK5CYII=';
+  const textEvent=source(),imageEvent=source();await a.ok(await a.intake({start:false,text:'工作日誌儲存後出現錯誤。原輸入還在。',source:textEvent}));await a.ok(await a.intake({start:false,text:'',image:{base64:png},source:imageEvent}));
+  assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,0);const finish={start:false,finish:true,text:'',source:source()};r=await a.ok(await a.intake(finish));assert(r.submitted);assert.equal(r.title,'工作日誌儲存後出現錯誤');const id=r.taskId;assert.equal((await a.ok(await a.intake(finish))).taskId,id);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,1);
+  const attachments=await a.ok(await a.machine('runner/attachments',{id},true));assert.equal(attachments.attachments.length,1);const raw=await a.machine('runner/attachment/'+attachments.attachments[0].id,{id},true);assert(Buffer.from(await raw.arrayBuffer()).equals(Buffer.from(png,'base64')));
+  let t=await a.get(id);t=(await a.propose(t)).task;await a.approve(t);t=await a.get(id);const supplemented=await a.ok(await a.send('900003','/api/xiaoye/issues/'+id+'/supplement',{version:t.version,operationId:op(),image:{base64:png}}));assert.equal(supplemented.task.secretary.stage,'clarifying');assert.equal(supplemented.task.secretary.approval,null);assert.equal((await a.ok(await a.machine('runner/attachments',{id},true))).attachments.length,2);
+  assert.equal((await a.ok(await a.send('900002','/api/xiaoye/overview'))).tasks.length,0);
+ }finally{await a.close();}
+});
+test('empty, cancelled or withdrawn guided drafts do not create tasks; service restart can restore the draft session',async()=>{
+ const a=await setup();try{
+  const source=()=>({botUserId:bot,type:'user',conversationId:user,userId:user,eventId:op(),messageId:op(),timestamp:Date.now()});await a.ok(await a.intake({start:false,begin:true,text:'',source:source()}));assert((await a.ok(await a.intake({start:false,finish:true,text:'',source:source()}))).needsDescription);assert.equal((await a.ok(await a.machine('sessions'))).sessions.length,1);
+  const msg=source();await a.ok(await a.intake({start:false,text:'這段是稍後撤回的說明',source:msg}));await a.ok(await a.machine('withdraw',{messageId:msg.messageId,source:{botUserId:bot,type:'user',conversationId:user,eventId:op()}}));assert((await a.ok(await a.intake({start:false,finish:true,text:'',source:source()}))).needsDescription);await a.ok(await a.intake({start:false,cancel:true,text:'',source:source()}));assert.equal((await a.ok(await a.machine('sessions'))).sessions.length,0);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,0);
+ }finally{await a.close();}
+});
 test('expired execution remains fenced until owner stops it, and paused proposals can be explicitly approved again',async()=>{
  const a=await setup();try{let first=await a.get((await a.ok(await a.intake())).taskId);first=(await a.propose(first)).task;await a.approve(first);const claim=await a.ok(await a.machine('runner/claim',{operationId:op()},true));await a.db.prepare("UPDATE work_items SET value=json_set(value,'$.secretary.leaseUntil',0) WHERE id=?").bind(first.id).run();let second=await a.get((await a.ok(await a.intake())).taskId);second=(await a.propose(second)).task;await a.approve(second);assert.equal((await a.machine('runner/claim',{operationId:op()},true)).status,409);assert.equal((await a.machine('runner/check',{id:first.id,lease:claim.lease},true)).status,403);
  first=await a.get(first.id);const paused=await a.ok(await a.send(owner,'/api/xiaoye/issues/'+first.id+'/pause',{version:first.version,operationId:op()}));await a.approve(paused.task);const now=await a.ok(await a.machine('runner/claim',{operationId:op()},true));assert(now.task);
