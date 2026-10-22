@@ -46,6 +46,8 @@ const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity, resolveRecipient:lineIo.resolveTaskRecipient });
+const xiaoyeSecretary=leafTasks.secretary||{capture:async()=>[],drain:async()=>{},health:()=>({enabled:false})};
+await xiaoyeSecretary.restore?.();
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
 Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks,readMeetingTaskProgress:leafTasks.readMeetingTaskProgress});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
@@ -305,6 +307,7 @@ const server = http.createServer(async (req, res) => {
       lineCalendar: leafCalendar.health(),
       lineTasks: leafTasks.health(),
       lineGroupMentions: leafGroups.health(),
+      xiaoyeSecretary: xiaoyeSecretary.health(),
       workJournalEntry: workJournalEntry.health(),
       commonLineIdentity: commonLineEntry.health(),
       portalCommandEntry: portalCommandEntry.health(),
@@ -470,6 +473,8 @@ const server = http.createServer(async (req, res) => {
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
     const archiveCapturedAt=Date.now();
+    try {const handled=await xiaoyeSecretary.capture(body.events);body.events=body.events.filter(e=>!handled.includes(e));}
+    catch {return sendJson(res,503,{error:'Xiaoye intake is temporarily unavailable.'});}
     const portalEvents = body.events.filter(portalCommandEntry.matches);
     body.events = body.events.filter(event => !portalCommandEntry.matches(event));
     // Consume public help before business classifiers, retaining the signed
@@ -727,6 +732,7 @@ calendarTimer.unref?.();
 const taskTimer = setInterval(() => { leafTasks.drain().catch(() => logger.warn('Task processing deferred.')); }, 5000);
 taskTimer.unref?.();
 const groupTimer = setInterval(() => { leafGroups.drain().catch(() => logger.warn('Group processing deferred.')); }, 5000);
+const xiaoyeTimer=setInterval(()=>xiaoyeSecretary.drain(),15000);xiaoyeTimer.unref();
 groupTimer.unref?.();
 const meetingTimer=setInterval(()=>conversationMeetings.drain().catch(()=>logger.warn('Conversation meeting recovery deferred.')),15000);
 meetingTimer.unref?.();

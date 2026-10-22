@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS xiaoye_operations (
+ id TEXT PRIMARY KEY,
+ guard INTEGER NOT NULL CHECK(guard=1),
+ fingerprint TEXT NOT NULL,
+ task_id TEXT NOT NULL REFERENCES work_items(id)
+ DEFERRABLE INITIALLY DEFERRED
+);
