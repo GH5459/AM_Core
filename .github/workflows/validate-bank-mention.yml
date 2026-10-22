@@ -9,6 +9,7 @@ on:
       - 'core/xiaoye-inspection*'
       - 'core/xiaoye-recovery.mjs'
       - 'versions/AM-IMP-2026.1022.65/**'
+      - 'versions/AM-IMP-2026.1022.67/**'
       - 'versions/AM-IMP-2026.1022.63/**'
       - 'core/xiaoye-proposal-card.mjs'
       - 'core/xiaoye-feedback-ui.mjs'
@@ -216,6 +217,8 @@ jobs:
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs
+      - run: node --check tools/xiaoye-visible-chats.cjs
+      - run: node --test tools/test-xiaoye-visible-chats.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.60
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.50
       - run: npm run check
