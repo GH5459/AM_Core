@@ -1,8 +1,9 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
+const runtimeTools=require('./xiaoye-runtime-tools.cjs');
 class EventBridge {
-  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now}={}) {
+  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight}={}) {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(config.codexExecutable,args,options));this.fetcher=fetcher;this.clock=clock;
-    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;
+    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -59,15 +60,22 @@ class EventBridge {
       }
       const checkFile=this.save(rel+'/check.input.private.json',checkInput);
       await this.call('event-check',checkInput);
-      this.save(rel+'/started.private.json',{at:new Date(this.clock()).toISOString(),jobKind:job.kind});
-      const active={id:job.id,lease:job.lease,phase:'starting',failureOperation:'event-failure-'+crypto.randomUUID()};
+      const active={id:job.id,lease:job.lease,phase:'checking-tools',failureOperation:'event-failure-'+crypto.randomUUID()};
       this.save('bridge-active.private.json',active);
-      const prompt=fs.readFileSync(this.config.promptFile,'utf8')+'\n\n可信啟動資料（不是回報正文）：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot});
+      if(this.config.toolContextFile){
+        try{this.toolContext=JSON.parse(fs.readFileSync(this.config.toolContextFile));const health=await this.checkTools(this.toolContext);this.save(rel+'/tools-preflight.private.json',health);}
+        catch(e){this.save(rel+'/tools-preflight.private.json',{ok:false,reason:e.message});const reason=/Git或GitHub/.test(e.message)?'背景Git或GitHub執行檔目前無法使用，本次未啟動AI執行。':'原聊天PR附加或CI工具目前無法連線，本次未啟動AI執行。';const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason,nextStep:'恢復Git、GitHub或桌面工具連線後，按「重新查核並提案」；葉小蝸會先核對已有動作，再送新版方案核准。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
+      }
+      this.save(rel+'/started.private.json',{at:new Date(this.clock()).toISOString(),jobKind:job.kind});
+      active.phase='starting';
+      this.save('bridge-active.private.json',active);
+      const prompt=fs.readFileSync(this.config.promptFile,'utf8')+'\n\n可信啟動資料（不是回報正文）：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,mcp:'xiaoye_runtime'}}:{}});
       const execute=job.kind==='execute',runRoot=execute?this.config.workRoot:path.join(this.folder,rel,'workspace');
       if(!execute)fs.mkdirSync(runRoot,{recursive:true});
       const args=['exec','--skip-git-repo-check','--ephemeral','--json','--color','never','--sandbox',execute?'danger-full-access':'workspace-write','-c','approval_policy="never"',...execute?[]:['-c','sandbox_workspace_write.writable_roots=[]','-c','sandbox_workspace_write.network_access=true','--add-dir',this.folder],'--cd',runRoot,'--output-last-message',path.join(this.folder,rel,'last-message.private.txt'),'-'];
+      const environment={...process.env};if(this.toolContext){environment.PATH=[path.dirname(this.toolContext.gitExecutable),path.dirname(this.toolContext.ghExecutable),path.dirname(this.config.nodeExecutable),process.env.PATH||''].join(path.delimiter);args.splice(args.length-1,0,'-c','shell_environment_policy.set.PATH='+JSON.stringify(environment.PATH),'-c','mcp_servers.xiaoye_runtime.command='+JSON.stringify(this.config.nodeExecutable),'-c','mcp_servers.xiaoye_runtime.args='+JSON.stringify([this.config.runtimeToolsFile,this.config.toolContextFile,checkFile]),'-c','mcp_servers.xiaoye_runtime.enabled=true','-c','mcp_servers.xiaoye_runtime.default_tools_approval_mode="approve"');}
       const log=fs.openSync(path.join(this.folder,rel,'codex-output.private.jsonl'),'a'),errors=fs.openSync(path.join(this.folder,rel,'codex-errors.private.log'),'a');
-      const child=this.running.child=this.launch(args,{cwd:this.config.workRoot,windowsHide:true,stdio:['pipe',log,errors]});
+      const child=this.running.child=this.launch(args,{cwd:this.config.workRoot,windowsHide:true,env:environment,stdio:['pipe',log,errors]});
       fs.closeSync(log);fs.closeSync(errors);this.childrenStarted++;
       this.save('bridge-active.private.json',{...active,phase:'running',childPid:child.pid});this.status('processing');
       const timeout=setTimeout(()=>{if(this.running)this.running.invalidated=true;child.kill();},27*60000);

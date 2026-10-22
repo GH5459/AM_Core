@@ -42,7 +42,7 @@ function render(){
  if(data.owner){const admin=el('details');admin.append(el('summary','負責人管理'));const buttons=el('div',undefined,'row');if(target&&['approve','feedback'].includes(params.get('action'))){admin.open=true;details.open=true;}if(staleReview)admin.append(el('p','此連結的方案已失效，請查看目前版本。','stage'));
  if(s.proposal&&['awaiting_approval','approved','paused'].includes(s.stage)){const approve=actionButton(t,'同意此版方案','approve',{proposalHash:s.proposal.hash},true);approve.disabled=staleReview;approve.dataset.stale=String(staleReview);buttons.append(approve);if(target&&!staleReview&&params.get('action')==='approve'){admin.open=true;details.open=true;setTimeout(()=>{approve.scrollIntoView({block:'center'});approve.focus();},0);}}
  if(s.proposal&&['awaiting_approval','approved','blocked','paused','executing'].includes(s.stage)){const feedback=feedbackForm(t,staleReview);buttons.append(feedback.button);admin.append(feedback.form);if(target&&!staleReview&&params.get('action')==='feedback'){admin.open=true;details.open=true;setTimeout(()=>feedback.button.click(),0);}}
- if(s.stage==='blocked'&&!s.sourceWithdrawn&&s.recovery)buttons.append(actionButton(t,'重新查核並提案','resume',{},true));if(!['closed','paused'].includes(s.stage))buttons.append(actionButton(t,'暫緩處理','pause'));admin.append(buttons);card.append(admin);}
+ if(s.stage==='blocked'&&!s.sourceWithdrawn)buttons.append(actionButton(t,'重新查核並提案','resume',{},true));if(!['closed','paused'].includes(s.stage))buttons.append(actionButton(t,'暫緩處理','pause'));admin.append(buttons);card.append(admin);}
  list.append(card);
  }
 }
