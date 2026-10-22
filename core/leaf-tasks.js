@@ -7,6 +7,7 @@ import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quot
 import {checkedAssignments,TASK_SPEED_POLICY} from './task-judgment.js';
 import {createCompletionReporter,COMPLETION_REPORT_POLICY} from './line-completion-report.js';
 import {TASK_ELIGIBILITY_POLICY,taskIneligible,isTaskIneligible} from './task-eligibility-policy.js';
+import {createXiaoyeSecretary} from './xiaoye-secretary.js';
 export const LEAF_TASK_CONTRACT='line-mention-dailylog-immediate-v1';
 const hash=x=>crypto.createHash('sha256').update(String(x)).digest('hex');
 const idPattern=/^U[0-9a-f]{32}$/i;
@@ -256,9 +257,11 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const viewer=await meetingShareIdentity(actorId,tenantKey);
   return call(t,await config(t),'meeting-progress',{contract:'meeting-live-task-progress-v1',id,host,viewer:viewer||null,todoIds});
  }
-const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});
+ async function secretaryCall(action,input={}){if(!['sessions','active','intake','notifications/claim','notifications/validate','notifications/receipt'].includes(action))throw Error('secretary_action_invalid');const available=await groupServices();if(available.length!==1)throw Error('secretary_service_ambiguous');const t=available[0];return call(t,await config(t),'secretary/'+action,input);}
+ const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
 
- return {commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
+ const api={secretaryCall,commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
   resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,personalCompletionPolicy:PERSONAL_COMPLETION_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
+ api.secretary=createXiaoyeSecretary({tasks:api,line,env,logger});return api;
 }

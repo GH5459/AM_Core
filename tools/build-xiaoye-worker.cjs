@@ -1,0 +1,17 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const dir=path.resolve(process.argv[2]),source=path.resolve(__dirname,'../core'),sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const before=JSON.parse(fs.readFileSync(dir+'/before.private.json'));
+let main=fs.readFileSync(dir+'/baseline/worker.mjs','utf8');const name=main.match(/\n  (\w+) as default\n\};/)?.[1];assert(name,'Original module export not found');
+const people='people = membersSnapshot.people;',active=/function createUnifiedCloudTasks2\(env, canUse, now, membersSnapshot, legacyCore, authority2 = \{\}\) \{[\s\S]*?people = membersSnapshot.people;/;
+assert(main.match(active),'Current sharing-aware task implementation must match');
+main=main.replace(active,match=>match.replace(people,'people = [...membersSnapshot.people, ...(env.XIAOYE_SERVICE_PERSON ? [JSON.parse(env.XIAOYE_SERVICE_PERSON)] : [])];'));
+main=main.replace(name+' as default','xiaoye_worker as default');
+const importText='import {xiaoyeFetch,xiaoyeGuard,xiaoyeResponse,xiaoyeEnvironment} from "./xiaoye-secretary-dailylog.mjs";\n';
+const wrapper=`\nconst xiaoye_worker={...${name},async fetch(request,env,ctx){\n const deps={base:${name},readAuthority,authority:completionReportAuthority,ctx};\n const own=await xiaoyeFetch(request,env,deps);if(own)return own;\n try{const guarded=await xiaoyeGuard(request,env,readAuthority);if(guarded)return guarded;}catch(e){return Response.json({error:e.status?e.message:'小葉服務暫時無法確認。'},{status:e.status||503});}\n const path=new URL(request.url).pathname;\n if(request.method==='POST'&&(path==='/api/tasks'||/^\\/api\\/tasks\\/work-[a-f0-9-]{36}$/.test(path))){\n  const input=await request.clone().json().catch(()=>({}));\n  if(input.leadAccount==='ai-xiaoye'||path==='/api/tasks'&&(input.collaboratorAccounts||[]).includes('ai-xiaoye'))return Response.json({error:'交給小葉的工作請使用回報問題流程，由本人核准方案後才執行。'},{status:409});\n }\n const nextEnv=path.startsWith('/api/tasks')?await xiaoyeEnvironment(env):env;\n return xiaoyeResponse(request,await ${name}.fetch(request,nextEnv,ctx),env,readAuthority);\n}};\n`;
+fs.writeFileSync(dir+'/candidate/worker.mjs',importText+main+wrapper);
+for(const file of ['xiaoye-secretary-dailylog.mjs','xiaoye-secretary-ui.mjs'])fs.copyFileSync(source+'/'+file,dir+'/candidate/'+file);
+for(const m of before.modules)if(m.name!=='worker.mjs')assert.equal(sha(fs.readFileSync(dir+'/candidate/'+m.name)),m.sha256,m.name+' must remain unchanged');
+const list=(d,p='')=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?list(d+'/'+e.name,p+e.name+'/'):[p+e.name]);
+const manifest=Object.fromEntries(list(dir+'/candidate').sort().map(f=>[f,sha(fs.readFileSync(dir+'/candidate/'+f))]));
+fs.writeFileSync(dir+'/review.private.json',JSON.stringify({baseVersion:before.version,source:manifest,unchangedModules:before.modules.length-1,changedModules:['worker.mjs','xiaoye-secretary-dailylog.mjs','xiaoye-secretary-ui.mjs'],at:new Date().toISOString()},null,2));
+console.log(JSON.stringify({built:true,modules:Object.keys(manifest).length,unchangedOriginalModules:before.modules.length-1}));
