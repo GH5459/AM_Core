@@ -212,7 +212,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
   }
   await a.verify();const saved=await transaction(env,old,t,v.operationId,{...v,action},actor,action==='approve'?'本人已核准目前方案。':action==='pause'?'本人暫緩處理。':action==='confirm'?'原回報人確認問題已解決。':action==='supplement'?'收到原回報人的補充，接續原卡釐清。':'原回報人表示仍有問題，重新釐清。',extras);
   return json({ok:true,task:view(saved,a.account,c)});
- }catch(e){return json({ok:false,...e.code?{code:e.code}:{},error:e.status?e.message:'小葉服務暫時無法完成，請稍後重試。'},e.status||503);}
+ }catch(e){if(page&&e.status===401)return Response.redirect(new URL('/login?returnTo='+encodeURIComponent(url.pathname+url.search),env.PUBLIC_ORIGIN).href,303);return json({ok:false,...e.code?{code:e.code}:{},error:e.status?e.message:'小葉服務暫時無法完成，請稍後重試。'},e.status||503);}
 }
 export async function xiaoyeGuard(request,env,readAuthority){
  const path=new URL(request.url).pathname,task=path.match(/^\/api\/tasks\/(work-[0-9a-f-]{36})(?:\/|$)/),attachment=path.match(/^\/api\/attachments\/normal\/(work-[0-9a-f-]{36})(?:\/|$)/);

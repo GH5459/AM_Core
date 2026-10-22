@@ -62,6 +62,7 @@ test('notification leases, stable retry identities and current version validatio
  t=(await a.propose(t)).task;n=(await a.ok(await a.machine('notifications/claim'))).notification;assert.equal(n.account,owner);assert.equal(n.kind,'approval');await a.approve(t);assert.equal((await a.machine('notifications/validate',{id:n.id,lease:n.lease})).status,409);
  const r=await a.send(owner,'/api/tasks',{id:'work-'+op(),title:'不可繞過核准',leadAccount:'ai-xiaoye',collaboratorAccounts:[]});assert.equal(r.status,409);
  assert.equal((await a.send(owner,'/xiaoye')).status,200);const html=await(await a.send(owner,'/')).text();assert(html.includes('/xiaoye'));const people=await a.ok(await a.send(owner,'/api/tasks/people'));assert(people.people.some(p=>p.account==='ai-xiaoye'));
+ const login=await a.mf.dispatchFetch('http://example.test/xiaoye?issue='+t.id,{redirect:'manual'});assert.equal(login.status,303);assert.equal(new URL(login.headers.get('Location')).searchParams.get('returnTo'),'/xiaoye?issue='+t.id);
  }finally{await a.close();}
 });
 test('lost replies reuse proposal, approval, claim and result operations without duplicate journal entries',async()=>{
