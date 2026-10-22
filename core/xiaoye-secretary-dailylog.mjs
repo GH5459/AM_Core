@@ -62,6 +62,7 @@ async function intake(env,c,base,v){
  if(!v.start&&!old)throw fail('找不到原問題，請重新輸入「回報問題」。');
  const id=old?.task.id||'work-'+uuidFrom(await digest(eventKey)),at=new Date().toISOString();
  const description=typeof v.text==='string'?v.text.trim().slice(0,12000):'';
+ if(v.start&&!description&&!v.image)return {ok:true,handled:true,needsDescription:true};
  let t=old?structuredClone(old.task):{id,title:description.slice(0,100)||'待補充問題說明',description:description||'同仁已開啟問題回報，待補充說明或截圖。',requester:actor,lead:{account:AI,name:c.account.name,team:'AI 秘書'},collaborators:[],sharedWith:[],createdBy:{account:AI,name:c.account.name,team:'AI 秘書'},source:'dailylog',sourceDate:day(Date.now()),startDate:day(Date.now()),initialStartDate:day(Date.now()),dueDate:null,dueAt:null,createdAt:at,status:'pending',origin:'assigned',execution:'individual',notionAccounts:[...new Set([actor.account,c.ownerAccount])],level:1,kind:'task',workSchema:2,workSource:'assigned',priority:'normal',department:actor.team||'',departmentId:'',primaryParentId:null,relatedProjectIds:[],dependencyIds:[],finalResult:'',acceptance:'經核准完成處理後，由原回報人確認問題已解決。',helpRequest:'',projectFields:{},secretary:{stage:'clarifying',category:'unclassified',sourceVersion:0,reporters:[{...actor,source:{...source}}],sources:[],proposal:null,approval:null}};
  if(old&&description)t.description=(t.description+'\n\n補充：'+description).slice(0,24000);
  t.secretary={...t.secretary,stage:'clarifying',waitingForReporter:false,sourceWithdrawn:v.resumeTaskId?!!t.secretary.sourceWithdrawn:false,sourceVersion:t.secretary.sourceVersion+1,proposal:null,approval:null,lease:null,leaseUntil:0};t.status='pending';t.secretary.sources.push({...source,text:description});
@@ -93,6 +94,8 @@ async function runner(env,c,base,authority,action,v){
   const row=await env.DB.prepare("SELECT id FROM work_items WHERE json_extract(value,'$.secretary.stage')='approved' ORDER BY json_extract(value,'$.updatedAt') LIMIT 1").first();if(!row)return {ok:true,task:null};v.id=row.id;
  }
  const old=await load(env.DB,v.id);if(!old?.task.secretary)throw fail('找不到問題。',404);const t=structuredClone(old.task),s=t.secretary,actor={account:AI,name:c.account.name,team:'AI 秘書'};
+ if(action==='attachments')return {ok:true,attachments:(await env.DB.prepare("SELECT id,name,mime,size,digest FROM task_attachments WHERE scope='normal' AND target_id=? AND removed_at IS NULL ORDER BY created_at LIMIT 20").bind(t.id).all()).results};
+ const image=action.match(/^attachment\/(att-[a-f0-9-]{36})$/);if(image){const file=await env.DB.prepare("SELECT id,mime,size FROM task_attachments WHERE scope='normal' AND target_id=? AND id=? AND removed_at IS NULL").bind(t.id,image[1]).first();if(!file||!['image/png','image/jpeg','image/webp'].includes(file.mime)||file.size>10*1024*1024)throw fail('找不到可查看的問題截圖。',404);const chunks=(await env.DB.prepare('SELECT content FROM task_attachment_chunks WHERE attachment_id=? ORDER BY part').bind(file.id).all()).results,bytes=new Uint8Array(file.size);let offset=0;for(const part of chunks){const b=new Uint8Array(part.content);bytes.set(b,offset);offset+=b.length;}if(offset!==file.size)throw fail('截圖尚未完整保存。',503);return new Response(bytes,{headers:{'Content-Type':file.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
  if(['propose','clarify','finish','fail'].includes(action)){const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};}
  if(action==='clarify'){
   if(v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter)throw fail('此問題已有更新或正在等待同仁補充。');const question=text(v.question,2000);s.waitingForReporter=true;s.question=question;
@@ -179,7 +182,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
    if(action==='withdraw')return json(await withdraw(env,c,v));
    if(action==='sessions'){const rows=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;return json({ok:true,sessions:rows});}
    if(action==='active'){const key=await digest(JSON.stringify([v.botUserId,v.type,v.conversationId,v.userId])),r=await record(env.DB,'xiaoye-intake-sessions',key);return json({ok:true,active:!!r&&r.value.until>Date.now()});}
-   if(runnerMode)return json(await runner(env,c,base,authority,action.slice(7),v));
+   if(runnerMode){const result=await runner(env,c,base,authority,action.slice(7),v);return result instanceof Response?result:json(result);}
    if(action.startsWith('notifications/'))return json(await notifications(env,c,action.slice(14),v));
    throw fail('Not found',404);
   }

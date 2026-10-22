@@ -21,6 +21,7 @@ export function createXiaoyeSecretary({tasks,line,env=process.env,logger=console
    const who=await tasks.meetingShareIdentity(e.source.userId);if(!who)continue;
    if(e.source.type==='group'){const tenant=(await tasks.groupServices()).find(t=>t.key===who.tenantKey);if(!tenant||!(await tasks.resolveTaskGroupIdentity(e.source.userId,tenant,e.source.groupId)))continue;}
    if(command?.help){if(e.replyToken)await line.replyLineMessage(e.replyToken,'我是小葉 AI 秘書。請輸入「回報問題：你的問題」，再補充截圖；「結束回報」結束這段補充。方案由負責人核准後才執行。').catch(()=>{});consumed.push(e);continue;}
+   if(command?.start&&!command.text){if(e.replyToken)await line.replyLineMessage(e.replyToken,'請在「回報問題：」後簡單說明遇到的情況，再傳截圖；有問題內容後才建立工作卡。').catch(()=>{});consumed.push(e);continue;}
    let image;if(e.message.type==='image'){const raw=await line.downloadLineContent(e.message.id,{tries:1});if(raw.buffer.byteLength>10*1024*1024)throw Error('xiaoye_image_too_large');image={base64:Buffer.from(raw.buffer).toString('base64')};}
    let value;try{value=await call('intake',{...command,source,sender:{...who,userId:e.source.userId,botUserId},text:command?.start?command.text:e.message.type==='text'?e.message.text:'',...(image?{image}:{})});}catch(error){if(error.status===403){consumed.push(e);continue;}throw error;}
    enabled=true;
