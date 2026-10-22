@@ -4,6 +4,7 @@
 
 import crypto from 'node:crypto';
 import {mediaFilename} from './media-filename.js';
+import {externalBrowserMessage} from './line-external-browser.mjs';
 
 const LINE_RETRY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let directTransportArchive=null;
@@ -236,6 +237,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     const normalized = (Array.isArray(messages) ? messages : [messages])
       .filter(Boolean)
       .map(outboundMessage)
+      .map(externalBrowserMessage)
       .slice(0, 5);
     if (!normalized.length) throw new Error('LINE reply requires at least one message.');
     const archiveKey=await archiveObserver?.before({replyToken,messages:normalized,key:`reply:${crypto.createHash('sha256').update(replyToken).digest('hex')}`});
@@ -279,7 +281,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     const additionalMessages = (Array.isArray(delivery.additionalMessages) ? delivery.additionalMessages : [])
       .filter((item) => item && typeof item === 'object' && !Array.isArray(item) && item.type)
       .slice(0, 4);
-    const messages = [message, ...additionalMessages].slice(0, 5);
+    const messages = [message, ...additionalMessages].slice(0, 5).map(externalBrowserMessage);
     const retryKey = normalizeLineRetryKey(delivery.retryKey);
     const archiveKey=await archiveObserver?.before({to,messages,key:`push:${retryKey}`});
     const suppressEvidenceLogs = delivery.suppressEvidenceLogs === true;

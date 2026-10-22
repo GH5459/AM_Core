@@ -1,6 +1,7 @@
+import {externalBrowserUrl} from './line-external-browser.mjs';
 const names={am:'LINE 小助手',dailylog:'工作日誌',uof:'UOF 簽核'};
 const shorten=(value,max)=>{const s=String(value||'').trim();return s.length>max?s.slice(0,max-1)+'…':s;};
-export function proposalUrl(origin,task,action){const url=new URL('/xiaoye',origin);url.searchParams.set('issue',task.id);url.searchParams.set('review',task.secretary.proposal.hash);url.searchParams.set('action',action);return url.href;}
+export function proposalUrl(origin,task,action){const url=new URL('/xiaoye',origin);url.searchParams.set('issue',task.id);url.searchParams.set('review',task.secretary.proposal.hash);url.searchParams.set('action',action);return externalBrowserUrl(url.href);}
 export function proposalImpact(p){return p.systems.map(x=>names[x]||x).join('、')+'；'+(p.deploy?'包含正式發布':'本次不含正式發布');}
 export function proposalText(t){const p=t.secretary.proposal;return '葉小蝸提案待核准｜第 '+p.version+' 版\n問題案名：'+t.title+'\n回報人：'+t.secretary.reporters.map(x=>x.name||'回報同仁').join('、')+'\n問題說明：'+shorten(t.description,500)+'\n處理方式：'+shorten(p.summary,400)+'\n影響：'+proposalImpact(p);}
 export function proposalCard(origin,t){

@@ -22,6 +22,13 @@ async function setup(){
 }
 module.exports={setup,proposal,owner};
 if(require.main===module){
+test('external LINE links return through login to the same proposal and never approve by opening',async()=>{
+ const a=await setup();try{const intake=await a.ok(await a.intake());assert.equal(new URL(intake.url).searchParams.get('openExternalBrowser'),'1');let t=(await a.propose(await a.get(intake.taskId))).task;
+ const query='/xiaoye?issue='+t.id+'&review='+t.secretary.proposal.hash+'&action=approve';
+ const anonymous=await a.mf.dispatchFetch('http://example.test'+query+'&openExternalBrowser=1',{redirect:'manual'});assert.equal(anonymous.status,303);const login=new URL(anonymous.headers.get('Location'));assert.equal(login.searchParams.get('returnTo'),query);
+ const response=await a.send('140901',query+'&openExternalBrowser=1');assert.equal(response.status,200);assert.equal((await a.get(t.id)).secretary.stage,'awaiting_approval');assert.equal((await a.get(t.id)).secretary.approval,null);
+ }finally{await a.close();}
+});
 test('full flow: one issue, exact source retry, proposal approval, claim, result, original reporter confirmation and factual journal',async()=>{
  const a=await setup();try{const source={botUserId:bot,type:'user',conversationId:user,userId:user,eventId:op(),messageId:op(),timestamp:Date.now()},first=await a.ok(await a.intake({source}));let t=await a.get(first.taskId);assert.equal(t.secretary.stage,'clarifying');
  const duplicate=await a.ok(await a.intake({source}));assert.equal(duplicate.taskId,t.id);assert.equal((await a.get(t.id)).version,1);
