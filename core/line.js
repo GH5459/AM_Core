@@ -143,17 +143,25 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   // 此時 response.ok 仍為 true —— 舊版直接回傳空 buffer,害下游(AssemblyAI upload 422、
   // Gemini upload 400「No file found」)全部拿到空檔而失敗。故對「未就緒(202 或空 body)」
   // 退避重試,仍為空才誠實丟錯(讓上層能通知使用者重傳,而非靜靜產出空白)。
-  async function downloadLineContent(messageId, { tries = 6, baseDelay = 2500 } = {}) {
+  async function downloadLineContent(messageId, { tries = 6, baseDelay = 2500, maxBytes, timeoutMs } = {}) {
     if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
     const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
     let lastReason = '';
     for (let attempt = 1; attempt <= tries; attempt += 1) {
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` } });
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` }, ...(timeoutMs ? {signal:AbortSignal.timeout(timeoutMs)} : {}) });
       // 202 = 內容仍在準備;其它非 2xx 才是真失敗,直接丟錯。
       if (response.status !== 202 && !response.ok) {
         throw new Error(`LINE content download failed: ${response.status} ${await response.text()}`);
       }
-      const buffer = response.status === 202 ? new ArrayBuffer(0) : await response.arrayBuffer();
+      let buffer;
+      if(response.status===202)buffer=new ArrayBuffer(0);
+      else if(maxBytes){
+        const tooLarge=()=>Object.assign(Error('LINE content exceeds size limit.'),{code:'LINE_CONTENT_TOO_LARGE'});
+        if(Number(response.headers.get('content-length'))>maxBytes){await response.body?.cancel();throw tooLarge();}
+        const reader=response.body.getReader(),chunks=[];let size=0;
+        for(;;){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>maxBytes){await reader.cancel();throw tooLarge();}chunks.push(part.value);}
+        const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}buffer=bytes.buffer;
+      }else buffer=await response.arrayBuffer();
       if (buffer.byteLength > 0) {
         return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
       }
