@@ -8,6 +8,7 @@ on:
       - 'core/xiaoye-intake-card.mjs'
       - 'versions/AM-IMP-2026.1022.53/**'
       - 'versions/AM-IMP-2026.1022.61/**'
+      - 'versions/AM-IMP-2026.1022.62/**'
       - 'core/line-external-browser.mjs'
       - 'versions/AM-IMP-2026.1022.54/**'
       - 'versions/AM-IMP-2026.1022.52/**'
@@ -192,6 +193,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.52
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.53
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.61
+      - run: node --test tools/test-xiaoye-owner-adapter.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
