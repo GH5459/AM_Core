@@ -1,4 +1,5 @@
 // Only explicit business events create work. No timer scans the issue list.
+import {recoveryDetails,recoveryCard,recoveryNextStep} from './xiaoye-recovery.mjs';
 export const XIAOYE_EVENT_CONTRACT = 'xiaoye-event-push-v1';
 const respond = (value, status = 200) => Response.json(value, {status, headers:{'Cache-Control':'no-store'}});
 const eventKey = id => 'event:' + id;
@@ -16,7 +17,7 @@ export async function eventCall(env, route, value = {}) {
 }
 export async function prepareXiaoyeEvent(env, task, operationId, action) {
   if (!env.XIAOYE_EVENTS) return null;
-  const kind = action === 'approve' ? 'execute' : ['intake','supplement','reopen','feedback'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
+  const kind = action === 'approve' ? 'execute' : ['intake','supplement','reopen','feedback','resume'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
   if (!kind) return null;
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(operationId)));
   const id = [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -73,17 +74,25 @@ export class XiaoyeEvents {
     if (deadlines.length) await this.ctx.storage.setAlarm(Math.max(now + 50, Math.min(...deadlines)));
     else await this.ctx.storage.deleteAlarm();
   }
-  async notice(e, reason) {
+  async notice(e, reason, nextStep=recoveryNextStep) {
     const row = await this.env.DB.prepare("SELECT value FROM documents WHERE namespace='xiaoye-secretary' AND key='config'").first();
     const c = row && JSON.parse(row.value);
     if (!c) return;
     const id = 'event-blocked:' + e.id, url = new URL('/xiaoye?issue='+encodeURIComponent(e.taskId), this.env.PUBLIC_ORIGIN).href;
-    const t = await this.task(e.taskId);
-    const message = '葉小蝸自動處理需要查核：'+(t?.title||'原問題')+'\n'+reason+'\n'+url;
-    const n = {id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,sourceVersion:t?.secretary?.sourceVersion,proposalHash:t?.secretary?.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
     if(await this.env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-notifications' AND key=?").bind(id).first())return;
-    const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),entry={id,workId:e.taskId,title:t?.title||'原問題',action:'event_failed',text:reason,at:new Date().toISOString(),stage:t?.secretary?.stage||'blocked'};
+    const rowTask=await this.env.DB.prepare('SELECT value,revision FROM work_items WHERE id=?').bind(e.taskId).first(),t=rowTask&&JSON.parse(rowTask.value),s=t?.secretary;
+    if(!s||s.sourceVersion!==e.sourceVersion||s.sourceWithdrawn||!['clarifying','approved','executing','blocked'].includes(s.stage))return;
+    const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),n=>n.toString(16).padStart(2,'0')).join('');
+    const at=new Date().toISOString(),extra=[];
+    if(s.stage!=='blocked'){
+      s.stage='blocked';s.blocker=String(reason).slice(0,1500);s.recovery=recoveryDetails(reason,nextStep,await digest(id));s.lease=null;s.leaseUntil=0;t.status='blocked';t.version++;t.updatedAt=at;t.history=[...(t.history||[]),{id,kind:'xiaoye_event_failed',actor:{account:'ai-xiaoye',name:'葉小蝸'},at,text:s.recovery.reason+'\n下一步：'+s.recovery.nextStep,mentions:[],targets:[]}];
+      extra.push(this.env.DB.prepare('INSERT INTO xiaoye_operations(id,guard,fingerprint,task_id) VALUES(?,CASE WHEN EXISTS(SELECT 1 FROM work_items WHERE id=? AND revision=?) THEN 1 ELSE 0 END,?,?)').bind(id,t.id,rowTask.revision,await digest(id),t.id),this.env.DB.prepare('UPDATE work_items SET value=?,revision=? WHERE id=? AND revision=?').bind(JSON.stringify(t),t.version,t.id,rowTask.revision),this.env.DB.prepare('INSERT INTO work_notion_jobs(id,version) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version').bind(t.id,t.version));
+    }
+    const message='葉小蝸處理受阻：'+t.title+'\n原因：'+(s.recovery?.reason||reason)+'\n下一步：'+(s.recovery?.nextStep||nextStep)+'\n'+url;
+    const n={id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,lineMessage:recoveryCard(this.env.PUBLIC_ORIGIN,t),sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
+    const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),entry={id,workId:e.taskId,title:t.title,action:'event_failed',text:message,at,stage:s.stage};
     await this.env.DB.batch([
+      ...extra,
       this.env.DB.prepare("INSERT OR IGNORE INTO documents(namespace,key,value,revision) VALUES('xiaoye-notifications',?,?,1)").bind(id,JSON.stringify(n)),
       this.env.DB.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('xiaoye-work-journal',?,json_object('date',?,'account','ai-xiaoye','entries',json_array(json(?))),1) ON CONFLICT(namespace,key) DO UPDATE SET value=json_insert(documents.value,'$.entries[#]',json(?)),revision=documents.revision+1").bind(date,date,JSON.stringify(entry),JSON.stringify(entry))
     ]);
@@ -161,7 +170,7 @@ export class XiaoyeEvents {
       if (route === '/check') return respond({ok:true,job:e});
       const completed = e.kind === 'analyze' ? t.secretary.stage==='awaiting_approval'||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
       e.state = route === '/complete' && completed ? 'done' : 'failed'; e.finishedAt=Date.now(); e.completionOperation=v.operationId;
-      if (e.state === 'failed') await this.notice(e,'自動處理未取得完整完成證據，已停止；不自動重做不明動作。');
+      if (e.state === 'failed') await this.notice(e,typeof v.reason==='string'?v.reason.slice(0,1500):'自動處理未取得完整完成證據，已停止；需先查核已有動作。',typeof v.nextStep==='string'?v.nextStep.slice(0,500):recoveryNextStep);
       await this.save(e);
       await this.pump(); return respond({ok:true,state:e.state});
     }

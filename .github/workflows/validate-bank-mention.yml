@@ -4,6 +4,8 @@ on:
     paths:
       - 'core/xiaoye-secretary*'
       - 'core/xiaoye-inspection*'
+      - 'core/xiaoye-recovery.mjs'
+      - 'versions/AM-IMP-2026.1022.65/**'
       - 'versions/AM-IMP-2026.1022.63/**'
       - 'core/xiaoye-proposal-card.mjs'
       - 'core/xiaoye-feedback-ui.mjs'
@@ -201,6 +203,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.64
       - run: node --test tools/test-xiaoye-inspection-ui.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.63
+      - run: node --test tools/test-xiaoye-recovery.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.65
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs

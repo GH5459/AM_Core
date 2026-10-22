@@ -1,4 +1,5 @@
 import {ownerCommand} from './xiaoye-owner-line.mjs';
+import {restartAnalysis} from './xiaoye-recovery.mjs';
 const ns='xiaoye-owner-sessions',events='xiaoye-owner-events',ttl=30*60000;
 export const noOwnerDraftSql="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?)";
 export async function ownerDraftActive(env,id){return !!await env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>? LIMIT 1").bind(id,Date.now()).first();}
@@ -35,6 +36,10 @@ export async function ownerRequest(env,c,base,v,h){
  }
  if(command?.action==='cancel'){
   if(!d||command.draftId!==d.id)throw fail('這是舊的建議按鈕，不會取消其他草稿。');return draftWrite({...d,mode:'cancelled',until:0},{ok:true,handled:true,cancelled:true});
+ }
+ if(command?.action==='resume'){
+  if(Date.now()-source.timestamp>10*60000)throw fail('接續按鈕已過期，請使用目前案件的按鈕。');
+  const old=await load(env.DB,command.taskId),t=old&&structuredClone(old.task),s=t?.secretary;if(!s||s.recovery?.token!==command.proposalHash)throw fail('這是舊的接續按鈕，請查看目前案件。');if(active||await ownerDraftActive(env,t.id))throw fail('請先送出或取消目前的建議。');if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const p of c.projects)await membership(env,c,p.id);restartAnalysis(t,retireProposal);await verify();const result={ok:true,handled:true,resumed:true};await transaction(env,old,t,op,{action:'resume',source},actor,'本人要求重新查核並整理新版；舊核准與執行資格停止，新版仍須本人核准。',[proof(result)]);return result;
  }
  if(command?.action==='approve'||command?.action==='feedback'){
   if(Date.now()-source.timestamp>10*60000)throw fail('按鈕事件已過期，請重新點選目前方案。');
