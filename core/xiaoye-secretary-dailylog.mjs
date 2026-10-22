@@ -45,7 +45,16 @@ async function transaction(env,old,next,op,input,actor,note,extra=[],guard='1',g
  statements.push(env.DB.prepare('INSERT INTO work_notion_jobs(id,version) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version').bind(next.id,next.version));
  const date=day(Date.now()),entry={id:op,workId:next.id,title:next.title,action:input.action,text:note,at,stage:next.secretary.stage};
  statements.push(env.DB.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('xiaoye-work-journal',?,json_object('date',?,'account',?,'entries',json_array(json(?))),1) ON CONFLICT(namespace,key) DO UPDATE SET value=json_insert(documents.value,'$.entries[#]',json(?)),revision=documents.revision+1").bind(date,date,AI,JSON.stringify(entry),JSON.stringify(entry)),...extra);
- try{await env.DB.batch(statements);}catch{const winner=await env.DB.prepare('SELECT fingerprint FROM xiaoye_operations WHERE id=?').bind(op).first();if(winner?.fingerprint===fingerprint)return (await load(env.DB,next.id)).task;throw fail('內容已更新，請重新讀取後重試。');}return next;
+ const revision=await prepareFeedbackRevision(env,next,op,input.action);
+ if(revision)statements.push(env.DB.prepare('INSERT INTO xiaoye_event_outbox(id,task_id,version,kind,created_at) VALUES(?,?,?,?,?)').bind(revision.event.id,next.id,next.version,'analyze',revision.event.createdAt));
+ try{await env.DB.batch(statements);}catch{const winner=await env.DB.prepare('SELECT fingerprint FROM xiaoye_operations WHERE id=?').bind(op).first();if(winner?.fingerprint===fingerprint)return (await load(env.DB,next.id)).task;throw fail('內容已更新，請重新讀取後重試。');}
+ if(revision)try{await revision.stub.fetch(new Request('https://secretary.internal/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:revision.event.id})}));}catch{}
+ return next;
+}
+export async function prepareFeedbackRevision(env,t,operationId,action){
+ if(action!=='feedback'||!env.XIAOYE_EVENTS)return null;
+ const event={id:await digest(operationId),taskId:t.id,version:t.version,sourceVersion:t.secretary.sourceVersion,kind:'analyze',createdAt:Date.now()},stub=env.XIAOYE_EVENTS.get(env.XIAOYE_EVENTS.idFromName('original-oa-secretary'));
+ const response=await stub.fetch(new Request('https://secretary.internal/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(event)}));if(!response.ok)throw fail('建議暫時無法排入新版整理，尚未保存，請稍後重試。',503);return {event,stub};
 }
 function notification(env,t,account,kind,message,source=null,lineMessage=null){const s=t.secretary;const key=t.id+':'+kind+':'+s.sourceVersion+':'+(s.proposal?.hash||'')+':'+account;return docsInsert(env.DB,'xiaoye-notifications',key,{id:key,taskId:t.id,account,kind,message,...lineMessage?{lineMessage}:{},sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:source?.userId||null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()});}
 const entryVersion=s=>s.ownerFeedback?.at(-1)?.proposalVersion||s.proposalSequence||1;
