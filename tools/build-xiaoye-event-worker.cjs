@@ -1,0 +1,13 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const dir=path.resolve(process.argv[2]),source=path.resolve(__dirname,'../core'),sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const before=JSON.parse(fs.readFileSync(dir+'/before.private.json'));
+const main=fs.readFileSync(dir+'/baseline/worker.mjs','utf8');
+assert.equal(main.split('const xiaoye_worker=').length,2,'Expected current secretary wrapper');
+assert(!main.includes('XiaoyeEvents'),'Event export already exists; rebase deliberately');
+fs.writeFileSync(dir+'/candidate/worker.mjs',main+'\nexport {XiaoyeEvents} from "./xiaoye-secretary-events.mjs";\n');
+for(const file of ['xiaoye-secretary-dailylog.mjs','xiaoye-secretary-events.mjs'])fs.copyFileSync(source+'/'+file,dir+'/candidate/'+file);
+for(const m of before.modules)if(!['worker.mjs','xiaoye-secretary-dailylog.mjs'].includes(m.name))assert.equal(sha(fs.readFileSync(dir+'/candidate/'+m.name)),m.sha256,m.name+' must remain unchanged');
+const list=(d,p='')=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?list(d+'/'+e.name,p+e.name+'/'):[p+e.name]);
+const manifest=Object.fromEntries(list(dir+'/candidate').sort().map(f=>[f,sha(fs.readFileSync(dir+'/candidate/'+f))]));
+fs.writeFileSync(dir+'/review.private.json',JSON.stringify({baseVersion:before.version,source:manifest,unchangedModules:before.modules.length-2,changedModules:['worker.mjs','xiaoye-secretary-dailylog.mjs'],addedModules:['xiaoye-secretary-events.mjs'],at:new Date().toISOString()},null,2));
+console.log(JSON.stringify({built:true,modules:Object.keys(manifest).length,unchangedOriginalModules:before.modules.length-2}));
