@@ -1,4 +1,5 @@
 import {xiaoyePage} from './xiaoye-secretary-ui.mjs';
+import {externalBrowserUrl} from './line-external-browser.mjs';
 import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card.mjs';
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
@@ -55,11 +56,11 @@ async function transaction(env,old,next,op,input,actor,note,extra=[],guard='1',g
 function notification(env,t,account,kind,message,source=null,lineMessage=null){const s=t.secretary;const key=t.id+':'+kind+':'+s.sourceVersion+':'+(s.proposal?.hash||'')+':'+account;return docsInsert(env.DB,'xiaoye-notifications',key,{id:key,taskId:t.id,account,kind,message,...lineMessage?{lineMessage}:{},sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:source?.userId||null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()});}
 const entryVersion=s=>s.ownerFeedback?.at(-1)?.proposalVersion||s.proposalSequence||1;
 function retireProposal(s){if(s.proposal){s.proposalSequence=Math.max(s.proposalSequence||0,s.proposal.version);s.proposalHistory=[...(s.proposalHistory||[]),{...s.proposal,retiredAt:new Date().toISOString()}];}s.proposal=null;s.approval=null;s.lease=null;s.leaseUntil=0;}
-const link=(env,id)=>new URL('/xiaoye?issue='+encodeURIComponent(id),env.PUBLIC_ORIGIN).href;
+const link=(env,id)=>externalBrowserUrl(new URL('/xiaoye?issue='+encodeURIComponent(id),env.PUBLIC_ORIGIN).href);
 function newIssue(env,c,actor,source,id,description,at){return {id,title:description.slice(0,100)||'待補充問題說明',description:description||'同仁已開啟問題回報，待補充說明或截圖。',requester:actor,lead:{account:AI,name:c.account.name,team:'AI 秘書'},collaborators:[],sharedWith:[],createdBy:{account:AI,name:c.account.name,team:'AI 秘書'},source:'dailylog',sourceDate:day(Date.now()),startDate:day(Date.now()),initialStartDate:day(Date.now()),dueDate:null,dueAt:null,createdAt:at,status:'pending',origin:'assigned',execution:'individual',notionAccounts:[...new Set([actor.account,c.ownerAccount])],level:1,kind:'task',workSchema:2,workSource:'assigned',priority:'normal',department:actor.team||'',departmentId:'',primaryParentId:null,relatedProjectIds:[],dependencyIds:[],finalResult:'',acceptance:'經核准完成處理後，由原回報人確認問題已解決。',helpRequest:'',projectFields:{},secretary:{stage:'clarifying',category:'unclassified',sourceVersion:0,reporters:[{...actor,source:{...source}}],sources:[],proposal:null,approval:null}};}
 async function reportSummary(env,c,actor){
  const rows=(await env.DB.prepare("SELECT json_extract(value,'$.secretary.stage') AS stage FROM work_items WHERE EXISTS(SELECT 1 FROM json_each(json_extract(work_items.value,'$.secretary.reporters')) p WHERE json_extract(p.value,'$.account')=?)").bind(actor.account).all()).results;
- return {total:rows.length,open:rows.filter(r=>!['closed','duplicate'].includes(r.stage)).length,url:new URL('/xiaoye',env.PUBLIC_ORIGIN).href};
+ return {total:rows.length,open:rows.filter(r=>!['closed','duplicate'].includes(r.stage)).length,url:externalBrowserUrl(new URL('/xiaoye',env.PUBLIC_ORIGIN).href)};
 }
 function imageBytes(image){
  const bytes=Uint8Array.from(atob(image.base64),c=>c.charCodeAt(0));if(!bytes.length||bytes.length>10*1024*1024)throw fail('圖片上限為 10 MB。',413);
@@ -315,7 +316,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
   }
   await a.verify();const saved=await transaction(env,old,t,v.operationId,{...v,action},actor,action==='feedback'?'收到主管對第 '+entryVersion(s)+' 版的建議，舊核准失效，等待整理新版。':action==='approve'?'本人已核准目前方案。':action==='pause'?'本人暫緩處理。':action==='confirm'?'原回報人確認問題已解決。':action==='supplement'?'收到原回報人的補充，接續原卡釐清。':'原回報人表示仍有問題，重新釐清。',extras);
   return json({ok:true,task:view(saved,a.account,c)});
- }catch(e){if(page&&e.status===401)return Response.redirect(new URL('/login?returnTo='+encodeURIComponent(url.pathname+url.search),env.PUBLIC_ORIGIN).href,303);return json({ok:false,...e.code?{code:e.code}:{},error:e.status?e.message:'葉小蝸服務暫時無法完成，請稍後重試。'},e.status||503);}
+ }catch(e){if(page&&e.status===401){url.searchParams.delete('openExternalBrowser');url.searchParams.delete('openInAppBrowser');return Response.redirect(new URL('/login?returnTo='+encodeURIComponent(url.pathname+url.search),env.PUBLIC_ORIGIN).href,303);}return json({ok:false,...e.code?{code:e.code}:{},error:e.status?e.message:'葉小蝸服務暫時無法完成，請稍後重試。'},e.status||503);}
 }
 export async function xiaoyeGuard(request,env,readAuthority){
  const path=new URL(request.url).pathname,task=path.match(/^\/api\/tasks\/(work-[0-9a-f-]{36})(?:\/|$)/),attachment=path.match(/^\/api\/attachments\/normal\/(work-[0-9a-f-]{36})(?:\/|$)/);
@@ -336,3 +337,4 @@ export async function xiaoyeResponse(request,response,env,readAuthority){
  return json(result);
 }
 export async function xiaoyeEnvironment(env){try{const c=await settings(env);return {...env,XIAOYE_SERVICE_PERSON:JSON.stringify({account:AI,name:c.account.name,team:'AI 秘書',type:'ai'})};}catch{return env;}}
+
