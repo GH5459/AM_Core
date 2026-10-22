@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'core/xiaoye-secretary*'
+      - 'core/xiaoye-result*'
+      - 'core/xiaoye-reporter*'
+      - 'versions/AM-IMP-2026.1022.66/**'
       - 'core/xiaoye-inspection*'
       - 'core/xiaoye-recovery.mjs'
       - 'versions/AM-IMP-2026.1022.65/**'
@@ -201,6 +204,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.53
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.61
       - run: node --test tools/test-xiaoye-owner-adapter.mjs
+      - run: node --test tools/test-xiaoye-result.mjs tools/test-xiaoye-result-ui.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.66
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.64
       - run: node --test tools/test-xiaoye-inspection-ui.mjs

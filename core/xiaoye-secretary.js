@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {intakeCard,isIntakeImage} from './xiaoye-intake-card.mjs';
+import {createResultAdapter} from './xiaoye-result-adapter.mjs';
 import {createOwnerAdapter} from './xiaoye-owner-adapter.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
 export function secretaryCommand(event){
@@ -13,12 +14,13 @@ export function secretaryCommand(event){
 }
 export function createXiaoyeSecretary({tasks,line,env=process.env,logger=console}){
  let running=false,enabled=false,sessions=new Map(),sessionMutation=0;const botUserId=env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID;
+ const resultFlow=createResultAdapter({tasks,line,botUserId});
  const ownerFlow=createOwnerAdapter({tasks,line,botUserId,isEnabled:()=>enabled,logger});
  const call=(route,input={})=>tasks.secretaryCall(route,input);
  const sessionKey=s=>crypto.createHash('sha256').update(JSON.stringify([s.botUserId,s.type,s.conversationId,s.userId])).digest('hex');
  async function restore(){const version=sessionMutation,ownerVersion=ownerFlow.version();try{const r=await call('sessions');enabled=true;if(version===sessionMutation)sessions=new Map((r.sessions||[]).map(s=>[s.key,s.until]));ownerFlow.restore(r.ownerSessions,ownerVersion);}catch(e){if(e.code==='SECRETARY_DISABLED'){enabled=false;sessions.clear();ownerFlow.restore([],ownerFlow.version());}}}
  async function capture(events){const consumed=[];
-  for(const e of events){if(await ownerFlow.capture(e)){consumed.push(e);continue;}if(e.type==='unsend'&&enabled&&['user','group'].includes(e.source?.type)&&e.unsend?.messageId){try{await call('withdraw',{messageId:String(e.unsend.messageId),source:{botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,eventId:String(e.webhookEventId||'unsend:'+e.unsend.messageId)}});}catch(error){if(error.code!=='SECRETARY_DISABLED')throw error;}continue;}if(!['message','postback'].includes(e.type)||e.type==='message'&&!['text','image','file'].includes(e.message?.type)||!['user','group'].includes(e.source?.type)||!/^U[a-f0-9]{32}$/i.test(e.source.userId||''))continue;
+  for(const e of events){if(await resultFlow.capture(e)){consumed.push(e);continue;}if(await ownerFlow.capture(e)){consumed.push(e);continue;}if(e.type==='unsend'&&enabled&&['user','group'].includes(e.source?.type)&&e.unsend?.messageId){try{await call('withdraw',{messageId:String(e.unsend.messageId),source:{botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,eventId:String(e.webhookEventId||'unsend:'+e.unsend.messageId)}});}catch(error){if(error.code!=='SECRETARY_DISABLED')throw error;}continue;}if(!['message','postback'].includes(e.type)||e.type==='message'&&!['text','image','file'].includes(e.message?.type)||!['user','group'].includes(e.source?.type)||!/^U[a-f0-9]{32}$/i.test(e.source.userId||''))continue;
    const command=secretaryCommand(e);if(e.type==='postback'&&!command)continue;if(e.message?.mention?.mentionees?.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf))continue;
    const source={botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,userId:e.source.userId,eventId:String(e.webhookEventId||e.message?.id||e.replyToken),messageId:String(e.message?.id||'postback:'+e.webhookEventId),timestamp:e.timestamp};
    const key=sessionKey(source);if(!command&&!(sessions.get(key)>Date.now()))continue;
@@ -36,7 +38,7 @@ export function createXiaoyeSecretary({tasks,line,env=process.env,logger=console
  }
  async function drain(){if(running)return;running=true;try{await restore();for(let i=0;i<3;i++){
   const result=await call('notifications/claim'),n=result.notification;if(!n)break;let state='failed',requestId='',error='';
-  try{const available=await tasks.groupServices();if(available.length!==1)throw Error('service_changed');const recipient=await tasks.meetingShareRecipient({tenantKey:available[0].key,account:n.account});if(!recipient||n.expectedUserId&&recipient.userId!==n.expectedUserId)throw Error('recipient_changed');const checked=await call('notifications/validate',{id:n.id,lease:n.lease});if(checked.deferred){await call('notifications/defer',{id:n.id,lease:n.lease});continue;}const sent=await line.pushLineMessage(recipient.userId,n.kind==='approval'&&n.lineMessage?.type==='flex'?n.lineMessage:{type:'text',text:n.message.slice(0,4900)},null,{retryKey:'xiaoye:'+n.id,suppressEvidenceLogs:true});state='sent';requestId=sent.acceptedRequestId||sent.requestId||'';}
+  try{const available=await tasks.groupServices();if(available.length!==1)throw Error('service_changed');const recipient=await tasks.meetingShareRecipient({tenantKey:available[0].key,account:n.account});if(!recipient||n.expectedUserId&&recipient.userId!==n.expectedUserId)throw Error('recipient_changed');const checked=await call('notifications/validate',{id:n.id,lease:n.lease});if(checked.deferred){await call('notifications/defer',{id:n.id,lease:n.lease});continue;}const sent=await line.pushLineMessage(recipient.userId,['approval','result'].includes(n.kind)&&n.lineMessage?.type==='flex'?n.lineMessage:{type:'text',text:n.message.slice(0,4900)},null,{retryKey:'xiaoye:'+n.id,suppressEvidenceLogs:true});state='sent';requestId=sent.acceptedRequestId||sent.requestId||'';}
   catch(e){state=e.lineStatus&&e.lineStatus<500?'failed':'unknown';error='LINE 通知尚未確認，原問題與結果保留。';}
   await call('notifications/receipt',{id:n.id,lease:n.lease,state,requestId,error});
  }}catch{logger.warn('Xiaoye notification queue deferred.');}finally{running=false;}}
