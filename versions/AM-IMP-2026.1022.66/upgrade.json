@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.1022.66",
+  "name": "簡短完成通知與同仁兩選項確認",
+  "type": "reporter completion confirmation and same-case feedback",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Original OA and existing DailyLog service bindings; unchanged"
+  ],
+  "requiresScripts": [
+    "tools/test-xiaoye-result.mjs",
+    "tools/test-xiaoye-result-ui.cjs",
+    "tools/test-xiaoye-result-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform secretary transport",
+    "Original DailyLog secretary modules"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Concise two-action completion card; exact original reporter and result version required",
+    "Text/photos sent together to the same case with stable retry identity",
+    "Original images/proposal and approval history preserved; no automatic approval or closure",
+    "Details and owner actions collapsed by default, original permission checks preserved",
+    "Reviewed full CI, private rollback, latest complete module package and production readback",
+    "No real LINE or business test writes; no AI heartbeat restored"
+  ]
+}
