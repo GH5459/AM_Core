@@ -164,7 +164,9 @@ async function runner(env,c,base,authority,action,v){
   const previous=await replay(env,v.id,v.operationId,{action:'resume',grantId:v.grantId},c.account);if(previous)return {ok:true,task:previous,replayed:true};
   const grant=await record(env.DB,'xiaoye-recovery-grants',v.grantId),g=grant?.value;if(!g||g.id!==v.id||g.operationId!==v.operationId||g.scope!=='analyze-only'||g.ownerAccount!==c.ownerAccount||g.accountId!==c.account.id)throw fail('缺少本人明確交接的單案接續資格。',403);
   const old=await load(env.DB,v.id);if(!old||old.task.version!==g.version||old.task.secretary?.sourceVersion!==g.sourceVersion||g.expiresAt<=Date.now())throw fail('案件或接續資格已變更。',403);
-  const t=structuredClone(old.task);await currentPerson(env,base,{account:c.ownerAccount});if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const p of c.projects)await membership(env,c,p.id);restartAnalysis(t,retireProposal);
+  const t=structuredClone(old.task);await currentPerson(env,base,{account:c.ownerAccount});if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const p of c.projects)await membership(env,c,p.id);
+  if(t.secretary.stage==='approved'&&g.failedEventId){const r=await eventCall(env,'failed-proof',{id:g.failedEventId,taskId:t.id,version:t.version,sourceVersion:t.secretary.sourceVersion});if(!r.ok||!(await r.json()).recoverable)throw fail('原事件尚未確認失敗，不能接續或重做。',403);t.secretary.stage='blocked';t.secretary.blocker='原事件已停止但舊版本未更新案件狀態；依本人交接僅重新分析，不重做執行。';}
+  restartAnalysis(t,retireProposal);
   return {ok:true,task:await transaction(env,old,t,v.operationId,{action:'resume',grantId:v.grantId},c.account,'依本人本聊天要求，沿原卡重新查核；原執行資格停止，新方案仍須本人核准。',[env.DB.prepare("DELETE FROM documents WHERE namespace='xiaoye-recovery-grants' AND key=? AND revision=?").bind(v.grantId,grant.revision)],"EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-recovery-grants' AND key=? AND revision=? AND json_extract(value,'$.expiresAt')>?)",[v.grantId,grant.revision,Date.now()])};
  }
  if(action==='event-bootstrap'){

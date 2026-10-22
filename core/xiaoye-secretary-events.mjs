@@ -151,6 +151,10 @@ export class XiaoyeEvents {
       return respond({ok:true});
     }
     if (!e) return respond({ok:false,error:'找不到事件。'},404);
+    if (route === '/failed-proof') {
+      const t=await this.task(e.taskId);
+      return respond({ok:true,recoverable:e.state==='failed'&&e.taskId===v.taskId&&e.version===v.version&&e.sourceVersion===v.sourceVersion&&t?.version===v.version&&t.secretary?.stage==='approved'&&!t.secretary.lease&&t.secretary.sourceVersion===v.sourceVersion});
+    }
     if (route === '/commit') { await this.pump(); return respond({ok:true}); }
     if (route === '/acquire') {
       await this.pump(); e = await this.ctx.storage.get(eventKey(v.id));
