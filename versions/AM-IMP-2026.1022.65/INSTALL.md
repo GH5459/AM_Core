@@ -1,0 +1,5 @@
+# 安裝
+
+完整CI、PR附回原聊天及審查後合併main。先保存AM當前正式來源、DailyLog完整模組與原設定／Assets／bindings／秘密／兩cron私人回退。先部署AM新接續postback解析，再沿真正最新DailyLog完整包，只替換secretary後端、UI、owner-actions、owner-line、events並新增recovery模組，其餘原bytes保持。
+
+確認原事件沒有執行中工作，備份本機原接收器，再更新bridge、runner、prompt與受限MCP工具helper及私人連線設定。僅重啟原接收器，不建立新排程、不恢復heartbeat。實際單次Codex工具驗證及事件流程通過後，原API利用本人本聊天明確授權的單次僅分析grant接續指定兩案；完整輸入與回應先留私人目錄，不能改成核准或重放舊執行事件。

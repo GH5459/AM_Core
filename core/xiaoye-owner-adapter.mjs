@@ -16,7 +16,8 @@ export function createOwnerAdapter({tasks,line,botUserId,isEnabled,logger}){
    const value=await tasks.secretaryCall('owner',{source,sender:{...sender,userId:e.source.userId,botUserId},text:e.message?.type==='text'?e.message.text:'',...(image?{image}:{})});
    if(!value.keepSession){revision++;if(value.draft)sessions.set(key,value.until);else sessions.delete(key);}
    if(e.type==='unsend')return !!value.handled;
-   if(value.approved)await reply(value.alreadyApproved?'這一版已經核准，沒有重複啟動工作。':'已收到你對第 '+value.proposalVersion+' 版方案的同意，將依核准範圍接續處理。');
+   if(value.resumed)await reply('已沿原案件接續查核，會先確認已有動作並整理新版方案，再請你核准。');
+   else if(value.approved)await reply(value.alreadyApproved?'這一版已經核准，沒有重複啟動工作。':'已收到你對第 '+value.proposalVersion+' 版方案的同意，將依核准範圍接續處理。');
    else if(value.submitted)await reply('建議已送出，會依你的文字與圖片整理新版方案，再請你核准。');
    else if(value.cancelled)await reply('已取消這次未送出的建議，原方案保留。');
    else if(value.keepSession)await reply('這個操作已處理過，請使用目前的建議按鈕。');
