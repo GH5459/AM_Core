@@ -100,7 +100,7 @@ export class XiaoyeEvents {
       if (e.state === 'running') {
         const t = await this.task(e.taskId);
         if (!this.runningValid(e,t)) { e.state='superseded'; this.send({type:'invalidate',id:e.id}); await this.save(e); }
-        else if (e.leaseUntil <= now) { e.state='failed'; await this.save(e); await this.notice(e,'處理租期已到，未自動重做；請先查核是否已有動作。'); this.send({type:'invalidate',id:e.id}); }
+        else if (e.leaseUntil <= now) { e.state='failed'; await this.notice(e,'處理租期已到，未自動重做；請先查核是否已有動作。'); await this.save(e); this.send({type:'invalidate',id:e.id}); }
       }
       if (e.state === 'ready') {
         const t = await this.task(e.taskId);
@@ -161,8 +161,8 @@ export class XiaoyeEvents {
       if (route === '/check') return respond({ok:true,job:e});
       const completed = e.kind === 'analyze' ? t.secretary.stage==='awaiting_approval'||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
       e.state = route === '/complete' && completed ? 'done' : 'failed'; e.finishedAt=Date.now(); e.completionOperation=v.operationId;
-      await this.save(e);
       if (e.state === 'failed') await this.notice(e,'自動處理未取得完整完成證據，已停止；不自動重做不明動作。');
+      await this.save(e);
       await this.pump(); return respond({ok:true,state:e.state});
     }
     return respond({ok:false},404);

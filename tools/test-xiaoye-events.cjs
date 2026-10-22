@@ -84,6 +84,17 @@ test('installation catchup is one-time and replay-safe, preserves original task 
  assert.equal((await a.ok(await a.machine('runner/event-bootstrap',input,true))).replayed,true);assert.equal((await a.machine('runner/event-bootstrap',{operationId:op()},true)).status,409);
  }finally{await a.close();}
 });
+test('a temporary notification-storage failure retains the event until its factual blocker notice is saved',async()=>{
+ const a=await setup();let renamed=false;try{
+  await a.ok(await a.intake());const job=(await acquire(a,(await events(a))[0])).job,ns=await a.mf.getDurableObjectNamespace('XIAOYE_EVENTS','routines-fixture'),stub=ns.get(ns.idFromName('original-oa-secretary')),input={id:job.id,lease:job.lease,operationId:op()};
+  await a.db.prepare('ALTER TABLE documents RENAME TO isolated_documents_saved').run();renamed=true;
+  assert.equal((await stub.fetch('https://secretary.internal/fail',{method:'POST',body:JSON.stringify(input)})).status,503);
+  const during=await (await stub.fetch('https://secretary.internal/status',{method:'POST',body:'{}'})).json();assert.equal(during.states.running,1);assert.equal(during.states.failed,0);
+  await a.db.prepare('ALTER TABLE isolated_documents_saved RENAME TO documents').run();renamed=false;
+  assert.equal((await a.ok(await a.machine('runner/event-fail',input,true))).state,'failed');
+  assert.equal((await a.db.prepare("SELECT key FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='event-blocked'").all()).results.length,1);
+ }finally{if(renamed)await a.db.prepare('ALTER TABLE isolated_documents_saved RENAME TO documents').run();await a.close();}
+});
 test('real durable WebSocket delivery wakes the bridge once, offline reports resume on connect, approval starts a separate execution',async()=>{
  const a=await setup(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-event-isolated-'));let bridge;
  try{
