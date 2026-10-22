@@ -23,6 +23,8 @@ on:
       - 'core/common-line-entry.js'
       - 'tools/test-common-line-identity.mjs'
       - 'tools/test-common-line-direct-entry.mjs'
+      - 'tools/test-common-line-mobile-redirect.mjs'
+      - 'versions/AM-IMP-2026.1022.64/**'
       - 'core/multilingual*'
       - 'tools/*multilingual*'
       - 'modules/meetings/**'
