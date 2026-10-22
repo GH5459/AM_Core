@@ -7,6 +7,7 @@ on:
       - 'core/xiaoye-feedback-ui.mjs'
       - 'core/xiaoye-intake-card.mjs'
       - 'versions/AM-IMP-2026.1022.53/**'
+      - 'versions/AM-IMP-2026.1022.54/**'
       - 'versions/AM-IMP-2026.1022.52/**'
       - 'tools/*xiaoye*'
       - 'assets/line/leaf-report*'
@@ -188,6 +189,7 @@ jobs:
       - run: node --check core/xiaoye-secretary-dailylog.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.52
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.53
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs

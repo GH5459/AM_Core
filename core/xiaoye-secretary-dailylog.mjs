@@ -1,5 +1,5 @@
 import {xiaoyePage} from './xiaoye-secretary-ui.mjs';
-import {proposalCard,proposalText} from './xiaoye-proposal-card.mjs';
+import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card.mjs';
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
 const machinePrefix='/api/integrations/leaf-snail/tasks/secretary/';
@@ -191,7 +191,7 @@ async function runner(env,c,base,authority,action,v){
  }
  if(action==='propose'){
   if(v.version!==t.version)throw fail('問題已有補充，請重新檢查。');if(s.sourceWithdrawn)throw fail('原來源已撤回，請等待同仁重新補充。');if(s.waitingForReporter)throw fail('正在等待原同仁補充，請先保留問題。');if(['executing','awaiting_confirmation','closed','duplicate'].includes(s.stage))throw fail('請先停止或重新開啟原工作。');
-  const p=v.proposal||{};for(const k of ['summary','reason','steps','validation','rollback'])text(p[k],8000);if(!Array.isArray(p.systems)||!p.systems.length||p.systems.some(x=>!['am','dailylog','uof'].includes(x))||typeof p.deploy!=='boolean')throw fail('請清楚指定影響系統與是否發布。',400);
+  const p=v.proposal||{};if(!validPlanSummary(p.summary))throw fail('處理方案請用100字以內的一段白話，說清楚要改什麼、改完會怎樣；不要列步驟。',400);for(const k of ['summary','reason','steps','validation','rollback'])text(p[k],8000);if(!Array.isArray(p.systems)||!p.systems.length||p.systems.some(x=>!['am','dailylog','uof'].includes(x))||typeof p.deploy!=='boolean')throw fail('請清楚指定影響系統與是否發布。',400);
   await membership(env,c,v.projectId);if(!['help','bug','improvement'].includes(v.category))throw fail('請指定問題類型。',400);
   if(v.title!==undefined)t.title=text(v.title,100);
   if(s.proposal)retireProposal(s);
@@ -226,7 +226,7 @@ async function notifications(env,c,action,v){
   const rows=(await env.DB.prepare("SELECT key,value,revision FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.state')!='sent' AND COALESCE(json_extract(value,'$.leaseUntil'),0)<=? AND COALESCE(json_extract(value,'$.nextAttempt'),0)<=? AND json_extract(value,'$.attempts')<5 AND NOT (json_extract(value,'$.kind')='approval' AND EXISTS(SELECT 1 FROM documents d WHERE d.namespace='xiaoye-intake-sessions' AND json_extract(d.value,'$.mode')='draft' AND json_extract(d.value,'$.until')>? AND json_extract(d.value,'$.actor.account')=json_extract(documents.value,'$.account') AND (? IS NULL OR json_extract(d.value,'$.source.botUserId')=?))) ORDER BY json_extract(value,'$.createdAt') LIMIT 10").bind(Date.now(),Date.now(),Date.now(),c.oaBotUserId||null,c.oaBotUserId||null).all()).results;
   for(const row of rows){let n=JSON.parse(row.value);const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t)){n.state='cancelled';n.attempts=5;await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}
    if(n.firstAttemptAt&&Date.now()-n.firstAttemptAt>23*3600000){n.state='unknown';n.attempts=5;n.error='通知確認期限已過，請人工核對原對話，避免重複發送。';await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}n={...n,firstAttemptAt:n.firstAttemptAt||Date.now(),lease:crypto.randomUUID(),leaseUntil:Date.now()+90000,attempts:n.attempts+1,state:'sending'};
-   const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();if(r.meta.changes)return {ok:true,notification:n};
+   const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();if(r.meta.changes)return {ok:true,notification:n.kind==='approval'?{...n,lineMessage:proposalCard(env.PUBLIC_ORIGIN,t),message:proposalText(t)+'\n'+link(env,t.id)}:n};
   }return {ok:true,notification:null};
  }
  const row=await record(env.DB,'xiaoye-notifications',v.id),n=row?.value;if(!n||n.lease!==v.lease||n.leaseUntil<=Date.now())throw fail('通知確認已失效。');
