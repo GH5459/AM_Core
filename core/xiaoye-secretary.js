@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {intakeCard,isIntakeImage} from './xiaoye-intake-card.mjs';
+import {createOwnerAdapter} from './xiaoye-owner-adapter.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
 export function secretaryCommand(event){
  if(event?.type==='postback'){const data=event.postback?.data;const scoped=typeof data==='string'&&data.match(/^xiaoye:(finish|cancel):(draft-[a-f0-9]{64})$/);if(scoped)return {[scoped[1]]:true,draftId:scoped[2]};const end=typeof data==='string'&&data.match(/^xiaoye:end:(work-[a-f0-9-]{36})$/);if(end)return {end:true,taskId:end[1]};if(data==='xiaoye:report')return {begin:true};if(['xiaoye:finish','xiaoye:cancel','xiaoye:end'].includes(data))return {status:true,refreshControls:true};return null;}
@@ -12,11 +13,12 @@ export function secretaryCommand(event){
 }
 export function createXiaoyeSecretary({tasks,line,env=process.env,logger=console}){
  let running=false,enabled=false,sessions=new Map(),sessionMutation=0;const botUserId=env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID;
+ const ownerFlow=createOwnerAdapter({tasks,line,botUserId,isEnabled:()=>enabled,logger});
  const call=(route,input={})=>tasks.secretaryCall(route,input);
  const sessionKey=s=>crypto.createHash('sha256').update(JSON.stringify([s.botUserId,s.type,s.conversationId,s.userId])).digest('hex');
- async function restore(){const version=sessionMutation;try{const r=await call('sessions');enabled=true;if(version===sessionMutation)sessions=new Map((r.sessions||[]).map(s=>[s.key,s.until]));}catch(e){if(e.code==='SECRETARY_DISABLED'){enabled=false;sessions.clear();}}}
+ async function restore(){const version=sessionMutation,ownerVersion=ownerFlow.version();try{const r=await call('sessions');enabled=true;if(version===sessionMutation)sessions=new Map((r.sessions||[]).map(s=>[s.key,s.until]));ownerFlow.restore(r.ownerSessions,ownerVersion);}catch(e){if(e.code==='SECRETARY_DISABLED'){enabled=false;sessions.clear();ownerFlow.restore([],ownerFlow.version());}}}
  async function capture(events){const consumed=[];
-  for(const e of events){if(e.type==='unsend'&&enabled&&['user','group'].includes(e.source?.type)&&e.unsend?.messageId){try{await call('withdraw',{messageId:String(e.unsend.messageId),source:{botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,eventId:String(e.webhookEventId||'unsend:'+e.unsend.messageId)}});}catch(error){if(error.code!=='SECRETARY_DISABLED')throw error;}continue;}if(!['message','postback'].includes(e.type)||e.type==='message'&&!['text','image','file'].includes(e.message?.type)||!['user','group'].includes(e.source?.type)||!/^U[a-f0-9]{32}$/i.test(e.source.userId||''))continue;
+  for(const e of events){if(await ownerFlow.capture(e)){consumed.push(e);continue;}if(e.type==='unsend'&&enabled&&['user','group'].includes(e.source?.type)&&e.unsend?.messageId){try{await call('withdraw',{messageId:String(e.unsend.messageId),source:{botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,eventId:String(e.webhookEventId||'unsend:'+e.unsend.messageId)}});}catch(error){if(error.code!=='SECRETARY_DISABLED')throw error;}continue;}if(!['message','postback'].includes(e.type)||e.type==='message'&&!['text','image','file'].includes(e.message?.type)||!['user','group'].includes(e.source?.type)||!/^U[a-f0-9]{32}$/i.test(e.source.userId||''))continue;
    const command=secretaryCommand(e);if(e.type==='postback'&&!command)continue;if(e.message?.mention?.mentionees?.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf))continue;
    const source={botUserId,type:e.source.type,conversationId:e.source.type==='group'?e.source.groupId:e.source.userId,userId:e.source.userId,eventId:String(e.webhookEventId||e.message?.id||e.replyToken),messageId:String(e.message?.id||'postback:'+e.webhookEventId),timestamp:e.timestamp};
    const key=sessionKey(source);if(!command&&!(sessions.get(key)>Date.now()))continue;
