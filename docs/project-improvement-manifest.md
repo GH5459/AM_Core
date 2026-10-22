@@ -3,6 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
+| AM-IMP-2026.1022.62 | Original OA and DailyLog owner actions | Installed / Deployed | PR437 full CI; exact AM and complete DailyLog readback. Native exact-version owner approval and durable bounded private advice drafts; original identity, data, web flows and event fences retained; no real approval/business test writes. |
 | AM-IMP-2026.1022.61 | Original LINE system links and DailyLog | Installed / Deployed | PR433 full CI; exact AM and complete DailyLog readback. External browser request at click, original case/version/login/mention/media/postbacks retained; no real LINE/business test writes. |
 | AM-IMP-2026.1022.60 | DailyLog event channel and local receiver | Installed / Deployed | PR426／428 full CI; f39d92e0/63 preserved by latest dad102c9/65; event-only AI, private-write analysis and current owner approval; original data/assets/bindings/crons retained. |
 | AM-IMP-2026.1022.50 | Original AM + DailyLog secretary pilot | Deployed | PR422 + PR423 exact-head full CI 39715533473; AM 95bc2db1 both origins, Render Live; DailyLog 897134a2-e7ca-4b6a-976a-bdfd8e8074b9 /61 modules with original58 unchanged. AI account + four existing project memberships verified; owner version approval, evidence, reporter confirmation and factual journals. Fourth guided menu, original OA/actions/422 height, draft-to-one-card, same-card web photos; five-minute local heartbeat; no real LINE/business test writes. |
