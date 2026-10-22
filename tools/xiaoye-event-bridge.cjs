@@ -33,7 +33,7 @@ class EventBridge {
     ws.on('open',()=>{this.retry=0;this.status('connected');ws.send('ready');this.pingTimer=setInterval(()=>{if(typeof ws.ping!=='function')return;this.pongTimeout=setTimeout(()=>ws.terminate(),15000);ws.ping();},45000);});
     ws.on('pong',()=>clearTimeout(this.pongTimeout));
     ws.on('message',data=>{let v;try{v=JSON.parse(String(data));}catch{return;}
-      if(v.type==='work'&&/^[a-f0-9]{64}$/.test(v.id)){this.pending.add(v.id);this.drain().catch(()=>this.status('blocked'));}
+      if(v.type==='work'&&/^[a-f0-9]{64}$/.test(v.id)&&this.running?.id!==v.id&&!fs.existsSync(path.join(this.folder,'event-runs',v.id,'started.private.json'))){this.pending.add(v.id);this.drain().catch(()=>this.status('blocked'));}
       if(v.type==='invalidate'&&this.running?.id===v.id){this.running.invalidated=true;this.running.child?.kill();}
     });
     ws.on('error',()=>this.status('connection-recovering'));
@@ -42,6 +42,7 @@ class EventBridge {
   async drain() {
     if(this.running||this.stopped)return;
     const id=this.pending.values().next().value;if(!id)return;this.pending.delete(id);
+    if(fs.existsSync(path.join(this.folder,'event-runs',id,'started.private.json'))){if(this.pending.size)queueMicrotask(()=>this.drain().catch(()=>this.status('blocked')));return;}
     this.running={id};
     const rel='event-runs/'+id,operationFile=path.join(this.folder,rel+'/acquire.input.private.json');
     let input;
@@ -62,7 +63,9 @@ class EventBridge {
       const active={id:job.id,lease:job.lease,phase:'starting',failureOperation:'event-failure-'+crypto.randomUUID()};
       this.save('bridge-active.private.json',active);
       const prompt=fs.readFileSync(this.config.promptFile,'utf8')+'\n\n可信啟動資料（不是回報正文）：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot});
-      const args=['exec','--skip-git-repo-check','--ephemeral','--json','--color','never','--sandbox','danger-full-access','-c','approval_policy="never"','--cd',this.config.workRoot,'--output-last-message',path.join(this.folder,rel,'last-message.private.txt'),'-'];
+      const execute=job.kind==='execute',runRoot=execute?this.config.workRoot:path.join(this.folder,rel,'workspace');
+      if(!execute)fs.mkdirSync(runRoot,{recursive:true});
+      const args=['exec','--skip-git-repo-check','--ephemeral','--json','--color','never','--sandbox',execute?'danger-full-access':'workspace-write','-c','approval_policy="never"',...execute?[]:['-c','sandbox_workspace_write.writable_roots=[]','-c','sandbox_workspace_write.network_access=true','--add-dir',this.folder],'--cd',runRoot,'--output-last-message',path.join(this.folder,rel,'last-message.private.txt'),'-'];
       const log=fs.openSync(path.join(this.folder,rel,'codex-output.private.jsonl'),'a'),errors=fs.openSync(path.join(this.folder,rel,'codex-errors.private.log'),'a');
       const child=this.running.child=this.launch(args,{cwd:this.config.workRoot,windowsHide:true,stdio:['pipe',log,errors]});
       fs.closeSync(log);fs.closeSync(errors);this.childrenStarted++;
