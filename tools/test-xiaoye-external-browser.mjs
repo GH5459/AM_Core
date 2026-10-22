@@ -12,7 +12,7 @@ test('clickable URL preserves exact case/version, fragment and ticket; conversio
 });
 test('both proposal buttons and intake history use external browser without changing postbacks',()=>{
  const task={id:'work-example',title:'測試',description:'原文',secretary:{reporters:[{name:'同仁'}],proposal:{hash:'a'.repeat(64),version:2,summary:'說明',steps:'步驟',systems:['dailylog'],deploy:false}}};
- for(const button of proposalCard(origin,task).contents.footer.contents){const url=new URL(button.action.uri);assert.equal(url.searchParams.get('openExternalBrowser'),'1');assert.equal(url.searchParams.get('review'),task.secretary.proposal.hash);}
+ for(const button of proposalCard(origin,task).contents.footer.contents){assert.equal(button.action.type,'postback');assert(button.action.data.endsWith(task.secretary.proposal.hash));assert(!button.action.uri);}
  const draft='draft-'+'a'.repeat(64),buttons=intakeCard('原文',{draft:true,draftId:draft}).contents.footer.contents;assert.equal(buttons[0].action.data,'xiaoye:finish:'+draft);assert.equal(new URL(buttons[2].action.uri).searchParams.get('openExternalBrowser'),'1');
 });
 test('outgoing system text links preserve UTF16 mention positions; media, source, postback and third-party text stay unchanged',()=>{

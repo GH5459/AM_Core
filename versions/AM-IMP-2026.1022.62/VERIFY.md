@@ -1,5 +1,5 @@
 # 驗證
 
-執行 `node --test tools/test-common-line-direct-entry.mjs tools/test-common-line-identity.mjs`，檢查三入口已連結自動開啟、未開通拒絕、未知身分登入、過期 LINE 登入、衝突及網路錯誤、跳轉失敗後原連結與首次確認保持。
+隔離驗證本人／非本人、群組／錯OA、舊hash與過期事件、直接文字不能核准、重複點擊與回應遺失防重、來源與身分變動、核准到期及租期失效；原網頁核准維持。LINE核准與建議送出連接真Worker/D1/Durable Object事件，草稿及等待不啟動AI。
 
-執行 `node tools/check-upgrade-package.js AM-IMP-2026.1022.62` 及完整 CI。發布前核對本人當版核准與 PR 已附回原聊天，發布後唯讀核對兩站 commit 和入口 HTML。真人手機與外部 Chrome 的實際跳轉仍待本人自然使用，合成測試不替代實機確認。禁止真人身分、業務或 LINE 測寫。
+多段文字與多圖、圖片檔、重啟恢復、原文與圖片bytes保持、不同案件與同仁隔離、送出／取消／舊按鈕、限額、撤回、建議阻止同時核准與重新提案需新核准。傳輸及完整原流程、手機六寬、LINE格式及正式完整包／兩origin版本回讀；不以真人LINE／案件／日誌／UOF／Google測寫驗收。

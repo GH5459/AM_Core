@@ -2,6 +2,8 @@ import {xiaoyePage} from './xiaoye-secretary-ui.mjs';
 import {externalBrowserUrl} from './line-external-browser.mjs';
 import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card.mjs';
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
+import {ownerRequest,verifyLineApproval,ownerDraftActive,noOwnerDraftSql} from './xiaoye-owner-actions.mjs';
+import {inspectionRunner,inspectionFetch} from './xiaoye-inspection.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
 const machinePrefix='/api/integrations/leaf-snail/tasks/secretary/';
 const configNs='xiaoye-secretary',AI='ai-xiaoye';
@@ -17,7 +19,7 @@ async function body(request,max=16*1024*1024){const reader=request.body?.getRead
 const docsInsert=(db,ns,key,value)=>db.prepare('INSERT INTO documents(namespace,key,value,revision) VALUES(?,?,?,1) ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value,revision=documents.revision+1').bind(ns,key,JSON.stringify(value));
 async function settings(env){const c=(await record(env.DB,configNs,'config'))?.value;if(!c?.enabled||c.contract!==XIAOYE_CONTRACT)throw Object.assign(fail('葉小蝸試行服務尚未開啟。',503),{code:'SECRETARY_DISABLED'});const a=(await record(env.DB,'service-accounts',AI))?.value;if(!a?.active||a.type!=='ai'||a.id!==c.account.id)throw Object.assign(fail('葉小蝸帳號已暫停。',503),{code:'SECRETARY_DISABLED'});return c;}
 function visible(t,account,c){return t?.secretary&&[c.ownerAccount,...t.secretary.reporters.map(p=>p.account)].includes(account);}
-function view(t,account,c){if(!visible(t,account,c))throw fail('找不到可查看的問題。',404);const copy=structuredClone(t);copy.secretary.reporters=copy.secretary.reporters.map(({source,...p})=>p);if(copy.secretary.approval)delete copy.secretary.approval.sessionHash;delete copy.secretary.lease;delete copy.secretary.leaseUntil;delete copy.secretary.executionEvent;return copy;}
+function view(t,account,c){if(!visible(t,account,c))throw fail('找不到可查看的問題。',404);const copy=structuredClone(t);copy.secretary.reporters=copy.secretary.reporters.map(({source,...p})=>p);if(copy.secretary.approval){delete copy.secretary.approval.sessionHash;delete copy.secretary.approval.source;delete copy.secretary.approval.eventOperation;}if(copy.secretary.ownerFeedback)copy.secretary.ownerFeedback=copy.secretary.ownerFeedback.map(({lineSources,...entry})=>entry);delete copy.secretary.lease;delete copy.secretary.leaseUntil;delete copy.secretary.executionEvent;return copy;}
 async function membership(env,c,projectId){if(!c.projects.some(p=>p.id===projectId))throw fail('請選擇試行專案。',400);const p=(await load(env.DB,projectId))?.task;if(!p||p.deletedAt||p.mergedInto||p.status==='cancelled'||!p.collaborators?.some(x=>x.account===AI))throw fail('專案或葉小蝸的參與資格已變更。');return p;}
 async function currentPerson(env,base,input){
  const request=new Request(env.PUBLIC_ORIGIN+'/api/integrations/leaf-snail/tasks/meeting-person',{method:'POST',headers:{Authorization:'Bearer '+env.LEAF_TASK_SERVICE_KEY,'Content-Type':'application/json'},body:JSON.stringify({tenantKey:env.LEAF_TASK_TENANT,account:input.account})});
@@ -106,7 +108,7 @@ async function draftIntake(env,c,v,actor,source,key,previous){
   d.until=Date.now()+24*3600000;
  }
  const guard=previous?'EXISTS(SELECT 1 FROM documents WHERE namespace=? AND key=? AND revision=?)':'NOT EXISTS(SELECT 1 FROM documents WHERE namespace=? AND key=?)';
- const batch=[env.DB.prepare('INSERT INTO xiaoye_draft_operations(id,guard) VALUES(?,CASE WHEN '+guard+' THEN 1 ELSE 0 END)').bind(event,'xiaoye-intake-sessions',key,...(previous?[previous.revision]:[])),docsInsert(env.DB,'xiaoye-intake-sessions',key,d),docsInsert(env.DB,'xiaoye-draft-events',event,{draftId:d.id}),...extra];
+ const batch=[env.DB.prepare('INSERT INTO xiaoye_draft_operations(id,guard) VALUES(?,CASE WHEN '+guard+" AND NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND key=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?)"+' THEN 1 ELSE 0 END)').bind(event,'xiaoye-intake-sessions',key,...(previous?[previous.revision]:[]),key,Date.now()),docsInsert(env.DB,'xiaoye-intake-sessions',key,d),docsInsert(env.DB,'xiaoye-draft-events',event,{draftId:d.id}),...extra];
  try{await env.DB.batch(batch);}catch{if(await record(env.DB,'xiaoye-draft-events',event))return {ok:true,handled:true,...draftState(previous),duplicate:true,...await reportSummary(env,c,actor)};throw fail('回報內容剛有更新，請稍後重試，已收到的資料會保留。');}
  return {ok:true,handled:true,draft:!v.cancel&&!v.end,draftId:d.id,cancelled:!!v.cancel||!!v.end,begun:!!v.begin,resumed:!!v.begin&&active,texts:valid().filter(e=>e.text).length,images:imageEntries().length,...await reportSummary(env,c,actor)};
 }
@@ -115,6 +117,7 @@ async function intake(env,c,base,v){
  if(!source||!['user','group'].includes(source.type)||c.oaBotUserId&&source.botUserId!==c.oaBotUserId||source.userId!==v.sender.userId||source.botUserId!==v.sender.botUserId||source.type==='user'&&source.conversationId!==source.userId||source.type==='group'&&!/^C[0-9a-f]{32}$/i.test(source.conversationId||''))throw fail('對話來源無法確認。',403);
  text(source.eventId,180);if(!Number.isSafeInteger(source.timestamp)||Math.abs(Date.now()-source.timestamp)>24*3600000)throw fail('回報事件已過期。',403);
  const sessionKey=await digest(JSON.stringify([source.botUserId,source.type,source.conversationId,source.userId])),session=await record(env.DB,'xiaoye-intake-sessions',sessionKey);
+ const ownerSession=await record(env.DB,'xiaoye-owner-sessions',sessionKey);if(ownerSession?.value.mode==='feedback'&&!v.status)throw fail('請先取消目前的方案建議，或重新按方案卡接續；這則內容未加入其他案件。');
  if(v.status)return {ok:true,handled:true,refreshControls:!!v.refreshControls,...draftState(session),...await reportSummary(env,c,actor)};
  if(v.draftId&&(session?.value.mode!=='draft'||session.value.id!==v.draftId||session.value.until<=Date.now())||v.taskId&&v.end&&(session?.value.mode==='draft'||session?.value.taskId!==v.taskId))return {ok:true,handled:true,staleControls:true,...draftState(session),...await reportSummary(env,c,actor)};
  if(v.begin||v.finish||v.cancel||session?.value.mode==='draft')return draftIntake(env,c,v,actor,source,sessionKey,session);
@@ -143,7 +146,7 @@ async function intake(env,c,base,v){
  t=await transaction(env,old,t,eventKey,{action:'intake',eventId:source.eventId,text:description,image:!!v.image},actor,old?'收到同仁補充，原方案須重新檢查。':'收到新問題，等待釐清與提案。',extras);
  return {ok:true,handled:true,taskId:t.id,url:link(env,t.id),newIssue:!old,supplemented:!!old};
 }
-async function approved(env,c,t,authority){const s=t.secretary,a=s.approval;if(s.sourceWithdrawn||!a||!s.proposal||a.account!==c.ownerAccount||a.hash!==s.proposal.hash||a.sourceVersion!==s.sourceVersion)throw fail('缺少目前有效來源與方案的本人核准。',403);await authority(env,a.sessionHash,c.ownerAccount);await membership(env,c,t.primaryParentId);}
+async function approved(env,c,t,authority,base){const s=t.secretary,a=s.approval;if(s.sourceWithdrawn||!a||!s.proposal||a.account!==c.ownerAccount||a.hash!==s.proposal.hash||a.sourceVersion!==s.sourceVersion)throw fail('缺少目前有效來源與方案的本人核准。',403);if(a.channel==='line')await verifyLineApproval(env,c,base,a,{fail,record,linePerson},t.id);else await authority(env,a.sessionHash,c.ownerAccount);await membership(env,c,t.primaryParentId);}
 async function withdraw(env,c,v){
  const s=v.source;if(!s||!['user','group'].includes(s.type)||!/^U[a-f0-9]{32}$/i.test(s.botUserId||'')||!String(v.messageId||'').length||String(v.messageId).length>180)throw fail('撤回來源無法確認。',403);
  const drafts=(await env.DB.prepare("SELECT key,value,revision FROM documents d WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.mode')='draft' AND EXISTS(SELECT 1 FROM json_each(json_extract(d.value,'$.entries')) e WHERE json_extract(e.value,'$.botUserId')=? AND json_extract(e.value,'$.conversationId')=? AND json_extract(e.value,'$.type')=? AND json_extract(e.value,'$.messageId')=?)").bind(s.botUserId,s.conversationId,s.type,v.messageId).all()).results;
@@ -155,6 +158,7 @@ async function withdraw(env,c,v){
  }return {ok:true,handled:rows.length>0||drafts.length>0};
 }
 async function runner(env,c,base,authority,action,v){
+ if(['health','inspect','inspection-open'].includes(action))return inspectionRunner(env,c,action,v,{record,load,membership,linePerson,currentPerson,base,approved:t=>approved(env,c,t,authority,base)});
  if(action==='event-bootstrap'){
   if(typeof v.operationId!=='string'||v.operationId.length<8||v.operationId.length>180)throw fail('請保存唯一安裝操作識別。',400);
   const installed=await record(env.DB,'xiaoye-event-bootstrap','installed');if(installed){if(installed.value.operationId!==v.operationId)throw fail('事件交接已完成，不可重複掃描。');return {ok:true,...installed.value,replayed:true};}
@@ -167,7 +171,7 @@ async function runner(env,c,base,authority,action,v){
   const r=await eventCall(env,action.slice(6)==='acquire'?'acquire':action.slice(6)==='check'?'check':action.slice(6)==='complete'?'complete':'fail',v);
   if(!r.ok)return r;
   const result=await r.json();
-  if(result.job){try{const t=(await load(env.DB,result.job.taskId))?.task;if(!t)throw fail('找不到問題。',404);for(const p of t.secretary.reporters){if(p.source?.type==='user'||p.source?.type==='group')await linePerson(env,base,{...p,userId:p.source.userId,botUserId:p.source.botUserId});else await currentPerson(env,base,p);}if(result.job.kind==='execute')await approved(env,c,t,authority);return {...result,task:t,projects:c.projects};}catch(e){if(action==='event-acquire')await eventCall(env,'fail',{id:result.job.id,lease:result.job.lease});throw e;}}
+  if(result.job){try{const t=(await load(env.DB,result.job.taskId))?.task;if(!t)throw fail('找不到問題。',404);for(const p of t.secretary.reporters){if(p.source?.type==='user'||p.source?.type==='group')await linePerson(env,base,{...p,userId:p.source.userId,botUserId:p.source.botUserId});else await currentPerson(env,base,p);}if(result.job.kind==='execute')await approved(env,c,t,authority,base);return {...result,task:t,projects:c.projects};}catch(e){if(action==='event-acquire')await eventCall(env,'fail',{id:result.job.id,lease:result.job.lease});throw e;}}
   return result;
  }
  if(action==='queue'){const rows=(await env.DB.prepare("SELECT value FROM work_items WHERE json_extract(value,'$.secretary') IS NOT NULL AND json_extract(value,'$.secretary.stage') NOT IN ('closed','duplicate') ORDER BY json_extract(value,'$.updatedAt')").all()).results;return {ok:true,contract:XIAOYE_CONTRACT,projects:c.projects,tasks:rows.map(r=>{const t=JSON.parse(r.value);if(t.secretary.approval)delete t.secretary.approval.sessionHash;return t;})};}
@@ -201,7 +205,7 @@ async function runner(env,c,base,authority,action,v){
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'提出方案，等待本人核准。',[notification(env,t,c.ownerAccount,'approval',msg,null,proposalCard(env.PUBLIC_ORIGIN,t))])};
  }
  if(action==='check'||action==='finish'||action==='fail'){
-  if(s.stage!=='executing'||s.lease!==v.lease||s.leaseUntil<=Date.now())throw fail('執行確認已失效，請停止並重新查核。',403);await approved(env,c,t,authority);
+  if(s.stage!=='executing'||s.lease!==v.lease||s.leaseUntil<=Date.now())throw fail('執行確認已失效，請停止並重新查核。',403);await approved(env,c,t,authority,base);
   if(action==='check')return {ok:true,allowed:true,task:t,leaseUntil:s.leaseUntil};
   const result=text(v.result,12000);s.leaseUntil=0;s.lease=null;
   const extras=[];
@@ -214,7 +218,7 @@ async function runner(env,c,base,authority,action,v){
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }
  if(action==='claim'){
-  await approved(env,c,t,authority);s.stage='executing';s.lease=crypto.randomUUID();s.leaseUntil=Date.now()+30*60000;t.status='in_progress';
+  await approved(env,c,t,authority,base);s.stage='executing';s.lease=crypto.randomUUID();s.leaseUntil=Date.now()+30*60000;t.status='in_progress';
   const guard="NOT EXISTS(SELECT 1 FROM work_items WHERE json_extract(value,'$.secretary.stage')='executing')";
   return {ok:true,task:await transaction(env,old,t,v.operationId,{action:'claim',id:t.id},actor,'依本人核准開始處理。',[],guard),lease:s.lease};
  }
@@ -260,20 +264,22 @@ async function install(request,env){
  try{await env.DB.batch(statements);}catch{throw fail('原專案正在更新，安裝未完成，請重新核對。');}return json({ok:true,installed:true,account:AI,joinedProjects:4,intakeEnabled:false});
 }
 export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}){
- const url=new URL(request.url),path=url.pathname,machine=path.startsWith(machinePrefix),page=path==='/xiaoye',api=path.startsWith('/api/xiaoye/');
- if(!machine&&!page&&!api)return null;
+ const url=new URL(request.url),path=url.pathname,machine=path.startsWith(machinePrefix),page=path==='/xiaoye',api=path.startsWith('/api/xiaoye/'),inspection=path==='/xiaoye/inspect'||path.startsWith('/api/xiaoye-inspection/');
+ if(!machine&&!page&&!api&&!inspection)return null;
  try{
   if(machine){const installed=await install(request,env);if(installed)return installed;}
   const c=await settings(env);
+  if(inspection)return await inspectionFetch(request,env,c,{record,load,membership,linePerson,currentPerson,base,approved:t=>approved(env,c,t,authority,base)});
   if(machine){
    const action=path.slice(machinePrefix.length),runnerMode=action.startsWith('runner/'),key=request.headers.get('Authorization')||'';
    if(runnerMode){if(await digest(key)!==c.runnerHash)throw fail('Unauthorized',401);}else if(!env.LEAF_TASK_SERVICE_KEY||await digest(key)!==await digest('Bearer '+env.LEAF_TASK_SERVICE_KEY))throw fail('Unauthorized',401);
    if(action==='health'&&request.method==='GET')return json({ok:true,contract:XIAOYE_CONTRACT,approvalRequired:true,enabled:true,eventDriven:!!env.XIAOYE_EVENTS});
    if(action==='runner/events/ws'&&request.method==='GET'){if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);return eventStub(env).fetch(new Request('https://secretary.internal/socket',{headers:{Upgrade:request.headers.get('Upgrade')||''}}));}
    if(request.method!=='POST')throw fail('Method not allowed',405);const v=await body(request);if(v.tenantKey!==env.LEAF_TASK_TENANT)throw fail('Tenant mismatch',403);
+   if(action==='owner')return json(await ownerRequest(env,c,base,v,{record,load,linePerson,membership,digest,fail,docsInsert,transaction,retireProposal,imageBytes,uuidFrom}));
    if(action==='intake')return json(await intake(env,c,base,v));
    if(action==='withdraw')return json(await withdraw(env,c,v));
-   if(action==='sessions'){const rows=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;return json({ok:true,sessions:rows});}
+   if(action==='sessions'){const rows=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;const ownerSessions=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;return json({ok:true,sessions:rows,ownerSessions});}
    if(action==='active'){const key=await digest(JSON.stringify([v.botUserId,v.type,v.conversationId,v.userId])),r=await record(env.DB,'xiaoye-intake-sessions',key);return json({ok:true,active:!!r&&r.value.until>Date.now()});}
    if(runnerMode){const result=await runner(env,c,base,authority,action.slice(7),v);return result instanceof Response?result:json(result);}
    if(action.startsWith('notifications/'))return json(await notifications(env,c,action.slice(14),v));
@@ -294,6 +300,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
   const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return json({ok:true,task:view(previous,a.account,c),replayed:true});
   if(v.version!==t.version)throw fail('問題已有更新，請重新檢查。');const extras=[];
   if(action==='approve'){
+   if(await ownerDraftActive(env,t.id))throw fail('請先送出或取消LINE中正在填寫的建議，再核准方案。');
    if(a.account!==c.ownerAccount)throw fail('請由指定負責人核准。',403);if(s.sourceWithdrawn||!['awaiting_approval','blocked','approved','paused'].includes(s.stage)||!s.proposal||v.proposalHash!==s.proposal.hash||v.confirm!==true)throw fail('請先檢查目前有效來源與方案再核准。');await membership(env,c,t.primaryParentId);
    const token=/\bdailylog_session=([a-f0-9]{64})\b/.exec(request.headers.get('cookie')||'')?.[1];if(!token)throw fail('請使用本人登入核准。',403);
    s.approval={account:a.account,hash:s.proposal.hash,sourceVersion:s.sourceVersion,sessionHash:await digest(token),at:new Date().toISOString()};s.stage='approved';s.blocker='';t.status='pending';
@@ -314,7 +321,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
   }else{
    if(!s.reporters.some(p=>p.account===a.account))throw fail('請由原回報人補充。',403);if(!['closed','awaiting_confirmation','paused','blocked'].includes(s.stage))throw fail('此問題尚在處理，請補充原回報。');const detail=text(v.detail,4000);t.description+='\n\n仍有問題：'+detail;s.sourceVersion++;s.sourceWithdrawn=false;retireProposal(s);s.stage='clarifying';t.status='pending';t.completedAt=null;
   }
-  await a.verify();const saved=await transaction(env,old,t,v.operationId,{...v,action},actor,action==='feedback'?'收到主管對第 '+entryVersion(s)+' 版的建議，舊核准失效，等待整理新版。':action==='approve'?'本人已核准目前方案。':action==='pause'?'本人暫緩處理。':action==='confirm'?'原回報人確認問題已解決。':action==='supplement'?'收到原回報人的補充，接續原卡釐清。':'原回報人表示仍有問題，重新釐清。',extras);
+  await a.verify();const saved=await transaction(env,old,t,v.operationId,{...v,action},actor,action==='feedback'?'收到主管對第 '+entryVersion(s)+' 版的建議，舊核准失效，等待整理新版。':action==='approve'?'本人已核准目前方案。':action==='pause'?'本人暫緩處理。':action==='confirm'?'原回報人確認問題已解決。':action==='supplement'?'收到原回報人的補充，接續原卡釐清。':'原回報人表示仍有問題，重新釐清。',extras,action==='approve'?noOwnerDraftSql:'1',action==='approve'?[t.id,Date.now()]:[]);
   return json({ok:true,task:view(saved,a.account,c)});
  }catch(e){if(page&&e.status===401){url.searchParams.delete('openExternalBrowser');url.searchParams.delete('openInAppBrowser');return Response.redirect(new URL('/login?returnTo='+encodeURIComponent(url.pathname+url.search),env.PUBLIC_ORIGIN).href,303);}return json({ok:false,...e.code?{code:e.code}:{},error:e.status?e.message:'葉小蝸服務暫時無法完成，請稍後重試。'},e.status||503);}
 }
@@ -337,4 +344,3 @@ export async function xiaoyeResponse(request,response,env,readAuthority){
  return json(result);
 }
 export async function xiaoyeEnvironment(env){try{const c=await settings(env);return {...env,XIAOYE_SERVICE_PERSON:JSON.stringify({account:AI,name:c.account.name,team:'AI 秘書',type:'ai'})};}catch{return env;}}
-
