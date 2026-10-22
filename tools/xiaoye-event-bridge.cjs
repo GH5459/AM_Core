@@ -1,9 +1,9 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 const runtimeTools=require('./xiaoye-runtime-tools.cjs');
 class EventBridge {
-  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight}={}) {
+  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory}={}) {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(config.codexExecutable,args,options));this.fetcher=fetcher;this.clock=clock;
-    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;
+    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -66,6 +66,21 @@ class EventBridge {
         try{this.toolContext=JSON.parse(fs.readFileSync(this.config.toolContextFile));const health=await this.checkTools(this.toolContext);this.save(rel+'/tools-preflight.private.json',health);}
         catch(e){this.save(rel+'/tools-preflight.private.json',{ok:false,reason:e.message});const reason=/Git或GitHub/.test(e.message)?'背景Git或GitHub執行檔目前無法使用，本次未啟動AI執行。':'原聊天PR附加或CI工具目前無法連線，本次未啟動AI執行。';const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason,nextStep:'恢復Git、GitHub或桌面工具連線後，按「重新查核並提案」；葉小蝸會先核對已有動作，再送新版方案核准。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
       }
+      if(this.config.visibleChatsFile){
+        const {DesktopMcp,runVisibleEvent}=require('./xiaoye-visible-chats.cjs');
+        const routes=JSON.parse(fs.readFileSync(this.config.visibleChatsFile));
+        const context=JSON.parse(fs.readFileSync(routes.desktopContextFile));
+        const client=await (this.visibleClientFactory?this.visibleClientFactory(context):new DesktopMcp(context)).connect();
+        try {
+          const checked=await this.call('event-check',checkInput);
+          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認本版本人核准且claim取得有效lease的execute才可修改，所有副作用前再次event-check及check；失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
+          active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
+          await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:(file,v)=>this.save(rel+'/'+file,v),check:async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);}});
+          const result=await this.call('event-complete',{...checkInput,operationId:'event-complete-'+job.id},rel+'/event-complete.input.private.json');
+          this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
+        } finally {client.close();}
+        return;
+      }
       this.save(rel+'/started.private.json',{at:new Date(this.clock()).toISOString(),jobKind:job.kind});
       active.phase='starting';
       this.save('bridge-active.private.json',active);
@@ -89,7 +104,7 @@ class EventBridge {
     } catch(e) {
       this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,message:'Event stopped; original state and evidence retained.'});
       const activePath=path.join(this.folder,'bridge-active.private.json');
-      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
+      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason:'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep:'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。'}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
     } finally {
       this.running=null;this.status(this.ws?.readyState===1?'connected':'disconnected');
       if(this.ws?.readyState===1)this.ws.send('ready');
