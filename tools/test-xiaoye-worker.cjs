@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const dailylog=path.resolve(process.env.DAILYLOG_ROOT||process.cwd()),folder=path.resolve(process.env.DAILYLOG_XIAOYE_PACKAGE||'.dailylog-data/xiaoye-secretary-pilot-20261022');
 process.env.DAILYLOG_ROUTINE_PACKAGE=folder;
-const {fixture}=require(path.join(dailylog,'scripts/routine-tabs.worker.test.cjs'));
+const {fixture}=require(process.env.DAILYLOG_XIAOYE_FIXTURE||path.join(dailylog,'scripts/routine-tabs.worker.test.cjs'));
 const key='fixture-xiaoye-existing-service-key-0001',runnerKey='fixture-xiaoye-runner-key-000000000001',tenant='fixture',bot='U'+'a'.repeat(32),user='U'+'b'.repeat(32),owner='140901';
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex'),op=()=>crypto.randomUUID();
 const proposal={summary:'修正隔離示例顯示問題',reason:'隔離資料可重現；尚無真人影響證據。',steps:'修改示例畫面並驗證',systems:['dailylog'],deploy:false,validation:'隔離完整 Worker 與畫面驗證',rollback:'還原本次示例變更'};

@@ -16,3 +16,10 @@ CREATE TABLE IF NOT EXISTS xiaoye_draft_image_chunks (
  content BLOB NOT NULL,
  PRIMARY KEY(draft_key,image_id,part)
 );
+CREATE TABLE IF NOT EXISTS xiaoye_event_outbox (
+ id TEXT PRIMARY KEY,
+ task_id TEXT NOT NULL,
+ version INTEGER NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN ('analyze','execute','invalidate')),
+ created_at INTEGER NOT NULL
+);
