@@ -56,7 +56,7 @@ test('destination is restored after LIFF init; each app retains its original per
  for(const app of ['dailylog','meetings','uof'])for(const allowed of [true,false]){
   const nodes=new Map(),calls=[],replaced=[],destinations={dailylog:'https://work.invalid/',meetings:'/meetings/review/hub',uof:'https://uof.invalid/'};
   let resolveInit;const initialized=new Promise(r=>resolveInit=r),location={href:'https://entry.invalid/meetings/review?liff.state='+encodeURIComponent('/connect?app='+app),replace:v=>replaced.push(v),reload(){}};
-  const context={URL,location,document:{querySelector(s){if(!nodes.has(s))nodes.set(s,{});return nodes.get(s);}},liff:{init:()=>initialized,isLoggedIn:()=>true,getAccessToken:()=>token},fetch:async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>({ok:true,linked:true,permissions:{[app]:allowed}})};}};
+  const context={URL,AbortSignal,setTimeout,clearTimeout,location,document:{querySelector(s){if(!nodes.has(s))nodes.set(s,{});return nodes.get(s);}},liff:{init:()=>initialized,isLoggedIn:()=>true,getAccessToken:()=>token},fetch:async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>({ok:true,linked:true,permissions:{[app]:allowed}})};}};
   vm.runInNewContext('('+commonLineClient.toString()+')(boot)',{...context,boot:{liffId:'fixture',destinations}});
   assert.equal(calls.length,0);location.href='https://entry.invalid/meetings/review/connect?app='+app;resolveInit();await new Promise(r=>setImmediate(r));
   assert.equal(calls.length,1);assert.deepEqual(JSON.parse(calls[0].opts.body),{action:'status'});assert.deepEqual(replaced,allowed?[destinations[app]]:[]);

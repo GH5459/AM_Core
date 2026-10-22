@@ -20,6 +20,7 @@ on:
       - 'versions/AM-IMP-2026.1022.60/**'
       - 'core/common-line-entry.js'
       - 'tools/test-common-line-identity.mjs'
+      - 'tools/test-common-line-direct-entry.mjs'
       - 'core/multilingual*'
       - 'tools/*multilingual*'
       - 'modules/meetings/**'
@@ -197,6 +198,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.61
       - run: node --test tools/test-xiaoye-owner-adapter.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.64
       - run: node --test tools/test-xiaoye-inspection-ui.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.63
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
@@ -303,6 +305,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.02
       - run: node --test tools/test-line-work-login.mjs
       - run: node --test tools/test-common-line-identity.mjs
+      - run: node --test tools/test-common-line-direct-entry.mjs tools/test-common-line-mobile-redirect.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.50
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02
       - run: node --test tools/test-journal-external-browser-url.mjs

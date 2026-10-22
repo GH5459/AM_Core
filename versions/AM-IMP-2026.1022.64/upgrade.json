@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1022.64",
+  "name": "已連結帳號保留原功能並等待LINE跳轉完成",
+  "type": "common LINE entry redirect lifecycle and navigation fallback",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing AM LINE entry settings, unchanged"
+  ],
+  "requiresScripts": [
+    "tools/test-common-line-mobile-redirect.mjs",
+    "tools/test-common-line-direct-entry.mjs",
+    "tools/test-common-line-identity.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform common entry"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Wait for secondary LIFF redirect before checking identity or navigating",
+    "Preserve requested app across SDK URL cleanup; explicit feature permission required",
+    "Hide redundant confirmation; retain verified destination when browser navigation is blocked",
+    "Full CI, reviewed main merge, private rollback and production readback",
+    "No identity, permission, original proposal or approval changes; no real business test writes"
+  ]
+}
