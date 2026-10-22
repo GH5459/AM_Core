@@ -66,10 +66,11 @@ function imageBytes(image){
  const png=bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71,jpg=bytes[0]===255&&bytes[1]===216&&bytes[2]===255,webp=new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP';if(!png&&!jpg&&!webp)throw fail('請傳 PNG、JPEG 或 WebP 圖片。',400);
  return {bytes,mime:png?'image/png':jpg?'image/jpeg':'image/webp',name:'問題截圖.'+(png?'png':jpg?'jpg':'webp')};
 }
+function draftState(session){const d=session?.value,active=d?.mode==='draft'&&d.until>Date.now();const entries=active?d.entries.filter(e=>!e.withdrawn):[];return {draft:active,...active?{draftId:d.id,texts:entries.filter(e=>e.text).length,images:entries.filter(e=>e.image).length}:d?.taskId?{taskId:d.taskId}:{}};}
 async function draftIntake(env,c,v,actor,source,key,previous){
  const event='draft:'+await digest(source.botUserId+':'+source.eventId),receipt=await record(env.DB,'xiaoye-draft-events',event),submitted=await record(env.DB,'xiaoye-intake-events','line:'+await digest(source.botUserId+':'+source.eventId));
  if(submitted?.value.taskId)return {ok:true,handled:true,submitted:true,taskId:submitted.value.taskId,url:link(env,submitted.value.taskId),duplicate:true};
- if(receipt)return {ok:true,handled:true,draft:true,duplicate:true,...await reportSummary(env,c,actor)};
+ if(receipt)return {ok:true,handled:true,...draftState(previous),duplicate:true,...await reportSummary(env,c,actor)};
  const active=previous?.value.mode==='draft'&&previous.value.until>Date.now();
  if(v.finish&&!active&&previous?.value.taskId){await env.DB.prepare("DELETE FROM documents WHERE namespace='xiaoye-intake-sessions' AND key=? AND revision=?").bind(key,previous.revision).run();return {ok:true,handled:true,ended:true,url:link(env,previous.value.taskId)};}
  if(v.finish&&!active)return {ok:true,handled:true,needsBegin:true,...await reportSummary(env,c,actor)};
@@ -80,7 +81,7 @@ async function draftIntake(env,c,v,actor,source,key,previous){
  if(d.actor.account!==actor.account)throw fail('回報身分已變更，請重新開啟回報。',403);
  const extra=[],valid=()=>d.entries.filter(e=>!e.withdrawn),imageEntries=()=>valid().filter(e=>e.image);
  if(v.finish){
-  const entries=valid(),description=entries.map(e=>e.text).filter(Boolean).join('\n\n').slice(0,12000);if(!entries.length)return {ok:true,handled:true,draft:true,needsDescription:true,...await reportSummary(env,c,actor)};
+  const entries=valid(),description=entries.map(e=>e.text).filter(Boolean).join('\n\n').slice(0,12000);if(!entries.length)return {ok:true,handled:true,draft:true,draftId:d.id,needsDescription:true,...await reportSummary(env,c,actor)};
   const id='work-'+uuidFrom(await digest(d.id)),at=new Date().toISOString(),t=newIssue(env,c,actor,entries[0],id,description,at);
   t.title=description.split(/[\n。！？!?]/u).find(x=>x.trim())?.trim().slice(0,80)||'圖片問題（待釐清）';t.secretary.sources=entries.map(({image,...e})=>e);t.secretary.sourceVersion=entries.length;
   for(const e of imageEntries()){
@@ -105,14 +106,16 @@ async function draftIntake(env,c,v,actor,source,key,previous){
  }
  const guard=previous?'EXISTS(SELECT 1 FROM documents WHERE namespace=? AND key=? AND revision=?)':'NOT EXISTS(SELECT 1 FROM documents WHERE namespace=? AND key=?)';
  const batch=[env.DB.prepare('INSERT INTO xiaoye_draft_operations(id,guard) VALUES(?,CASE WHEN '+guard+' THEN 1 ELSE 0 END)').bind(event,'xiaoye-intake-sessions',key,...(previous?[previous.revision]:[])),docsInsert(env.DB,'xiaoye-intake-sessions',key,d),docsInsert(env.DB,'xiaoye-draft-events',event,{draftId:d.id}),...extra];
- try{await env.DB.batch(batch);}catch{if(await record(env.DB,'xiaoye-draft-events',event))return {ok:true,handled:true,draft:true,duplicate:true,...await reportSummary(env,c,actor)};throw fail('回報內容剛有更新，請稍後重試，已收到的資料會保留。');}
- return {ok:true,handled:true,draft:!v.cancel&&!v.end,cancelled:!!v.cancel||!!v.end,begun:!!v.begin,texts:valid().filter(e=>e.text).length,images:imageEntries().length,...await reportSummary(env,c,actor)};
+ try{await env.DB.batch(batch);}catch{if(await record(env.DB,'xiaoye-draft-events',event))return {ok:true,handled:true,...draftState(previous),duplicate:true,...await reportSummary(env,c,actor)};throw fail('回報內容剛有更新，請稍後重試，已收到的資料會保留。');}
+ return {ok:true,handled:true,draft:!v.cancel&&!v.end,draftId:d.id,cancelled:!!v.cancel||!!v.end,begun:!!v.begin,resumed:!!v.begin&&active,texts:valid().filter(e=>e.text).length,images:imageEntries().length,...await reportSummary(env,c,actor)};
 }
 async function intake(env,c,base,v){
  const actor=await linePerson(env,base,v.sender),source=v.source;
  if(!source||!['user','group'].includes(source.type)||c.oaBotUserId&&source.botUserId!==c.oaBotUserId||source.userId!==v.sender.userId||source.botUserId!==v.sender.botUserId||source.type==='user'&&source.conversationId!==source.userId||source.type==='group'&&!/^C[0-9a-f]{32}$/i.test(source.conversationId||''))throw fail('對話來源無法確認。',403);
  text(source.eventId,180);if(!Number.isSafeInteger(source.timestamp)||Math.abs(Date.now()-source.timestamp)>24*3600000)throw fail('回報事件已過期。',403);
  const sessionKey=await digest(JSON.stringify([source.botUserId,source.type,source.conversationId,source.userId])),session=await record(env.DB,'xiaoye-intake-sessions',sessionKey);
+ if(v.status)return {ok:true,handled:true,refreshControls:!!v.refreshControls,...draftState(session),...await reportSummary(env,c,actor)};
+ if(v.draftId&&(session?.value.mode!=='draft'||session.value.id!==v.draftId||session.value.until<=Date.now())||v.taskId&&v.end&&(session?.value.mode==='draft'||session?.value.taskId!==v.taskId))return {ok:true,handled:true,staleControls:true,...draftState(session),...await reportSummary(env,c,actor)};
  if(v.begin||v.finish||v.cancel||session?.value.mode==='draft')return draftIntake(env,c,v,actor,source,sessionKey,session);
  if(v.end){await env.DB.prepare("DELETE FROM documents WHERE namespace='xiaoye-intake-sessions' AND key=?").bind(sessionKey).run();return {ok:true,handled:!!session,ended:true};}
  if(!v.start&&!v.resumeTaskId&&(!session||session.value.until<Date.now()))return {ok:true,handled:false};
@@ -137,7 +140,7 @@ async function intake(env,c,base,v){
   for(let offset=0,part=0;offset<bytes.length;offset+=65536,part++)extras.push(env.DB.prepare('INSERT INTO task_attachment_chunks(attachment_id,part,content) VALUES(?,?,?)').bind(attachment,part,bytes.slice(offset,offset+65536).buffer));
  }
  t=await transaction(env,old,t,eventKey,{action:'intake',eventId:source.eventId,text:description,image:!!v.image},actor,old?'收到同仁補充，原方案須重新檢查。':'收到新問題，等待釐清與提案。',extras);
- return {ok:true,handled:true,taskId:t.id,url:link(env,t.id),newIssue:!old};
+ return {ok:true,handled:true,taskId:t.id,url:link(env,t.id),newIssue:!old,supplemented:!!old};
 }
 async function approved(env,c,t,authority){const s=t.secretary,a=s.approval;if(s.sourceWithdrawn||!a||!s.proposal||a.account!==c.ownerAccount||a.hash!==s.proposal.hash||a.sourceVersion!==s.sourceVersion)throw fail('缺少目前有效來源與方案的本人核准。',403);await authority(env,a.sessionHash,c.ownerAccount);await membership(env,c,t.primaryParentId);}
 async function withdraw(env,c,v){
@@ -217,16 +220,18 @@ async function runner(env,c,base,authority,action,v){
  throw fail('不支援此操作。',400);
 }
 function notificationCurrent(n,t){if(!t?.secretary)return false;if(n.kind==='receipt')return !t.secretary.sourceWithdrawn&&t.secretary.reporters.some(p=>p.account===n.account);if(n.sourceVersion!==t.secretary.sourceVersion||n.proposalHash!==(t.secretary.proposal?.hash||null))return false;if(n.kind==='event-blocked')return !['closed','duplicate'].includes(t.secretary.stage);return n.kind==='approval'?t.secretary.stage==='awaiting_approval':n.kind==='result'?t.secretary.stage==='awaiting_confirmation':n.kind==='question'?t.secretary.stage==='clarifying'&&t.secretary.waitingForReporter:t.secretary.stage==='blocked';}
+async function approvalDeferred(env,c,n){if(n.kind!=='approval')return false;return !!await env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.mode')='draft' AND json_extract(value,'$.until')>? AND json_extract(value,'$.actor.account')=? AND (? IS NULL OR json_extract(value,'$.source.botUserId')=?) LIMIT 1").bind(Date.now(),n.account,c.oaBotUserId||null,c.oaBotUserId||null).first();}
 async function notifications(env,c,action,v){
  if(action==='claim'){
-  const rows=(await env.DB.prepare("SELECT key,value,revision FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.state')!='sent' AND COALESCE(json_extract(value,'$.leaseUntil'),0)<=? AND COALESCE(json_extract(value,'$.nextAttempt'),0)<=? AND json_extract(value,'$.attempts')<5 ORDER BY json_extract(value,'$.createdAt') LIMIT 10").bind(Date.now(),Date.now()).all()).results;
+  const rows=(await env.DB.prepare("SELECT key,value,revision FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.state')!='sent' AND COALESCE(json_extract(value,'$.leaseUntil'),0)<=? AND COALESCE(json_extract(value,'$.nextAttempt'),0)<=? AND json_extract(value,'$.attempts')<5 AND NOT (json_extract(value,'$.kind')='approval' AND EXISTS(SELECT 1 FROM documents d WHERE d.namespace='xiaoye-intake-sessions' AND json_extract(d.value,'$.mode')='draft' AND json_extract(d.value,'$.until')>? AND json_extract(d.value,'$.actor.account')=json_extract(documents.value,'$.account') AND (? IS NULL OR json_extract(d.value,'$.source.botUserId')=?))) ORDER BY json_extract(value,'$.createdAt') LIMIT 10").bind(Date.now(),Date.now(),Date.now(),c.oaBotUserId||null,c.oaBotUserId||null).all()).results;
   for(const row of rows){let n=JSON.parse(row.value);const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t)){n.state='cancelled';n.attempts=5;await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}
    if(n.firstAttemptAt&&Date.now()-n.firstAttemptAt>23*3600000){n.state='unknown';n.attempts=5;n.error='通知確認期限已過，請人工核對原對話，避免重複發送。';await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}n={...n,firstAttemptAt:n.firstAttemptAt||Date.now(),lease:crypto.randomUUID(),leaseUntil:Date.now()+90000,attempts:n.attempts+1,state:'sending'};
    const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();if(r.meta.changes)return {ok:true,notification:n};
   }return {ok:true,notification:null};
  }
  const row=await record(env.DB,'xiaoye-notifications',v.id),n=row?.value;if(!n||n.lease!==v.lease||n.leaseUntil<=Date.now())throw fail('通知確認已失效。');
- if(action==='validate'){const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t))throw fail('問題內容或狀態已更新，原通知停止。');return {ok:true,notification:n};}
+ if(action==='defer'){if(n.kind!=='approval')throw fail('此通知不支援延後。');n.state='pending';n.lease=null;n.leaseUntil=0;n.nextAttempt=0;n.attempts=Math.max(0,n.attempts-1);if(!n.attempts)delete n.firstAttemptAt;const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',v.id,row.revision).run();if(!r.meta.changes)throw fail('通知狀態已更新。');return {ok:true,deferred:true};}
+ if(action==='validate'){const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t))throw fail('問題內容或狀態已更新，原通知停止。');return {ok:true,notification:n,deferred:await approvalDeferred(env,c,n)};}
  if(action==='receipt'){
   if(!['sent','failed','unknown'].includes(v.state))throw fail('通知狀態錯誤。',400);n.state=v.state;n.leaseUntil=0;n.nextAttempt=Date.now()+Math.min(3600000,60000*2**n.attempts);n.error=v.state==='sent'?'':String(v.error||'通知尚未確認。').slice(0,300);n.requestId=String(v.requestId||'').slice(0,150);
   const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',v.id,row.revision).run();if(!r.meta.changes)throw fail('通知狀態已更新。');return {ok:true};

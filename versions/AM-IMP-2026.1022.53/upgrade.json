@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.1022.53",
+  "name": "葉小蝸回報固定按鈕、圖片檔與通知延後",
+  "type": "Persistent draft-scoped LINE intake and image-file support",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing DailyLog work items, journal, operations and attachments",
+    "Existing reviewed event outbox and original event processor"
+  ],
+  "requiresEnv": [
+    "Original OA and original task service configuration; retain existing secrets"
+  ],
+  "requiresScripts": [
+    "tools/test-xiaoye-line.mjs",
+    "tools/test-xiaoye-intake-controls.mjs",
+    "tools/test-xiaoye-intake-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Persistent message buttons scoped to one draft; old controls cannot change newer drafts",
+    "Resume existing draft preserving original texts and image bytes; submit once",
+    "PNG/JPEG/WebP received as photo or file; bounded download and honest rejection",
+    "Only recipient active drafts defer approval notices; no retries spent; release after finish/cancel",
+    "Current latest complete releases, CI, private rollback and formal readback",
+    "No idle AI polling and no real-business test writes"
+  ]
+}
