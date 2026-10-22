@@ -80,7 +80,7 @@
     }
   },
   "validation": {
-    "isolatedChecks": 55,
+    "isolatedChecks": 56,
     "widths": [
       320,
       360,
@@ -90,7 +90,9 @@
       1280
     ],
     "lineFormatOnly": 2,
-    "realCodexProcessReadOnly": true
+    "realCodexProcessReadOnly": true,
+    "freshApprovalAfterRecovery": true,
+    "additionalRecoveryWorkerChecks": 6
   },
   "continuation": {
     "directLogin": {
@@ -130,5 +132,9 @@
   },
   "noHumanBusinessTestWrites": true,
   "notificationDeliveryNotAssumed": true,
-  "at": "2026-10-22T10:50:55.782Z"
+  "at": "2026-10-22T10:50:55.782Z",
+  "followup": {
+    "pullRequest": "https://github.com/GH5459/AM_Core/pull/444",
+    "scope": "Prompt distinguishes analyze from a freshly approved execute event; original server execution code unchanged"
+  }
 }
