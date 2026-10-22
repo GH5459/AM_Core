@@ -3,6 +3,7 @@ import {externalBrowserUrl} from './line-external-browser.mjs';
 import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card.mjs';
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
 import {ownerRequest,verifyLineApproval,ownerDraftActive,noOwnerDraftSql} from './xiaoye-owner-actions.mjs';
+import {inspectionRunner,inspectionFetch} from './xiaoye-inspection.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
 const machinePrefix='/api/integrations/leaf-snail/tasks/secretary/';
 const configNs='xiaoye-secretary',AI='ai-xiaoye';
@@ -157,6 +158,7 @@ async function withdraw(env,c,v){
  }return {ok:true,handled:rows.length>0||drafts.length>0};
 }
 async function runner(env,c,base,authority,action,v){
+ if(['health','inspect','inspection-open'].includes(action))return inspectionRunner(env,c,action,v,{record,load,membership,linePerson,currentPerson,base,approved:t=>approved(env,c,t,authority,base)});
  if(action==='event-bootstrap'){
   if(typeof v.operationId!=='string'||v.operationId.length<8||v.operationId.length>180)throw fail('請保存唯一安裝操作識別。',400);
   const installed=await record(env.DB,'xiaoye-event-bootstrap','installed');if(installed){if(installed.value.operationId!==v.operationId)throw fail('事件交接已完成，不可重複掃描。');return {ok:true,...installed.value,replayed:true};}
@@ -262,11 +264,12 @@ async function install(request,env){
  try{await env.DB.batch(statements);}catch{throw fail('原專案正在更新，安裝未完成，請重新核對。');}return json({ok:true,installed:true,account:AI,joinedProjects:4,intakeEnabled:false});
 }
 export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}){
- const url=new URL(request.url),path=url.pathname,machine=path.startsWith(machinePrefix),page=path==='/xiaoye',api=path.startsWith('/api/xiaoye/');
- if(!machine&&!page&&!api)return null;
+ const url=new URL(request.url),path=url.pathname,machine=path.startsWith(machinePrefix),page=path==='/xiaoye',api=path.startsWith('/api/xiaoye/'),inspection=path==='/xiaoye/inspect'||path.startsWith('/api/xiaoye-inspection/');
+ if(!machine&&!page&&!api&&!inspection)return null;
  try{
   if(machine){const installed=await install(request,env);if(installed)return installed;}
   const c=await settings(env);
+  if(inspection)return await inspectionFetch(request,env,c,{record,load,membership,linePerson,currentPerson,base,approved:t=>approved(env,c,t,authority,base)});
   if(machine){
    const action=path.slice(machinePrefix.length),runnerMode=action.startsWith('runner/'),key=request.headers.get('Authorization')||'';
    if(runnerMode){if(await digest(key)!==c.runnerHash)throw fail('Unauthorized',401);}else if(!env.LEAF_TASK_SERVICE_KEY||await digest(key)!==await digest('Bearer '+env.LEAF_TASK_SERVICE_KEY))throw fail('Unauthorized',401);
