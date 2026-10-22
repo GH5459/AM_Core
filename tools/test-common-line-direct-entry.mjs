@@ -8,7 +8,7 @@ async function page(app,{linked=true,allowed=true,error=false,navigationError=fa
  const nodes=new Map(),calls=[],replaced=[],logins=[];
  const node=s=>{if(!nodes.has(s))nodes.set(s,{hidden:true,value:''});return nodes.get(s);};
  const location={href:'https://entry.invalid/meetings/review/connect?app='+app,replace(url){replaced.push(url);if(navigationError)throw Error('navigation blocked');},reload(){}};
- const context={URL,location,boot:{liffId:'synthetic',destinations},document:{querySelector:node},liff:{init:async()=>{},isLoggedIn:()=>loggedIn,login:v=>logins.push(v),getAccessToken:()=> 'synthetic'},fetch:async(url,opts)=>{calls.push(JSON.parse(opts.body));if(error)throw Error('temporary error');return {ok:true,json:async()=>({ok:true,linked,permissions:{[app]:allowed}})};}};
+ const context={URL,AbortSignal,setTimeout,clearTimeout,location,boot:{liffId:'synthetic',destinations},document:{querySelector:node},liff:{init:async()=>{},isLoggedIn:()=>loggedIn,login:v=>logins.push(v),getAccessToken:()=> 'synthetic'},fetch:async(url,opts)=>{calls.push(JSON.parse(opts.body));if(error)throw Error('temporary error');return {ok:true,json:async()=>({ok:true,linked,permissions:{[app]:allowed}})};}};
  vm.runInNewContext('('+commonLineClient.toString()+')(boot)',context);
  await new Promise(resolve=>setImmediate(resolve));
  return {node,calls,replaced,logins};
