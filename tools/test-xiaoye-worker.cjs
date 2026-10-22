@@ -45,6 +45,7 @@ test('supplements and images stay on one card, revoke stale approval, preserve b
  assert.equal((await a.send('900002','/api/tasks/'+t.id)).status,404);assert.equal((await a.send('900002','/api/attachments/normal/'+t.id)).status,404);assert.equal((await a.send('900003','/api/tasks/'+t.id,{version:t.version,operationId:op(),kind:'status',status:'done'})).status,409);
  assert.equal((await a.ok(await a.send('900002','/api/xiaoye/overview'))).tasks.length,0);
  const unverified=await a.intake({sender:{account:'900002',userId:user,botUserId:bot}});assert.equal(unverified.status,403);
+ await a.ok(await a.machine('withdraw',{messageId:source.messageId,source:{botUserId:bot,type:'user',conversationId:user,eventId:op()}}));t=await a.get(t.id);assert(t.secretary.sourceWithdrawn);assert.equal(t.secretary.stage,'blocked');assert.notEqual((await a.send('900003','/api/attachments/normal/'+t.id+'/'+files.attachments[0].id)).status,200);assert.equal((await a.machine('runner/propose',{id:t.id,version:t.version,operationId:op(),projectId:a.projects[0].id,category:'bug',proposal},true)).status,409);
  }finally{await a.close();}
 });
 test('CSRF, approval version, revocation, service stop and concurrent execution gates hold',async()=>{
@@ -92,6 +93,7 @@ test('one-time installation atomically adds only the AI service and four origina
 test('clarification is logged once and a later web supplement continues the same card',async()=>{
  const a=await setup();try{let t=await a.get((await a.ok(await a.intake())).taskId);const question={id:t.id,version:t.version,operationId:op(),question:'請問使用手機或電腦？按哪一個儲存按鈕？'};t=(await a.ok(await a.machine('runner/clarify',question,true))).task;await a.ok(await a.machine('runner/clarify',question,true));assert(t.secretary.waitingForReporter);assert.equal((await a.machine('runner/propose',{id:t.id,version:t.version,operationId:op(),projectId:a.projects[0].id,category:'bug',proposal},true)).status,409);
  const r=await a.ok(await a.send('900003','/api/xiaoye/issues/'+t.id+'/supplement',{version:t.version,operationId:op(),detail:'手機，點卡片下方儲存。'}));assert.equal(r.task.id,t.id);assert.equal(r.task.secretary.waitingForReporter,false);assert.equal(r.task.secretary.sourceVersion,2);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,1);
+ await a.db.prepare("DELETE FROM documents WHERE namespace='xiaoye-intake-sessions'").run();const resumed=await a.ok(await a.intake({start:false,resumeTaskId:t.id,text:'接續補圖'}));assert.equal(resumed.taskId,t.id);assert.equal((await a.ok(await a.send(owner,'/api/xiaoye/overview'))).tasks.length,1);
  }finally{await a.close();}
 });
 test('expired execution remains fenced until owner stops it, and paused proposals can be explicitly approved again',async()=>{

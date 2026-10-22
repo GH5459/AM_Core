@@ -257,7 +257,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const viewer=await meetingShareIdentity(actorId,tenantKey);
   return call(t,await config(t),'meeting-progress',{contract:'meeting-live-task-progress-v1',id,host,viewer:viewer||null,todoIds});
  }
- async function secretaryCall(action,input={}){if(!['sessions','active','intake','notifications/claim','notifications/validate','notifications/receipt'].includes(action))throw Error('secretary_action_invalid');const available=await groupServices();if(available.length!==1)throw Error('secretary_service_ambiguous');const t=available[0];return call(t,await config(t),'secretary/'+action,input);}
+ async function secretaryCall(action,input={}){if(!['sessions','active','intake','withdraw','notifications/claim','notifications/validate','notifications/receipt'].includes(action))throw Error('secretary_action_invalid');const available=await groupServices();if(available.length!==1)throw Error('secretary_service_ambiguous');const t=available[0];return call(t,await config(t),'secretary/'+action,input);}
  const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
 
