@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.1022.54",
+  "name": "葉小蝸100字白話處理方案",
+  "type": "Concise proposal summaries and folded technical details",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing DailyLog work items, journal, operations and attachments",
+    "Existing reviewed event outbox and original event processor"
+  ],
+  "requiresEnv": [
+    "Original OA and original task service configuration; retain existing secrets"
+  ],
+  "requiresScripts": [
+    "tools/test-xiaoye-proposal-card.mjs",
+    "tools/test-xiaoye-brief-plan.cjs",
+    "tools/test-xiaoye-feedback-browser.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Proposal label unified; one plain-language paragraph of at most 100 Unicode characters",
+    "New proposals rejected above the limit or in step-list format; no silent truncation",
+    "Default-collapsed implementation, test, publication and rollback details",
+    "Old case, feedback, proposal hash and approval preserved without migration",
+    "Pending LINE approvals rendered using current presentation without changing approved content",
+    "Latest complete release, private rollback, CI and production readback",
+    "Original idle AI pause and event-only behavior retained"
+  ]
+}
