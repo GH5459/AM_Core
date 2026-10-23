@@ -49,7 +49,7 @@ const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger
 const xiaoyeSecretary=leafTasks.secretary||{capture:async()=>[],drain:async()=>{},health:()=>({enabled:false})};
 await xiaoyeSecretary.restore?.();
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
-Object.assign(platform,{meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks,readMeetingTaskProgress:leafTasks.readMeetingTaskProgress});
+Object.assign(platform,{secretaryEvidenceCheck:leafTasks.secretaryEvidenceCheck,meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks,readMeetingTaskProgress:leafTasks.readMeetingTaskProgress});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
 platform.meetingExperienceRequired=true;
 const leafGroups = createLeafGroups({ platform, line, tasks: leafTasks, calendar: leafCalendar, llm, logger });

@@ -1,4 +1,9 @@
 import {todos} from './workspace-model.js';
+export function dispatchFailure(error,workspace,dispatch,now=Date.now()){
+ const date=error.code==='截止日不能早於執行日期。'||error.message==='截止日不能早於執行日期。',identity=['identity_changed','service_changed'].includes(error.message),today=new Date(now+8*3600000).toISOString().slice(0,10);
+ const items=date?(dispatch?.payload?.tasks||[]).filter(t=>t.due<today).map(t=>({todoId:t.id,meetingDate:dispatch.payload.date,defaultStartDate:today,dueDate:t.due})):[];
+ return {code:date?'START_AFTER_DUE':identity?'IDENTITY_CHANGED':'DELIVERY_UNAVAILABLE',retryable:!date&&!identity,at:new Date(now).toISOString(),items,message:date?'會議任務的開始日晚於截止日，這次整批尚未建立。請由系統維護人員查明日期處理，保留原日期並提出修正方案。':identity?'工作身分或服務已變更，暫停派發；請主持人核對原負責人。':'任務派發暫未完成，系統會重試；會議已發布，請勿重建任務。'};
+}
 
 // Publication and task delivery have separate durable receipts. A payload is
 // frozen before the remote call, including identities, so a lost reply is replayed
@@ -16,13 +21,13 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
   const q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[r.id])).rows[0];if(!q)return null;
   return {items:todos(r.fields).filter(t=>t.ownerId).map(t=>({id:t.id,state:same(q.applied_fields[t.id],r.fields[t.id])?'delivered':'pending'})),message:q.error_code||'',lastCheckedAt:q.updated_at};
  }
- async function run(id){const db=await pool.connect();let locked=false;try{
+ async function run(id){const db=await pool.connect();let locked=false,r,q;try{
   locked=(await db.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok',['meeting-task-dispatch:'+id])).rows[0].ok;if(!locked)return;
-  const r=await store.get(id);if(!r||r.state!=='published')return;
+  r=await store.get(id);if(!r||r.state!=='published')return;
   if((await pool.query("SELECT 1 FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' LIMIT 1",[id])).rows.length)return;
   const row=await conversation(r);if(!row.enabled||['left','blocked'].includes(row.connection_state))return;
   await assertMember(row,r.host_id);
-  let q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[id])).rows[0];if(!q)return;
+  q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[id])).rows[0];if(!q)return;
   if(!q.payload&&!todos(r.fields).some(t=>t.ownerId)&&!todos(q.applied_fields).some(t=>t.ownerId)){await wait(id,'');return;}
   const identities=new Map(),resolve=async userId=>{if(!identities.has(userId)){await assertMember(row,userId);identities.set(userId,await platform.meetingTaskIdentity?.(userId));}return identities.get(userId);};
   const host=await resolve(r.host_id);
@@ -53,10 +58,10 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
   const result=await platform.publishMeetingTasks({preparedPayload:q.payload,taskTenant:q.task_tenant});
   if(!result||!Array.isArray(result.tasks))throw Error('invalid_delivery_receipt');
   const known=[...new Set([...q.known_task_ids,...result.tasks.map(t=>t.id).filter(Boolean)])];
-  await pool.query(`UPDATE central_archive.meeting_task_dispatches SET applied_fields=payload_fields,applied_identities=$2::jsonb,known_task_ids=$3::jsonb,result=$4::jsonb,payload=NULL,payload_fields=NULL,error_code='',next_attempt_at=now()+interval '60 seconds',updated_at=now() WHERE workspace_id=$1`,[id,JSON.stringify({...q.applied_identities,...Object.fromEntries(q.payload.tasks.map(t=>[t.id,t.owner]))}),JSON.stringify(known),JSON.stringify(result)]);
- }catch(e){await wait(id,['identity_changed','service_changed'].includes(e.message)?'工作身分或服務已變更，暫停派發；請主持人核對原負責人。':'任務派發暫未完成，系統會重試；會議已發布，請勿重建任務。');logger.warn('Meeting task delivery deferred; stable receipt retained.');}
+  await pool.query(`UPDATE central_archive.meeting_task_dispatches SET applied_fields=payload_fields,applied_identities=$2::jsonb,known_task_ids=$3::jsonb,result=$4::jsonb,payload=NULL,payload_fields=NULL,error_code='',next_attempt_at=now()+interval '60 seconds',updated_at=now() WHERE workspace_id=$1`,[id,JSON.stringify({...q.applied_identities,...Object.fromEntries(q.payload.tasks.map(t=>[t.id,t.owner]))}),JSON.stringify(known),JSON.stringify({...result,...q.result?.lastFailure?{lastFailure:q.result.lastFailure}:{}})]);
+ }catch(e){const failure=dispatchFailure(e,r,q);await pool.query("UPDATE central_archive.meeting_task_dispatches SET result=jsonb_set(COALESCE(result,'{}'::jsonb),'{lastFailure}',$2::jsonb,true) WHERE workspace_id=$1",[id,JSON.stringify(failure)]);await wait(id,failure.message,failure.retryable?60:3600);logger.warn('Meeting task delivery deferred; reason recorded.',{code:failure.code});}
  finally{if(locked)await db.query('SELECT pg_advisory_unlock(hashtext($1))',['meeting-task-dispatch:'+id]);db.release();}}
- async function wait(id,message){await pool.query(`UPDATE central_archive.meeting_task_dispatches SET error_code=$2,next_attempt_at=now()+interval '60 seconds',updated_at=now() WHERE workspace_id=$1`,[id,message]);}
+ async function wait(id,message,seconds=60){await pool.query(`UPDATE central_archive.meeting_task_dispatches SET error_code=$2,next_attempt_at=now()+$3::integer*interval '1 second',updated_at=now() WHERE workspace_id=$1`,[id,message,seconds]);}
  async function drain(){const rows=(await pool.query(`SELECT d.workspace_id FROM central_archive.meeting_task_dispatches d JOIN central_archive.meeting_workspaces w ON w.id=d.workspace_id JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND w.state='published' AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at LIMIT 5`,[botId])).rows;for(const r of rows)await run(r.workspace_id);}
  return {enqueue,status,drain,run};
 }

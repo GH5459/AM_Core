@@ -68,3 +68,5 @@ Use this table to control whether each shared improvement should stay as-is, be 
 | Uninstall | Follow the package rollback notes in the target project, then update the manifest. |
 | Do Not Install | Intentionally keep the package out of that project. |
 | Review | Needs owner or technical review before changing status. |
+
+| AM-IMP-2026.1023.68 | Ready | 單案原會議證據、派發錯誤分類、隔離規則查核與同案白話結果 | 隔離實作中；正式部署待完整CI與回讀 | 保留原日期／核准／任務、並行日期修正與五專案；不重播或恢復heartbeat。 |

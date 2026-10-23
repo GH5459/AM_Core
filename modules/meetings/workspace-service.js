@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import {createGlossaryStore} from './glossary.js';
 import {Readable} from 'node:stream';
 import {createWorkspaceStore} from './workspace-store.js';
+import {createMeetingCaseEvidence} from './case-evidence.js';
 import {WORKSPACE_CONTRACT,MEETING_TYPES,failure,todos,recordText,meetingToday,checkPublication,checkField} from './workspace-model.js';
 import {workspaceHtml} from './workspace-ui.js';
 import {meetingDueDate} from './workspace-schedule.js';
@@ -31,6 +32,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  const hub=meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request,publicationReader:publication.reader});
  const taskDispatch=meetingTaskDispatch({pool,store,botId,platform,conversation,assertMember,link,logger});
  const taskProgress=meetingTaskProgress({pool,platform});
+ const caseEvidence=createMeetingCaseEvidence({pool,store,platform,env,conversation,assertRead});
  const revisionJobs=workspaceRevisions({pool,store,conversation,assertMember,validateAssignees,platform,request,link,logger,taskDispatch});
  const audioAccess=()=>audioTickets(platform.publicLinkSecret||env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY||'');
  function loginPage(row,id){
@@ -187,6 +189,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
+  if(await caseEvidence(req,res,url))return true;
   if(await hub.handle(req,res,url))return true;
   const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(\/glossary)?(?:[?#].*)?$/):null;
   const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio|glossary|hub))?$/)||(primary?[primary[0],primary[1],primary[2]?'glossary':undefined]:null);if(!match)return false;

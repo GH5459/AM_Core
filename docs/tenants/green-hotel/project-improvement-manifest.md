@@ -34,3 +34,5 @@
 
 | AM-IMP-2026.1008.03 | Deployed | MIME-aware video/audio download filenames | 88 attachment/archive tests, server webhook, 19 core checks | Production main f8b9e7b, old-link MIME/extension and original byte equality verified. Existing valid links retain exact original bytes and receive correct extensions. |
 
+
+| AM-IMP-2026.1023.68 | Ready | 單案原會議證據、派發錯誤分類、隔離規則查核與同案白話結果 | 隔離實作中；正式部署待完整CI與回讀 | 保留原日期／核准／任務、並行日期修正與五專案；不重播或恢復heartbeat。 |
