@@ -35,8 +35,8 @@ test('full flow: one issue, exact source retry, proposal approval, claim, result
  assert.equal((await a.ok(await a.machine('runner/claim',{operationId:op()},true))).task,null,'unapproved work cannot run');
  t=(await a.propose(t)).task;assert.equal(t.secretary.stage,'awaiting_approval');assert.equal((await a.send('900003','/api/xiaoye/issues/'+t.id+'/approve',{version:t.version,proposalHash:t.secretary.proposal.hash,confirm:true,operationId:op()})).status,403);
  t=(await a.approve(t)).task;const claim=await a.ok(await a.machine('runner/claim',{operationId:op()},true));assert.equal(claim.task.id,t.id);const lease=claim.lease;
- assert.equal((await a.machine('runner/finish',{id:t.id,lease,result:'完成',deployed:false,evidence:[],operationId:op()},true)).status,400);
- const completed=await a.ok(await a.machine('runner/finish',{id:t.id,lease,result:'隔離顯示已修正；待同仁再試。',deployed:false,evidence:['完整 Worker 合成流程通過'],operationId:op()},true));t=completed.task;assert.equal(t.secretary.stage,'awaiting_confirmation');assert.notEqual(t.status,'done');
+ assert.equal((await a.machine('runner/finish',{id:t.id,lease,result:'完成',explanation:{cause:'隔離示例的日期或顯示處理有誤。',handling:'已修正隔離示例並查核原流程。',outcome:'隔離流程通過，請依原操作確認。'},deployed:false,evidence:[],operationId:op()},true)).status,400);
+ const completed=await a.ok(await a.machine('runner/finish',{id:t.id,lease,result:'隔離顯示已修正；待同仁再試。',explanation:{cause:'隔離示例的日期或顯示處理有誤。',handling:'已修正隔離示例並查核原流程。',outcome:'隔離流程通過，請依原操作確認。'},deployed:false,evidence:['完整 Worker 合成流程通過'],operationId:op()},true));t=completed.task;assert.equal(t.secretary.stage,'awaiting_confirmation');assert.notEqual(t.status,'done');
  assert.equal((await a.send(owner,'/api/xiaoye/issues/'+t.id+'/confirm',{version:t.version,confirm:true,operationId:op()})).status,403);
  const done=await a.ok(await a.send('900003','/api/xiaoye/issues/'+t.id+'/confirm',{version:t.version,confirm:true,operationId:op()}));assert.equal(done.task.status,'done');
  const overview=await a.ok(await a.send(owner,'/api/xiaoye/overview'));assert.equal(overview.tasks.length,1);assert.equal(overview.journals[0].entries.length,6);assert(!JSON.stringify(overview).includes('sessionHash'));assert(overview.journals[0].entries.every(e=>e.workId===t.id&&!('minutes'in e)));
@@ -78,7 +78,7 @@ test('lost replies reuse proposal, approval, claim and result operations without
  t=(await a.ok(await a.machine('runner/propose',p,true))).task;await a.ok(await a.machine('runner/propose',p,true));
  const approval={version:t.version,proposalHash:t.secretary.proposal.hash,confirm:true,operationId:op()};await a.ok(await a.send(owner,'/api/xiaoye/issues/'+t.id+'/approve',approval));await a.ok(await a.send(owner,'/api/xiaoye/issues/'+t.id+'/approve',approval));
  const claimOp={operationId:op()},claim=await a.ok(await a.machine('runner/claim',claimOp,true));const again=await a.ok(await a.machine('runner/claim',claimOp,true));assert.equal(again.lease,claim.lease);
- const result={id:t.id,lease:claim.lease,result:'隔離回覆遺失後原操作確認',deployed:false,evidence:['固定操作驗證通過'],operationId:op()};await a.ok(await a.machine('runner/finish',result,true));await a.ok(await a.machine('runner/finish',result,true));
+ const result={id:t.id,lease:claim.lease,result:'隔離回覆遺失後原操作確認',explanation:{cause:'隔離示例的日期或顯示處理有誤。',handling:'已修正隔離示例並查核原流程。',outcome:'隔離流程通過，請依原操作確認。'},deployed:false,evidence:['固定操作驗證通過'],operationId:op()};await a.ok(await a.machine('runner/finish',result,true));await a.ok(await a.machine('runner/finish',result,true));
  const overview=await a.ok(await a.send(owner,'/api/xiaoye/overview'));assert.equal(overview.journals[0].entries.length,5);
  }finally{await a.close();}
 });

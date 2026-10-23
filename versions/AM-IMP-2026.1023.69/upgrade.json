@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.1023.69",
+  "name": "葉小蝸完成後自動說明與確認",
+  "type": "Automatic original-reporter completion explanation",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Existing project-local DailyLog DB; no schema change"
+  ],
+  "requiresEnv": [
+    "Existing original OA and secretary event service"
+  ],
+  "requiresScripts": [
+    "tools/test-xiaoye-result-worker.cjs",
+    "tools/test-xiaoye-result.mjs",
+    "tools/test-xiaoye-result-ui.cjs"
+  ],
+  "installTargets": [
+    "Original complete DailyLog Worker",
+    "Original event receiver prompt"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "New completion requires concise cause, actual handling and verified outcome",
+    "Original reporter receives one result card with both existing confirmation actions",
+    "Stable retries, old sent history, original identity checks and exact-result confirmation preserved",
+    "Isolated Worker-D1, six widths, LINE format, full CI and reviewed merged source",
+    "Latest complete rollback and production readback; no new polling or real test messages"
+  ]
+}
