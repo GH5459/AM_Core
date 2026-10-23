@@ -47,7 +47,9 @@ export async function verifyMeetingGrant(env,c,input,h,check){
 // in-memory DB. No production write, queue, notification or network is reachable.
 export async function previewMeetingDelivery(payload,core,publishAssignments,origin){
  const people=[...new Map([payload.host,...payload.tasks.map(t=>t.owner)].map(p=>[p.account,{account:p.account,name:p.name||p.account}])).values()];
+ const attempts=[],today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+ const inspectedCore={...core,createTaskService(...args){const service=core.createTaskService(...args);return {...service,create(user,value,...rest){attempts.push({taskId:value.id,sourceDate:value.sourceDate||null,submittedStartDate:value.startDate||null,fallbackStartDate:value.startDate?null:today,dueDate:value.dueDate||null});return service.create(user,value,...rest);}};}};
  const DB={prepare(sql){return {bind(){return {first:async()=>null};}};},batch:async()=>{throw Object.assign(Error('preview-complete'),{previewComplete:true});}};
- try{await publishAssignments(payload,{DB,LEAF_TASK_TENANT:payload.host.tenantKey,PUBLIC_ORIGIN:origin},{now:Date.now,directory:async()=>({people}),permission:()=>true,core,publish(){throw Error('Preview must not publish.');}});return {state:'passed',writes:0};}
- catch(error){if(error.previewComplete)return {state:'passed',writes:0};const date=error.message==='截止日不能早於執行日期。',today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);return {state:'failed',code:date?'START_AFTER_DUE':'VALIDATION_FAILED',message:date?error.message:'任務資料未通過建立檢查。',items:date?payload.tasks.filter(t=>t.due<today).map(t=>({todoId:t.id,sourceDate:payload.date,defaultStartDate:today,dueDate:t.due})):[],writes:0};}
+ try{await publishAssignments(payload,{DB,LEAF_TASK_TENANT:payload.host.tenantKey,PUBLIC_ORIGIN:origin},{now:Date.now,directory:async()=>({people}),permission:()=>true,core:inspectedCore,publish(){throw Error('Preview must not publish.');}});return {state:'passed',writes:0};}
+ catch(error){if(error.previewComplete)return {state:'passed',writes:0};const date=error.message==='截止日不能早於執行日期。';return {state:'failed',code:date?'START_AFTER_DUE':'VALIDATION_FAILED',message:date?error.message:'任務資料未通過建立檢查。',items:date&&attempts.length?[attempts.at(-1)]:[],writes:0};}
 }

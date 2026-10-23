@@ -1,7 +1,7 @@
 import {todos} from './workspace-model.js';
 export function dispatchFailure(error,workspace,dispatch,now=Date.now()){
  const date=error.code==='截止日不能早於執行日期。'||error.message==='截止日不能早於執行日期。',identity=['identity_changed','service_changed'].includes(error.message),today=new Date(now+8*3600000).toISOString().slice(0,10);
- const items=date?(dispatch?.payload?.tasks||[]).filter(t=>t.due<today).map(t=>({todoId:t.id,meetingDate:dispatch.payload.date,defaultStartDate:today,dueDate:t.due})):[];
+ const items=date?(dispatch?.payload?.tasks||[]).filter(t=>t.due<today).map(t=>({todoId:t.id,meetingDate:dispatch.payload.date,executionDate:today,dueDate:t.due})):[];
  return {code:date?'START_AFTER_DUE':identity?'IDENTITY_CHANGED':'DELIVERY_UNAVAILABLE',retryable:!date&&!identity,at:new Date(now).toISOString(),items,message:date?'會議任務的開始日晚於截止日，這次整批尚未建立。請由系統維護人員查明日期處理，保留原日期並提出修正方案。':identity?'工作身分或服務已變更，暫停派發；請主持人核對原負責人。':'任務派發暫未完成，系統會重試；會議已發布，請勿重建任務。'};
 }
 
