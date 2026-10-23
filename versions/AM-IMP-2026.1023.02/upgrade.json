@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1023.02",
+  "name": "逾期會議待辦保留原日期派發",
+  "type": "Meeting task delivery date correction",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": ["Existing project-local task-service D1; no schema change"],
+  "requiresEnv": ["Existing authenticated meeting task service"],
+  "requiresScripts": ["modules/meetings/dailylog-assignment.mjs", "tools/test-meeting-workspace-worker.cjs"],
+  "installTargets": ["Original DailyLog task service only"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Past-due initial and deferred tasks retain the original meeting start and deadline", "Unassigned items stay unassigned", "Four-item delivery, stable retry receipts and duplicate protection pass the complete Worker and real D1", "Existing task schedules and progress stay authoritative", "Full CI, reviewed merged source, latest complete private rollback and exact production module readback", "Owner-authorized original delivery verified without repeated task creation or reporter closure"]
+}
