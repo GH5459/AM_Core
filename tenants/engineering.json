@@ -3,9 +3,10 @@
   "displayName": "工程 AM",
   "aka": "AM Platform 工程租戶（旅宿工程管理）",
   "envPrefix": "ENG",
-  "modules": ["collect", "meetings", "meeting-terms", "media", "triage", "queue", "tasks", "reminders", "construction", "groups"],
+  "modules": ["collect", "meetings", "meeting-terms", "media", "triage", "queue", "tasks", "construction", "groups"],
   "status": "AM Platform 已完成工程功能承接；正式上線以 LINE webhook 切換為準；沿用既有 Notion 頁與資料來源，不搬資料",
   "config": {
+    "construction": { "remindersEnabled": false, "calendarEnabled": false },
     "homeRoute": "/dashboard",
     "attachments": {
       "archiveAllLineGroupAttachmentsToDrive": true,
@@ -22,6 +23,7 @@
       "acceptLegacyGlobalPinCookie": true
     },
     "meetings": {
+      "autoNextMeetingReminder": false,
       "formalTasksEnabled": true,
       "domain": "台灣旅宿室內裝修工程會議",
       "transcriptionHint": "台灣旅宿室內裝修工程會議,繁體中文為主、夾雜英文工程術語。",

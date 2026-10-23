@@ -259,7 +259,7 @@ async function runTaskTickPass(tenant) {
 // tick 每次跑;每日班次(≥ 提醒時刻)當日補跑一次;前一晚班次(≥20:00)當日補跑一次。
 // 「當日一次」的日戳以 tenant.key 為鍵,各租戶各自累積,互不影響。
 async function runPassesForTenant(tenant) {
-  if (!tenant) return null;
+  if (!tenant || !(tenant.modules || []).includes('reminders')) return null;
   const cfg = tenantConfig(tenant);
   const now = taipeiNow();
   const today = now.toISOString().slice(0, 10);

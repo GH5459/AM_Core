@@ -26,7 +26,7 @@ const tenants = loadTenants(env, { warn() {} });
 const engineering = tenants.find((tenant) => tenant.key === 'engineering');
 const forest = tenants.find((tenant) => tenant.key === 'forest');
 assert.ok(engineering, 'engineering tenant should load');
-assert.deepEqual(engineering.modules, ['collect', 'meetings', 'meeting-terms', 'media', 'triage', 'queue', 'tasks', 'reminders', 'construction', 'groups']);
+assert.deepEqual(engineering.modules, ['collect', 'meetings', 'meeting-terms', 'media', 'triage', 'queue', 'tasks', 'construction', 'groups']);
 assert.equal(engineering.queueAccessKey, 'engineering-key');
 assert.equal(engineering.portalPin, 'engineering-pin');
 assert.equal(engineering.calendars.ZS, 'zs-calendar');

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {loadTenants} from '../core/tenants.js';
+import reminders,{__test as reminderTest} from '../modules/reminders/index.js';
+import {__test as meetingTest} from '../modules/meetings/index.js';
+import {ticketAction,handleTicketsRequest} from '../modules/construction/tickets.js';
+const tenants=loadTenants({}, {warn(){}}), eng=tenants.find(t=>t.key==='engineering'), forest=tenants.find(t=>t.key==='forest');
+assert.ok(!eng.modules.includes('reminders'));for(const m of ['collect','meetings','tasks','construction'])assert.ok(eng.modules.includes(m));assert.ok(forest.modules.includes('reminders'));
+let externalCalls=0;reminders.init({notionRequest:async()=>{externalCalls++;throw Error('unexpected I/O')}});assert.equal(await reminderTest.runPassesForTenant(eng),null);assert.equal(externalCalls,0);
+const parsed={todos:[{content:'確認施工圖',owner:'測試',due:'2026-10-30'}],nextMeeting:'2026-11-01'};
+assert.equal(meetingTest.withNextMeetingTodo(parsed,eng).length,1);assert.equal(meetingTest.withNextMeetingTodo({...parsed,todos:[]},forest).length,1);
+assert.ok(!meetingTest.meetingPrompt({who:'測試',topic:'工程',today:'2026-10-23',cfg:{types:[],autoNextMeetingReminder:false}}).includes('原提醒待辦規則保持'));
+for(const action of ['urge','urge-send'])await assert.rejects(ticketAction({remindersEnabled:false,notionRequest:async()=>{externalCalls++;throw Error('unexpected I/O')}},{ticketId:'fake',action,operator:'test'}),/已停用/);assert.equal(externalCalls,0);
+let html='';await handleTicketsRequest({method:'GET'},{writeHead(){},end(s){html=s}},'/tickets',new URL('https://example.invalid/tickets'),{tenantKey:'engineering',actor:'test',remindersEnabled:false});
+assert.ok(html.includes('REMINDERS_ENABLED=false'));new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+console.log('PASS: engineering reminders disabled, other tenant preserved, zero reminder I/O, explicit meeting tasks preserved, no generated reminder, urge blocked, tickets browser script parses.');
