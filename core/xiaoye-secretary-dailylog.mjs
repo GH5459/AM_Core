@@ -4,7 +4,7 @@ import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
 import {ownerRequest,verifyLineApproval,ownerDraftActive,noOwnerDraftSql} from './xiaoye-owner-actions.mjs';
 import {inspectionRunner,inspectionFetch} from './xiaoye-inspection.mjs';
-import {resultCard,resultText} from './xiaoye-result-card.mjs';
+import {resultCard,resultText,completionExplanation} from './xiaoye-result-card.mjs';
 import {resultRequest} from './xiaoye-result-actions.mjs';
 import {restartAnalysis,recoveryDetails,recoveryCard,recoveryNextStep} from './xiaoye-recovery.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
@@ -224,8 +224,8 @@ async function runner(env,c,base,authority,action,v,preview){
   if(action==='finish'){
    if(!Array.isArray(v.evidence)||!v.evidence.length||v.evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>2000))throw fail('請附上實際驗證或發布證據。',400);
    if(typeof v.deployed!=='boolean'||v.deployed!==s.proposal.deploy)throw fail('結果與核准的發布範圍不符。');
-   s.stage='awaiting_confirmation';s.result={text:result,evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
-   for(const p of s.reporters)extras.push(notification(env,t,p.account,'result','葉小蝸已完成處理：'+t.title+'\n'+result.slice(0,1500)+'\n請再試一次，並在問題頁選擇「已解決」或「仍有問題」。\n'+link(env,t.id),p.source));
+   s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
+   for(const p of s.reporters)extras.push(notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
   }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id));t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t)));}
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }

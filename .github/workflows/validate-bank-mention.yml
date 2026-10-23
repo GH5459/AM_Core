@@ -209,6 +209,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.61
       - run: node --test tools/test-xiaoye-owner-adapter.mjs
       - run: node --test tools/test-xiaoye-result.mjs tools/test-xiaoye-result-ui.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.69
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.66
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.64
