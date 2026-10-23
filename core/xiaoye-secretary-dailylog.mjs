@@ -160,8 +160,8 @@ async function withdraw(env,c,v){
   const attachment='att-'+uuidFrom(await digest(t.id+':'+source.eventId)),extra=[env.DB.prepare('UPDATE task_attachments SET removed_at=?,removed_by=? WHERE id=? AND target_id=? AND removed_at IS NULL').bind(new Date().toISOString(),AI,attachment,t.id)];await transaction(env,old,t,operation,input,actor,'原來源訊息已撤回；停止後續處理並保留原卡與歷史。',extra);
  }return {ok:true,handled:rows.length>0||drafts.length>0};
 }
-async function runner(env,c,base,authority,action,v){
- if(['health','inspect','inspection-open'].includes(action))return inspectionRunner(env,c,action,v,{record,load,membership,linePerson,currentPerson,base,approved:t=>approved(env,c,t,authority,base)});
+async function runner(env,c,base,authority,action,v,preview){
+ if(['health','inspect','inspection-open','evidence-check','record-finding'].includes(action))return inspectionRunner(env,c,action,v,{record,load,membership,linePerson,currentPerson,base,replay,transaction,preview,approved:t=>approved(env,c,t,authority,base)});
  if(action==='resume'){
   const previous=await replay(env,v.id,v.operationId,{action:'resume',grantId:v.grantId},c.account);if(previous)return {ok:true,task:previous,replayed:true};
   const grant=await record(env.DB,'xiaoye-recovery-grants',v.grantId),g=grant?.value;if(!g||g.id!==v.id||g.operationId!==v.operationId||g.scope!=='analyze-only'||g.ownerAccount!==c.ownerAccount||g.accountId!==c.account.id)throw fail('缺少本人明確交接的單案接續資格。',403);
@@ -275,7 +275,7 @@ async function install(request,env){
  statements.push(docsInsert(env.DB,'service-accounts',AI,account),docsInsert(env.DB,configNs,'config',c),docsInsert(env.DB,'xiaoye-work-journal',day(Date.now()),{date:day(Date.now()),account:AI,entries:[{id:op,workId:null,title:'試行版本建置',action:'setup',text:'依本人要求沿用既有葉小蝸OA的工作身分，加入四個現有專案；收件尚待啟用。',at,stage:'setup'}]}));
  try{await env.DB.batch(statements);}catch{throw fail('原專案正在更新，安裝未完成，請重新核對。');}return json({ok:true,installed:true,account:AI,joinedProjects:4,intakeEnabled:false});
 }
-export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}){
+export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx,meetingPreview}){
  const url=new URL(request.url),path=url.pathname,machine=path.startsWith(machinePrefix),page=path==='/xiaoye',api=path.startsWith('/api/xiaoye/'),inspection=path==='/xiaoye/inspect'||path.startsWith('/api/xiaoye-inspection/');
  if(!machine&&!page&&!api&&!inspection)return null;
  try{
@@ -289,12 +289,13 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx}
    if(action==='runner/events/ws'&&request.method==='GET'){if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);return eventStub(env).fetch(new Request('https://secretary.internal/socket',{headers:{Upgrade:request.headers.get('Upgrade')||''}}));}
    if(request.method!=='POST')throw fail('Method not allowed',405);const v=await body(request);if(v.tenantKey!==env.LEAF_TASK_TENANT)throw fail('Tenant mismatch',403);
    if(action==='reporter')return json(await resultRequest(env,c,base,v,{record,load,linePerson,digest,fail,docsInsert,transaction}));
+   if(action==='evidence-check')return json(await runner(env,c,base,authority,action,v));
    if(action==='owner')return json(await ownerRequest(env,c,base,v,{record,load,linePerson,membership,digest,fail,docsInsert,transaction,retireProposal,imageBytes,uuidFrom}));
    if(action==='intake')return json(await intake(env,c,base,v));
    if(action==='withdraw')return json(await withdraw(env,c,v));
    if(action==='sessions'){const rows=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;const ownerSessions=(await env.DB.prepare("SELECT key,json_extract(value,'$.until') AS until FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>? LIMIT 500").bind(Date.now()).all()).results;return json({ok:true,sessions:rows,ownerSessions});}
    if(action==='active'){const key=await digest(JSON.stringify([v.botUserId,v.type,v.conversationId,v.userId])),r=await record(env.DB,'xiaoye-intake-sessions',key);return json({ok:true,active:!!r&&r.value.until>Date.now()});}
-   if(runnerMode){const result=await runner(env,c,base,authority,action.slice(7),v);return result instanceof Response?result:json(result);}
+   if(runnerMode){const result=await runner(env,c,base,authority,action.slice(7),v,meetingPreview);return result instanceof Response?result:json(result);}
    if(action.startsWith('notifications/'))return json(await notifications(env,c,action.slice(14),v));
    throw fail('Not found',404);
   }

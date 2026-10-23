@@ -1,5 +1,6 @@
 import {eventCall} from './xiaoye-secretary-events.mjs';
 import {inspectionPage} from './xiaoye-inspection-ui.mjs';
+import {prepareMeetingEvidence,verifyMeetingGrant,plainFinding} from './xiaoye-case-evidence.mjs';
 export const INSPECTION_CONTRACT='xiaoye-case-inspection-v1';
 const ttl=5*60*1000,tickets='xiaoye-inspection-tickets',sessions='xiaoye-inspection-sessions';
 const fail=(message,status=403)=>Object.assign(Error(message),{status});
@@ -12,9 +13,14 @@ async function put(db,ns,key,value){await db.prepare('INSERT OR IGNORE INTO docu
 async function audit(env,context,operation,action){await put(env.DB,'xiaoye-inspection-audit',await sha(action+':'+context.id+':'+context.version+':'+operation),{account:'ai-xiaoye',taskId:context.id,eventId:context.eventId,version:context.version,action,at:new Date().toISOString()});}
 async function check(env,c,v,h){
  if(!/^work-[a-f0-9-]{36}$/.test(v.id||'')||!Number.isSafeInteger(v.version)||!env.XIAOYE_EVENTS)throw fail('請從目前案件事件取得查核資格。');
- const r=await eventCall(env,'check',{id:v.eventId,lease:v.eventLease});if(!r.ok)throw fail('案件事件已停止或失效。');const job=(await r.json()).job;
+ let job;
+ if(v.ownerInspectionGrant){
+  const grant=(await h.record(env.DB,'xiaoye-owner-inspection-grants',v.ownerInspectionGrant))?.value;
+  if(!grant||grant.scope!=='inspect-and-record'||grant.id!==v.id||grant.version!==v.version||grant.ownerAccount!==c.ownerAccount||grant.accountId!==c.account.id||grant.expiresAt<=Date.now())throw fail('本人的單案查核交接已到期或變更。');
+  await h.currentPerson(env,h.base,{account:c.ownerAccount});job={id:'owner-inspection:'+v.ownerInspectionGrant,taskId:grant.id,sourceVersion:grant.sourceVersion,kind:'inspect',leaseUntil:grant.expiresAt};
+ }else{const r=await eventCall(env,'check',{id:v.eventId,lease:v.eventLease});if(!r.ok)throw fail('案件事件已停止或失效。');job=(await r.json()).job;}
  const t=(await h.load(env.DB,v.id))?.task,s=t?.secretary;
- if(!job||job.taskId!==v.id||job.sourceVersion!==s?.sourceVersion||t.version!==v.version||!s||s.sourceWithdrawn||t.deletedAt||t.mergedInto||!['analyze','execute'].includes(job.kind))throw fail('案件版本已變更，請重新查核。');
+ if(!job||job.taskId!==v.id||job.sourceVersion!==s?.sourceVersion||t.version!==v.version||!s||s.sourceWithdrawn||t.deletedAt||t.mergedInto||!['analyze','execute','inspect'].includes(job.kind))throw fail('案件版本已變更，請重新查核。');
  if(job.kind==='analyze'&&(s.stage!=='clarifying'||s.waitingForReporter))throw fail('目前沒有可分析的案件。');
  if(job.kind==='execute'){if(!['approved','executing'].includes(s.stage))throw fail('目前沒有可執行的核准。');await h.approved(t);}
  for(const p of s.reporters){if(p.source?.type==='user'||p.source?.type==='group')await h.linePerson(env,h.base,{...p,userId:p.source.userId,botUserId:p.source.botUserId});else await h.currentPerson(env,h.base,p);}
@@ -33,9 +39,27 @@ async function snapshot(env,c,t){
 }
 export async function inspectionRunner(env,c,action,v,h){
  if(action==='health')return {ok:true,contract:INSPECTION_CONTRACT,account:'ai-xiaoye',humanLoginRequired:false,approvalRequired:true,eventRequired:true,inspectionTtlSeconds:ttl/1000};
+ if(action==='evidence-check')return verifyMeetingGrant(env,c,v,h,context=>check(env,c,context,h));
+ // A retry only acknowledges the already saved write. It does not return case
+ // contents after the original event or exact-version handoff has ended.
+ if(action==='record-finding'){const previous=await h.replay(env,v.id,v.operationId,{...v,action},c.account);if(previous)return {ok:true,replayed:true};}
  const operation=op(v.operationId),{task,job}=await check(env,c,v,h);
- const context={id:task.id,version:task.version,sourceVersion:task.secretary.sourceVersion,proposalHash:task.secretary.proposal?.hash||null,eventId:job.id,eventLease:job.lease};
- if(action==='inspect'){const data=await snapshot(env,c,task);await check(env,c,context,h);await audit(env,context,operation,'background-read');return {ok:true,...data};}
+ const context={id:task.id,version:task.version,sourceVersion:task.secretary.sourceVersion,proposalHash:task.secretary.proposal?.hash||null,eventId:job.id,eventLease:job.lease,...v.ownerInspectionGrant?{ownerInspectionGrant:v.ownerInspectionGrant}:{}};
+ if(action==='record-finding'){
+  const captured=(await h.record(env.DB,'xiaoye-case-evidence',v.evidenceDigest))?.value;
+  if(!captured||captured.caseId!==task.id||captured.caseVersion!==task.version||captured.sourceVersion!==task.secretary.sourceVersion||captured.eventId!==context.eventId||captured.ownerInspectionGrant!==(context.ownerInspectionGrant||null))throw fail('請先取得本案當次查核資料，再保存判斷。');
+  const finding={...plainFinding(v.finding),id:operation,at:new Date().toISOString(),sourceVersion:task.secretary.sourceVersion,evidenceDigest:v.evidenceDigest};
+  const next=structuredClone(task);next.secretary.findings=[...(next.secretary.findings||[]),finding].slice(-30);await check(env,c,context,h);
+  if(task.secretary.stage==='awaiting_confirmation'&&task.secretary.result){const prior=task.secretary.findingResultReceipt;next.secretary.findingResultReceipt={fromVersion:prior?.throughVersion===task.version?prior.fromVersion:task.version,throughVersion:task.version+1};}
+  const old=await h.load(env.DB,task.id);if(old.task.version!==task.version)throw fail('案件剛有更新，請重新讀取後保存。',409);
+  return {ok:true,task:await h.transaction(env,old,next,operation,{...v,action},c.account,'查核原因：'+finding.cause+'\n影響：'+finding.impact+'\n下一步：'+finding.nextStep+'\n目前進度：'+finding.progress)};
+ }
+ if(action==='inspect'){
+  const data=await snapshot(env,c,task);
+  try{data.evidence=await prepareMeetingEvidence(env,c,task,context,{check:()=>check(env,c,context,h),record:h.record,preview:h.preview});}
+  catch(error){if(error.status===403)throw error;data.evidence={available:false,reason:error.status?error.message:'這場會議的派發資料暫時讀取失敗。',nextStep:'由系統維護人員檢查本案查核連線；你不需要重新回報。'};}
+  await check(env,c,context,h);await audit(env,context,operation,'background-read');return {ok:true,...data};
+ }
  const fingerprint=JSON.stringify(context),key=await sha('open:'+operation),previous=await h.record(env.DB,tickets,key);
  if(previous&&previous.value.fingerprint!==fingerprint)throw fail('操作識別已用於另一案件或版本。',409);
  await put(env.DB,tickets,key,{fingerprint});if((await h.record(env.DB,tickets,key)).value.fingerprint!==fingerprint)throw fail('操作識別已用於另一案件或版本。',409);
