@@ -8,7 +8,11 @@ export function createMeetingCaseEvidence({pool,store,platform,env,conversation,
   try{
    if(req.method!=='POST')throw fail('不支援此查核方式。',405);
    let body='';for await(const chunk of req){body+=chunk.toString();if(Buffer.byteLength(body)>4096)throw fail('查核內容過長。',413);}
-   if(!await verifyEvidenceSignature(env.AMCORE_MEETING_MANAGEMENT_SECRET,req.headers['x-xiaoye-case-time'],body,req.headers['x-xiaoye-case-signature'],now()))throw fail('查核來源無效。');
+   // Same original management connection as conversation-service and multilingual.
+   // Existing deployments may keep it under the owner API setting name.
+   const secret=env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY;
+   if(!secret||secret.length<32)throw fail('會議查核尚未接上原管理連線，請由維護人員檢查設定。',503);
+   if(!await verifyEvidenceSignature(secret,req.headers['x-xiaoye-case-time'],body,req.headers['x-xiaoye-case-signature'],now()))throw fail('查核來源無效。');
    let input;try{input=JSON.parse(body);}catch{throw fail('查核格式錯誤。',400);}
    if(input.contract!==CASE_EVIDENCE_CONTRACT||!/^work-[a-f0-9-]{36}$/.test(input.caseId||'')||!/^[a-f0-9]{64}$/.test(input.meetingId||'')||!Number.isSafeInteger(input.caseVersion))throw fail('查核案件無效。');
    const verify=async()=>{const result=await platform.secretaryEvidenceCheck?.(input);if(!result?.ok||result.caseId!==input.caseId||result.caseVersion!==input.caseVersion||result.meetingId!==input.meetingId)throw fail('原案件查核已停止或變更。');return result;};
