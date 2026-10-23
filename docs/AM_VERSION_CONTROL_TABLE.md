@@ -69,4 +69,9 @@ Use this table to control whether each shared improvement should stay as-is, be 
 | Do Not Install | Intentionally keep the package out of that project. |
 | Review | Needs owner or technical review before changing status. |
 
-| AM-IMP-2026.1023.68 | Ready | 單案原會議證據、派發錯誤分類、隔離規則查核與同案白話結果 | 隔離實作中；正式部署待完整CI與回讀 | 保留原日期／核准／任務、並行日期修正與五專案；不重播或恢復heartbeat。 |
+
+## AM Platform／DailyLog 正式發布
+
+| Version | Status | Scope | Verified | Notes |
+| --- | --- | --- | --- | --- |
+| AM-IMP-2026.1023.68 | Deployed | 單案原會議證據、實際日期診斷與同案白話結果 | PR450／451完整CI；AM 743212e2；DailyLog 77模組及最新79模組回讀 | 原6項／4既有任務／2待指派，無重複；原核准與結案保持；不重播或恢復heartbeat。 |
