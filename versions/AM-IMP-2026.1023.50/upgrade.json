@@ -6,7 +6,7 @@
   "status":"Proposed",
   "requiresDatabases":["Isolated central_archive.login_continuation table (not created in production)"],
   "requiresEnv":["Existing authenticated source-session and feature authority adapters; HTTP adapters are not implemented"],
-  "requiresScripts":["core/login-continuation.js","core/login-continuation-authority.js","tools/test-login-continuation.mjs","tools/test-login-continuation-authority.mjs"],
+  "requiresScripts":["core/login-continuation.js","core/login-continuation-authority.js","tools/test-login-continuation.mjs","tools/test-login-continuation-authority.mjs","tools/test-login-continuation-postgres.mjs"],
   "installTargets":["AM broker, DailyLog and UOF (not connected)"],
   "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
   "definitionOfDone":["Complete authenticated service adapters and browser challenge callbacks","Original session and logout-chain validation on every imported session request","Full original permission and membership checks","Full Worker/D1, UOF and PostgreSQL integration plus real browser regression","Reviewed full CI, latest complete private rollback packages, exact deployment and production readback"]
