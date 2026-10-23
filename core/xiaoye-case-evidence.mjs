@@ -2,6 +2,14 @@ import {CASE_EVIDENCE_CONTRACT,CASE_EVIDENCE_PATH,evidenceDigest,evidenceSignatu
 const fail=(message,status=403)=>Object.assign(Error(message),{status});
 const ns='xiaoye-meeting-evidence-grants';
 export const findingFields=['cause','impact','nextStep','progress'];
+// Only consecutive finding-only versions may keep an already sent result card.
+// Any other case update increments version without extending this exact range.
+export function sameResultVersion(task,version){
+ if(!Number.isSafeInteger(version)||version<1)return false;
+ if(version===task.version)return true;
+ const receipt=task.secretary?.findingResultReceipt;
+ return task.secretary?.stage==='awaiting_confirmation'&&!!task.secretary.result&&Number.isSafeInteger(receipt?.fromVersion)&&receipt.throughVersion===task.version&&version>=receipt.fromVersion&&version<task.version;
+}
 export function plainFinding(value){
  if(!value||!['confirmed','suspected'].includes(value.certainty))throw fail('請區分已證實的原因與待確認的推測。',400);
  const result={certainty:value.certainty};for(const field of findingFields){const text=value[field];if(typeof text!=='string'||!text.trim()||text.length>700)throw fail('請用簡短文字說明原因、影響、下一步與目前進度。',400);if(/原服務提供|唯讀派發證據|失效守衛|lease|binding|原卡重新審核/i.test(text))throw fail('請改用一般同仁能理解的文字，並說明由誰接續處理。',400);result[field]=text.trim();}return result;

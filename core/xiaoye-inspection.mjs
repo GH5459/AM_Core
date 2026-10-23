@@ -50,6 +50,7 @@ export async function inspectionRunner(env,c,action,v,h){
   if(!captured||captured.caseId!==task.id||captured.caseVersion!==task.version||captured.sourceVersion!==task.secretary.sourceVersion||captured.eventId!==context.eventId||captured.ownerInspectionGrant!==(context.ownerInspectionGrant||null))throw fail('請先取得本案當次查核資料，再保存判斷。');
   const finding={...plainFinding(v.finding),id:operation,at:new Date().toISOString(),sourceVersion:task.secretary.sourceVersion,evidenceDigest:v.evidenceDigest};
   const next=structuredClone(task);next.secretary.findings=[...(next.secretary.findings||[]),finding].slice(-30);await check(env,c,context,h);
+  if(task.secretary.stage==='awaiting_confirmation'&&task.secretary.result){const prior=task.secretary.findingResultReceipt;next.secretary.findingResultReceipt={fromVersion:prior?.throughVersion===task.version?prior.fromVersion:task.version,throughVersion:task.version+1};}
   const old=await h.load(env.DB,task.id);if(old.task.version!==task.version)throw fail('案件剛有更新，請重新讀取後保存。',409);
   return {ok:true,task:await h.transaction(env,old,next,operation,{...v,action},c.account,'查核原因：'+finding.cause+'\n影響：'+finding.impact+'\n下一步：'+finding.nextStep+'\n目前進度：'+finding.progress)};
  }
