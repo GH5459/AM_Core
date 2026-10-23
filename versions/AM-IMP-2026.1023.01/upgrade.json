@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.1023.01",
+  "name": "工程 AM 停止定時提醒",
+  "type": "tenant-scoped reminder removal",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-engineering-reminders-disabled.mjs"
+  ],
+  "installTargets": [
+    "AM Platform engineering tenant",
+    "BuildAM legacy service"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Engineering reminders module is not loaded",
+    "Manual urge actions rejected and hidden",
+    "No automatic next meeting reminder task for engineering",
+    "LINE intake and meeting processing preserved",
+    "Live deployment checked without real group test messages"
+  ]
+}

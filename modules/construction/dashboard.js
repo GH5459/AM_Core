@@ -236,7 +236,7 @@ async function buildProjectDetail(deps, projectId) {
 
   const projectCode = plain(projectPage.properties['館別代碼']?.rich_text);
   const calendarId = (deps.calendars || {})[projectCode] || '';
-  return { openTickets, matrix, meetings, tasks, calendarId, photoSpaces: [...spaceCounts.values()].sort((a, b) => b.count - a.count), sopStages: SOP_STAGES, sopState };
+  return { openTickets, matrix, meetings, tasks, calendarEnabled: deps.calendarEnabled !== false, calendarId, photoSpaces: [...spaceCounts.values()].sort((a, b) => b.count - a.count), sopStages: SOP_STAGES, sopState };
 }
 
 async function buildSpacePhotos(deps, spaceId) {
@@ -597,7 +597,7 @@ async function openProject(id) {
       <button class="secondary" onclick="openManager('trade')">＋ 新增工種</button>
       <button onclick="openManager('workItem')">＋ 新增工項</button>
     </div>
-    <h3>專案行事曆(會議與行程,可訂閱同步手機)</h3>\${calendar}
+    \${d.calendarEnabled ? '<h3>專案行事曆(會議與行程,可訂閱同步手機)</h3>' + calendar : ''}
     <h3>甘特圖(預計時程,依會議修正)</h3><div id="ganttArea"><div class="empty">載入中…</div></div>
     <h3>待辦任務(\${d.tasks.length})</h3>\${tasks}
     <h3>SOP-01 階段檢核(完成定義,PM 勾核)</h3>\${sop}

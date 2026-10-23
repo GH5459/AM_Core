@@ -211,7 +211,7 @@ export async function createTicket(deps, { pageId, operator, spaceId, workItemId
           `📋 新回饋單|${number}`,
           `問題:${description.slice(0, 120)}`,
           photoUrls.length ? `(附 ${photoUrls.length} 張現場照片)` : '',
-          `請 ${who} 確認處理;影響等級與回覆期限將在單據上設定,到期前會再提醒。`,
+          `請 ${who} 確認處理;影響等級與回覆期限將在單據上設定,請在系統中追蹤處理進度。`,
         ].filter(Boolean).join('\n'));
         announced = true;
         await deps.notionRequest(`/v1/blocks/${encodeURIComponent(ticket.id)}/children`, {
@@ -288,6 +288,7 @@ export async function linkMessageToTicket(deps, { messagePageId, messagePage, ti
 // ── 單據狀態機(擱置/復活條件、回覆、銷項、核准、催辦、公告)──
 export async function ticketAction(deps, { ticketId, action, text, operator, workItemId, resumeDate }) {
   if (!ticketId || !action || !operator) throw new Error('ticketId/action/operator required');
+  if (deps.remindersEnabled === false && ['urge', 'urge-send'].includes(action)) throw new Error('此專案已停用催辦提醒');
   const now = new Date().toISOString();
   const trimmed = String(text || '').trim();
   // 任何狀態變更、推播預覽或實際推播，都先讀取單據並核對負責群組；
@@ -577,7 +578,7 @@ export async function openTicketsForProject(deps, projectId) {
 // ── 工程單據管理頁 ─────────────────────────────────────────
 // 原工程服務把單據分頁塞在確認佇列內；平台化後由 construction 自己擁有 /tickets，
 // queue 只負責訊息確認。功能仍涵蓋回覆、銷項、催辦、擱置、變更核准/退回/公告與新建變更單。
-function renderTicketsPage(tenantKey, actor, canManageProjectData) {
+function renderTicketsPage(tenantKey, actor, canManageProjectData, remindersEnabled = true) {
   const tenant = JSON.stringify(tenantKey);
   const actorJson = JSON.stringify(actor || 'Portal 使用者');
   const canProjectJson = JSON.stringify(Boolean(canManageProjectData));
@@ -598,7 +599,7 @@ header{background:var(--g);color:#fff;padding:12px 16px;display:flex;gap:10px;al
 <div class="tools"><select id="status"></select><span id="count"></span><button id="reload">重新整理</button><button id="newCo" class="new" style="display:none">＋ 新增變更單</button></div>
 <main class="list" id="list"><div class="empty">載入中…</div></main><div class="toast" id="toast"></div>
 <script>
-const TENANT=${tenant},ACTOR=${actorJson},CAN_PROJECT=${canProjectJson};let mode='tickets',items=[];
+const TENANT=${tenant},ACTOR=${actorJson},CAN_PROJECT=${canProjectJson},REMINDERS_ENABLED=${JSON.stringify(remindersEnabled !== false)};let mode='tickets',items=[];
 document.getElementById('operatorLabel').textContent=ACTOR;
 function operator(){return ACTOR}
 function esc(v){return String(v||'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}
@@ -608,8 +609,8 @@ async function queueApi(path){const sep=path.includes('?')?'&':'?';const r=await
 function chip(s){const c=['已銷項','已核准'].includes(s)?'ok':['逾期','退回'].includes(s)?'bad':'warn';return '<span class="chip '+c+'">'+esc(s)+'</span>'}
 function ticketCard(i){
  const photos=(i.photoLinks||[]).map(p=>'<a href="'+esc(p.url)+'" target="_blank"><img src="'+esc(p.url)+'"></a>').join('');
- const actions=i.status==='已銷項'?'':'<div class="actions"><button data-do="act" data-id="'+esc(i.id)+'" data-action="reply">填回覆</button><button class="primary" data-do="act" data-id="'+esc(i.id)+'" data-action="close">銷項（需佐證）</button><button class="danger" data-do="push" data-id="'+esc(i.id)+'" data-action="urge">📣 催辦</button>'+(i.status!=='擱置(待時機)'?'<button data-do="park" data-id="'+esc(i.id)+'" data-project="'+esc(i.projectId||'')+'">擱置</button>':'')+'</div>';
- return '<article class="card"><div class="meta"><span class="chip proj">'+esc(i.projectName)+'</span><b>'+esc(i.number)+'</b>'+chip(i.status)+(i.level?'<span class="chip">'+esc(i.level)+'</span>':'')+(i.overdue?'<span class="chip bad">逾期</span>':'')+'</div><div class="desc">'+esc(i.description)+'</div><div class="photos">'+photos+'</div><div class="note">空間：'+esc(i.spaceName||'—')+' ・期限：'+esc(i.deadline||'未設')+(i.reply?'<br>回覆：'+esc(i.reply):'')+(i.status==='擱置(待時機)'?'<br>復活條件：'+esc([i.triggerWorkItemName,i.resumeDate].filter(Boolean).join(' 或 ')||'未設'):'')+'</div><div class="actions"><a href="'+esc(i.notionUrl)+'" target="_blank">開啟完整單據</a></div>'+actions+'</article>'
+ const actions=i.status==='已銷項'?'':'<div class="actions"><button data-do="act" data-id="'+esc(i.id)+'" data-action="reply">填回覆</button><button class="primary" data-do="act" data-id="'+esc(i.id)+'" data-action="close">銷項（需佐證）</button>'+(REMINDERS_ENABLED?'<button class="danger" data-do="push" data-id="'+esc(i.id)+'" data-action="urge">📣 催辦</button>':'')+(i.status!=='擱置(待時機)'?'<button data-do="park" data-id="'+esc(i.id)+'" data-project="'+esc(i.projectId||'')+'">擱置</button>':'')+'</div>';
+ return '<article class="card"><div class="meta"><span class="chip proj">'+esc(i.projectName)+'</span><b>'+esc(i.number)+'</b>'+chip(i.status)+(i.level?'<span class="chip">'+esc(i.level)+'</span>':'')+(i.overdue?'<span class="chip bad">逾期</span>':'')+'</div><div class="desc">'+esc(i.description)+'</div><div class="photos">'+photos+'</div><div class="note">空間：'+esc(i.spaceName||'—')+' ・期限：'+esc(i.deadline||'未設')+(i.reply?'<br>回覆：'+esc(i.reply):'')+(i.status==='擱置(待時機)'?'<br>人工追蹤條件：'+esc([i.triggerWorkItemName,i.resumeDate].filter(Boolean).join(' 或 ')||'未設'):'')+'</div><div class="actions"><a href="'+esc(i.notionUrl)+'" target="_blank">開啟完整單據</a></div>'+actions+'</article>'
 }
 function coCard(i){
  let actions='';if(i.status==='待核准')actions='<div class="actions"><button class="primary" data-do="act" data-id="'+esc(i.id)+'" data-action="approve">核准</button><button data-do="act" data-id="'+esc(i.id)+'" data-action="reject">退回</button></div>';else if(i.status==='已核准')actions='<div class="actions"><button class="danger" data-do="push" data-id="'+esc(i.id)+'" data-action="announce-co">📢 變更公告</button></div>';
@@ -638,7 +639,7 @@ export async function handleTicketsRequest(req, res, pathname, url, deps) {
   try {
     if (req.method === 'GET' && pathname === '/tickets') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(renderTicketsPage(deps.tenantKey, deps.actor, deps.access?.isTenantAll));
+      return res.end(renderTicketsPage(deps.tenantKey, deps.actor, deps.access?.isTenantAll, deps.remindersEnabled));
     }
     if (req.method === 'GET' && pathname === '/tickets/api/list') {
       return sendJson(res, 200, await listTickets(deps, scope));

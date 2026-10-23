@@ -162,7 +162,8 @@ async function appendChildren(pageId, blocks) {
 }
 
 // AI 若已在待辦提到下次會議就不重複;否則把「約定的下次會議/回報時間」補成一條提醒待辦
-function withNextMeetingTodo(parsed) {
+function withNextMeetingTodo(parsed, tenant) {
+  if (tenant?.config?.meetings?.autoNextMeetingReminder === false) return parsed.todos || [];
   const nm = String(parsed.nextMeeting || '').trim();
   if (!nm) return parsed.todos || [];
   const todos = [...(parsed.todos || [])];
@@ -683,7 +684,7 @@ function meetingPrompt({ who, topic, today, kind = 'work', cfg = GENERIC_MEETING
   return `這是一場${kind==='share'?'分享／討論型聚會':cfg.domain}。${who?'與會者：'+who+'。':''}${topic?'主題：'+topic+'。':''}請用繁體中文。
 會議日期是 ${today}（台灣時間）；相對日期依本次會議日期換算，無明確依據不得捏造負責人、期限或完成狀態。
 依${cfg.sectionBy}理解議題；重要細節：${cfg.detailFocus}。每個議題先整合理解，再寫精簡結果與可追查的對話依據。
-待辦須具體可追蹤。若有明確約定下次會議或回報時間，寫入 nextMeeting，原提醒待辦規則保持。
+待辦須具體可追蹤。若有明確約定下次會議或回報時間，寫入 nextMeeting。${cfg.autoNextMeetingReminder === false ? '不要自行新增發送提醒的待辦，只記錄會議明確交辦的事項。' : '原提醒待辦規則保持。'}
 ${DECISION_RECORD_INSTRUCTIONS}
 只輸出 JSON：
 {"title":"會議主題","type":"${kind==='share'?'讀書會|分享會|座談|討論會':typeInstruction(cfg.types)}","topics":[{"title":"具體結果或待確認問題","summary":"整合理解後的重點、決定及下一步","status":"依據來源的狀態","evidence":[{"timestamp":"原文時間或空字串","speaker":"原講者或空字串","text":"支持結果的對話摘意"}],"children":[]}],"todos":[{"content":"待辦內容","owner":"負責人或空字串","due":"YYYY-MM-DD或空字串"}],"nextMeeting":"有約定才寫，否則空字串"}`;
@@ -1941,7 +1942,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   const participantsText = roster.speakers.length
     ? roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、')
     : (legendLine || `錄音提供:${senderName}`);
-  parsed.todos = withNextMeetingTodo(parsed);
+  parsed.todos = withNextMeetingTodo(parsed, tenant);
 
   const sourceBlocks = [
     para(`[來源] ${stamp()} 錄音「${filename}」由 ${senderName} 上傳;AssemblyAI 轉寫+講者分離,${answeredBy ? `${answeredBy} 提供與會資訊` : '未補與會資訊(逾時自動整理)'}`),
@@ -2141,7 +2142,7 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
     catch (error) { console.warn(`Meeting audio Drive upload failed: ${error.message}`); }
   }
 
-  parsed.todos = withNextMeetingTodo(parsed);
+  parsed.todos = withNextMeetingTodo(parsed, tenant);
   const meetingType = workType(parsed.type, cfg);
   const sourceBlocks = [
     para(`[來源] ${stamp()} 錄音「${filename}」由 ${senderName} 上傳,Gemini 轉寫提煉`),

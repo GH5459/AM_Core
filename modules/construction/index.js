@@ -127,7 +127,9 @@ function fullDeps(tenant) {
     getDriveAccessToken: platform.getDriveAccessToken,
     ensureDriveFolder: platform.ensureDriveFolder,
     // dashboard 用:專案行事曆對照 + LINE 推播配額
-    calendars: tenantCalendars(tenant),
+    calendars: tenant.config?.construction?.calendarEnabled === false ? {} : tenantCalendars(tenant),
+    remindersEnabled: tenant.config?.construction?.remindersEnabled !== false,
+    calendarEnabled: tenant.config?.construction?.calendarEnabled !== false,
     getLineQuota: makeGetLineQuota(),
     publicBaseUrl: platform.publicBaseUrlForTenant?.(tenant) || tenant.publicBaseUrl || platform.publicBaseUrl || '',
     // classify(AI 初判)用;非工程/未配置金鑰時 classify 自動 no-op

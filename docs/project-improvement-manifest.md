@@ -87,3 +87,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1022.53 | 葉小蝸固定回報按鈕、圖片檔與提案延後 | Deployed | PR430／CI39723898282；AM20ff55e4兩站及Render Live，DailyLogefe6f19e／65完整模組，其餘64及原設定保持；原草稿、圖片及327工作保持。 |
 
 | AM-IMP-2026.1022.54 | 葉小蝸100字白話處理方案 | Deployed | PR432／CI39730899764；DailyLoge6178153完整65模組、其他62與原設定保持；原案件／建議／核准保持，AM不重發。 |
+
+| `AM-IMP-2026.1023.01` | Engineering reminders disabled; legacy BuildAM workflow removed | Installed | 2026-10-23 | `versions/AM-IMP-2026.1023.01/`; `tools/test-engineering-reminders-disabled.mjs` | Tenant isolation, blocked reminder I/O, explicit meeting tasks and engineering convergence tests passed; deployment verification pending. |
