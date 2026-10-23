@@ -34,5 +34,3 @@
 | AM-IMP-2026.1008.02 | Deployed | Explicit quoted conversation-archive retrieval | 84 attachment/archive tests; server webhook/private pause checks; 19 core checks | Production main 4c0f048 and native recovery/download/delivery verified. Explicit manual archive requests are independent of project activation; source/member gates remain required. |
 
 | AM-IMP-2026.1008.03 | Deployed | MIME-aware video/audio download filenames | 88 attachment/archive tests, server webhook, 19 core checks | Production main f8b9e7b, old-link MIME/extension and original byte equality verified. Existing valid links retain exact original bytes and receive correct extensions. |
-
-
