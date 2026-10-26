@@ -1,0 +1,6 @@
+- node --test tools/test-entry-speed.mjs tools/test-common-line-identity.mjs tools/test-common-line-direct-entry.mjs tools/test-common-line-mobile-redirect.mjs tools/test-work-journal-entry.mjs
+- 完整最新 Worker/D1：原登入、清單內容與權限比對、原生入口、匿名拒絕、讀取不改任務；分享移除或版本變更拒絕。
+- 完整 UOF Worker：原 session／待簽路由與新入口整合，錯帳號與失敗明示、原簽核程式完全保持。
+- 原稿保存與私密區不更換模組、不重建表單；六種寬度確認原 UI。
+- 完整 CI，正式 modules／bindings／Assets／runtime／排程及業務資料 hash 比對。
+- 原 LINE 指令重新量測指令到回覆、點擊到畫面及資料完成；不得把人工等待算成系統時間，不宣稱手機驗收。
