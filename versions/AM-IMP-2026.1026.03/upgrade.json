@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1026.03",
+  "name": "Native journal entry and batched portal reads",
+  "type": "performance",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": ["Existing original service bindings and public origins"],
+  "requiresScripts": ["versions/AM-IMP-2026.1026.03/build-worker.cjs", "versions/AM-IMP-2026.1026.03/entry-speed.mjs", "core/common-line-entry.js", "tools/test-entry-speed.mjs"],
+  "installTargets": ["AM", "DailyLog", "UOF"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Original identity and permission checks retained", "Full Worker validation and list parity", "CI on reviewed merged main", "Newest complete module deployment with original configuration", "Production timing and data preservation readback"]
+}

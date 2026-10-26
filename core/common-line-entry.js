@@ -1,4 +1,4 @@
-export const COMMON_LINE_NAVIGATION='verified-app-external-meetings-v2';
+export const COMMON_LINE_NAVIGATION='native-journal-entry-v3';
 export const COMMON_LINE_CONTRACT='line-company-common-first-link-v1';
 export function commonLineClient(boot){
  const $=s=>document.querySelector(s);let token='',challenge='',busy=false;
@@ -19,7 +19,7 @@ export function createCommonLineEntry({env=process.env,call}){
  // LIFF first returns to its registered endpoint. Serve its SDK there without
  // redirecting or rewriting the credential-bearing URL; init restores the app.
  const primaryEntry=url=>{if(url.pathname.replace(/\/+$/,'')!==endpoint.pathname.replace(/\/+$/,''))return false;const state=url.searchParams.get('liff.state')||'';return /^\/(?:meetings\/review\/)?connect\/?(?:[?#]|$)/.test(state);};
- return {journalAction(action){try{const u=new URL(action.uri),origin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||'https://am.hozorental.com/meetings/review').origin;return u.origin===origin&&u.pathname==='/meetings/review/connect'&&u.searchParams.get('app')==='dailylog'?action:null;}catch{return null;}},health:()=>({contract:COMMON_LINE_CONTRACT,navigation:COMMON_LINE_NAVIGATION,enabled:true}),async handle(req,res,url){
+ return {journalAction(action){try{const u=new URL(action.uri),origin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||'https://am.hozorental.com/meetings/review').origin;if(u.origin!==origin||u.pathname!=='/meetings/review/connect'||u.searchParams.get('app')!=='dailylog'||u.username||u.password||u.hash)return null;const fast=new URL('/line-entry',targets.dailylog);fast.searchParams.set('fallback',u.href);fast.searchParams.set('openExternalBrowser','1');return {...action,uri:fast.href};}catch{return null;}},health:()=>({contract:COMMON_LINE_CONTRACT,navigation:COMMON_LINE_NAVIGATION,enabled:true}),async handle(req,res,url){
   const primary=req.method==='GET'&&primaryEntry(url);
   if(!primary&&!['/meetings/review/connect','/meetings/review/connect/api'].includes(url.pathname))return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');
