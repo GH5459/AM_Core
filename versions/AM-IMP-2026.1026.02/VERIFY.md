@@ -1,0 +1,7 @@
+# 驗證
+
+執行 test-journal-recovery、test-login-continuation 全系列及 test-meeting-hub，並通過原完整 CI。私人隔離完整 Worker/D1 測試 1,146,083 bytes 保存及完整回讀、相同封包重試不重複、409 不覆蓋原文、外站與他人資料拒絕、超額拒絕。
+
+以完整 DailyLog、加密 UOF 與受限 PostgreSQL 模擬六個登入方向、來源登出即失效及原 Cookie 行為；實際 Chrome 六寬度無溢出。會議原清單與 Calendar 要在公開／管理兩個精確來源均通過原資格檢查。
+
+正式回讀精確版本及全模組，保存原資料／權限比對。原日誌只重試既有待送內容，不製造真人測試任務；確認後台保存再重整，驗證會議原清單、Calendar 與可讀原會議。不能把隔離瀏覽器測試說成真人手機驗收。
