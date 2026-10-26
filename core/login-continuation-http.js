@@ -11,7 +11,7 @@ export const continuationPaths = {
   meetings: u => u.pathname === '/meetings/review/hub' || /^\/meetings\/review\/work\/[a-f0-9]{64}$/.test(u.pathname)
 };
 export function createLoginContinuationHttp({env=process.env,pool,authority,lineIdentity,fetchImpl=fetch,onError=()=>{}}) {
-  const origin = new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN || 'https://am.hozorental.com').origin;
+  const origin = new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com').origin;
   const origins = {dailylog:env.DAILYLOG_PUBLIC_ORIGIN || 'https://dailylog.chatgpt-673.workers.dev',uof:env.UOF_PUBLIC_ORIGIN || 'https://uof-line.ghotel.tw',meetings:origin};
   const defaults = {dailylog:'/',uof:'/Line/Review',meetings:'/meetings/review/hub'};
   const secret = env.AMCORE_MEETING_MANAGEMENT_SECRET || env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY;
@@ -47,6 +47,7 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
     broker,origins,
     async actor(req){const value=readCookie(req);if(!value)return null;const g=await broker.check(value,'meetings'),p=g.permission;if(!p?.userId||!p?.tenantKey)throw fail();return {id:p.userId,name:p.name||'公司同仁',account:g.account,tenantKey:p.tenantKey};},
     async handle(req,res,url){
+      if(req.method==='GET'&&req.headers.host&&['/meetings/review/hub','/login-continuation/start'].includes(url.pathname)&&new URL('https://'+req.headers.host).origin!==origin){redirect(res,origin+url.pathname+url.search);return true;}
       if(!url.pathname.startsWith('/login-continuation/'))return false;
       let phase='ROUTE';
       try {
@@ -69,6 +70,7 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
           const v=validInput(Object.fromEntries(url.searchParams)),attempt=Number(url.searchParams.get('attempt')||0);if(!Number.isInteger(attempt)||attempt<0||attempt>2)throw fail();redirect(res,sourceUrl(v,attempt));return true;
         }
         if(req.method==='GET'&&url.pathname==='/login-continuation/start'){
+          const existing=await this.actor(req).catch(()=>null);if(existing){const path=url.searchParams.get('returnPath')||defaults.meetings;validInput({target:'meetings',returnPath:path,challenge:'0'.repeat(64)});redirect(res,origin+path);return true;}
           const returnPath=url.searchParams.get('returnPath')||defaults.meetings;validInput({target:'meetings',returnPath,challenge:'0'.repeat(64)});const verifier=token();redirect(res,origin+'/login-continuation/continue?'+new URLSearchParams({target:'meetings',returnPath,challenge:sha(verifier)}),'__Host-am-login-challenge='+verifier+'; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=60');return true;
         }
         if(req.method==='GET'&&url.pathname==='/login-continuation/callback'){
