@@ -68,6 +68,7 @@ for (const fails of [false, true]) {
     './core/leaf-calendar/index.js': leafCalendar,
     './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
       './core/common-line-entry.js':commonLineEntry,
+      './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
       './core/leaf-tasks.js': leafTasks,
     './core/access-directory.js': {createAccessDirectory:()=>({})},
     './core/portal-handoff.js': {safePortalHandoffLocation:()=> '/'},

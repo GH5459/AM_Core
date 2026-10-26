@@ -12,6 +12,7 @@ import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
 import {createCommonLineEntry} from './core/common-line-entry.js';
+import {createLoginContinuationHttp} from './core/login-continuation-http.js';
 import { createLeafGroups } from './core/leaf-groups.js';
 import { createPortalCommandEntry } from './core/portal-command-entry.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
@@ -49,6 +50,8 @@ const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger
 const xiaoyeSecretary=leafTasks.secretary||{capture:async()=>[],drain:async()=>{},health:()=>({enabled:false})};
 await xiaoyeSecretary.restore?.();
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
+const loginContinuation=createLoginContinuationHttp({pool:centralArchive.pool,authority:v=>leafTasks.continuationAuthority(v),lineIdentity:id=>leafTasks.meetingShareIdentity(id)});
+platform.loginContinuationActor=req=>loginContinuation.actor(req);
 Object.assign(platform,{secretaryEvidenceCheck:leafTasks.secretaryEvidenceCheck,meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks,readMeetingTaskProgress:leafTasks.readMeetingTaskProgress});
 platform.syncMeetingCalendar=leafCalendar.syncMeetingEvent;
 platform.meetingExperienceRequired=true;
@@ -291,6 +294,7 @@ const server = http.createServer(async (req, res) => {
   ) ? liffStatePath : pathname;
 
   // ── 健康檢查:平台 + 各租戶設定狀態 ──
+  if(await loginContinuation.handle(req,res,new URL(routedPathname+url.search,url.origin)))return;
   if(await commonLineEntry.handle(req,res,new URL(routedPathname+url.search,url.origin)))return;
   if (req.method === 'GET' && pathname === '/health') {
     return sendJson(res, 200, {

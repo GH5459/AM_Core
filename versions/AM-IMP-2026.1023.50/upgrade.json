@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1023.50",
+  "name":"Same-browser login continuation",
+  "type":"authentication continuation",
+  "portable":true,
+  "status":"Proposed",
+  "requiresDatabases":["Isolated central_archive.login_continuation table (not created in production)"],
+  "requiresEnv":["Existing AM management signature, service identity and original DailyLog/UOF service bindings; no additional permissions"],
+  "requiresScripts":["core/login-continuation.js","core/login-continuation-authority.js","core/login-continuation-http.js","versions/AM-IMP-2026.1023.50/build-worker.cjs","versions/AM-IMP-2026.1023.50/login-continuation-worker.mjs","tools/test-login-continuation.mjs","tools/test-login-continuation-authority.mjs","tools/test-login-continuation-postgres.mjs","tools/test-login-continuation-http.mjs","tools/test-login-continuation-worker.mjs"],
+  "installTargets":["AM broker, DailyLog and UOF; original receiver error classification"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Complete authenticated service adapters and browser challenge callbacks","Original session and logout-chain validation on every imported session request","Full original permission and membership checks","Full Worker/D1, UOF and PostgreSQL integration plus real browser regression","Reviewed full CI, latest complete private rollback packages, exact deployment and production readback"]
+}

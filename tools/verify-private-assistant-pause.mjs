@@ -83,6 +83,7 @@ const dependencies = {
   './core/portal-command-entry.js': portalCommandEntry,
   './core/work-journal-entry.js': workJournalEntry,
   './core/common-line-entry.js': commonLineEntry,
+  './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
   './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,

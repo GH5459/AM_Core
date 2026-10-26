@@ -14,7 +14,7 @@ class EventBridge {
     if(file)this.save(file,input);
     for(let attempt=0;attempt<3;attempt++){
       try{const r=await this.fetcher(new URL(this.prefix+action,this.worker.vars.PUBLIC_ORIGIN),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.credentials.key,'Content-Type':'application/json'},body:JSON.stringify({tenantKey:this.worker.vars.LEAF_TASK_TENANT,...input}),signal:AbortSignal.timeout(45000)});
-        const v=await r.json();if(!r.ok||!v.ok)throw Object.assign(Error('Secretary event API rejected action'),{status:r.status});return v;
+        const v=await r.json();if(!r.ok||!v.ok)throw Object.assign(Error('Secretary event API rejected action'),{status:r.status,action,reason:typeof v.error==='string'&&/^[\u3000-\u9fff\s，。；：、（）「」／0-9]{1,180}$/.test(v.error)?v.error:null});return v;
       }catch(e){if(attempt===2||e.status&&e.status<500)throw e;await new Promise(resolve=>setTimeout(resolve,500*2**attempt));}
     }
   }
@@ -102,9 +102,10 @@ class EventBridge {
       this.save(rel+'/completion.private.json',result);
       this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
     } catch(e) {
-      this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,message:'Event stopped; original state and evidence retained.'});
+      const rejected=[401,403,409].includes(e.status),reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
+      this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,action:e.action||null,reason:rejected?reason:null,message:'Event stopped; original state and evidence retained.'});
       const activePath=path.join(this.folder,'bridge-active.private.json');
-      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason:'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep:'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。'}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
+      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason,nextStep}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
     } finally {
       this.running=null;this.status(this.ws?.readyState===1?'connected':'disconnected');
       if(this.ws?.readyState===1)this.ws.send('ready');

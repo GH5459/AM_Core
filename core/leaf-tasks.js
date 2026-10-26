@@ -262,7 +262,14 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  const completionReport=createCompletionReporter({tenants,config,call,identity,line});
 
  async function secretaryEvidenceCheck(input){const t=(await groupServices()).find(t=>t.key===input.tenantKey);if(!t)throw Error("secretary_evidence_service_unavailable");return call(t,await config(t),"secretary/evidence-check",input);}
- const api={secretaryCall,secretaryEvidenceCheck,commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
+ async function continuationAuthority(input){
+  if(!['proof','feature'].includes(input.action))throw Error('continuation_authority_action');
+  const available=await groupServices();if(available.length!==1)throw Error('continuation_service_ambiguous');const t=available[0],c=await config(t);
+  const r=await call(t,c,'login-continuation-authority',{...input,botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});let value=r.value;
+  if(input.action==='feature'&&input.target==='meetings'&&value?.allowed){const who=await meetingShareIdentity(value.userId);if(!who||who.account!==input.account)return {allowed:false};value={...value,tenantKey:who.tenantKey,name:who.name};}
+  return value;
+ }
+ const api={continuationAuthority,secretaryCall,secretaryEvidenceCheck,commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
   resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,personalCompletionPolicy:PERSONAL_COMPLETION_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
  api.secretary=createXiaoyeSecretary({tasks:api,line,env,logger});return api;
 }
