@@ -1,4 +1,4 @@
-export const ENTRY_SPEED_POLICY='native-entry-batched-reads-v1';
+export const ENTRY_SPEED_POLICY='native-entry-inline-bootstrap-v2';
 const headers={'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'};
 
 // Navigation is only a shortcut to the original, fully authenticated renderer.
@@ -16,14 +16,18 @@ export async function dailyEntryFetch(request,env,ctx,base){
   url.searchParams.set('native','1');const next=url.pathname+url.search;
   return new Response('<!doctype html><html lang="zh-Hant"><meta name="viewport" content="width=device-width,initial-scale=1"><title>開啟工作日誌</title><p>正在開啟工作日誌…</p><a href="'+next.replaceAll('&','&amp;').replaceAll('"','&quot;')+'">繼續開啟</a><script>location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+');</script></html>',{headers:{...headers,'Content-Type':'text/html; charset=utf-8'}});
  }
- const target=new URL('/?openExternalBrowser=1',url),response=await base.fetch(new Request(target,request),env,ctx);
+ let bootstrap=null;
+ const target=new URL('/?openExternalBrowser=1',url),response=await base.fetch(new Request(target,request),{...env,ENTRY_SPEED_CAPTURE_BOOTSTRAP:value=>{bootstrap=value;}},ctx);
  if([302,303,307,308].includes(response.status)){
   const destination=new URL(response.headers.get('Location')||'/',target);
   if(destination.origin===target.origin&&destination.pathname==='/login')return new Response(null,{status:303,headers:{...headers,Location:fallback.href}});
  }
  if(!response.ok||!response.headers.get('Content-Type')?.includes('text/html'))return response;
- const output=new Headers(response.headers);output.delete('Content-Length');output.delete('ETag');output.set('X-DailyLog-Entry-Policy',ENTRY_SPEED_POLICY);output.set('Cache-Control','private, no-store');
- const html=(await response.text()).replace(/<head(?:\s[^>]*)?>/i,match=>match+'<script>history.replaceState(history.state,"","/?openExternalBrowser=1");</script>');
+ const output=new Headers(response.headers);output.delete('Content-Length');output.delete('Content-Encoding');output.delete('ETag');output.set('X-DailyLog-Entry-Policy',ENTRY_SPEED_POLICY);output.set('Cache-Control','private, no-store');
+ let html=(await response.text()).replace(/<head(?:\s[^>]*)?>/i,match=>match+'<script>history.replaceState(history.state,"","/?openExternalBrowser=1");</script>');
+ // Only the original authenticated renderer can produce this request-local
+ // value. Its original bootstrap endpoint remains available on all other paths.
+ if(typeof bootstrap==='string'&&bootstrap.startsWith('window.DAILYLOG_AUTH = '))html=html.replace('<script src="/auth/bootstrap.js"></script>','<script>'+bootstrap.replace(/<\/script/gi,'<\\/script')+'</script>');
  return new Response(html,{status:response.status,headers:output});
 }
 
@@ -32,6 +36,13 @@ export async function taskDeliveryJobs(db,tasks){
  if(!keys.length)return new Map();
  const rows=await db.prepare("SELECT key,value FROM documents WHERE namespace='task-notion-delivery' AND key IN (SELECT value FROM json_each(?))").bind(JSON.stringify(keys)).all();
  return new Map(rows.results.map(r=>[r.key,JSON.parse(r.value)]));
+}
+
+export async function taskRelations(db,tasks,hydrate){
+ const ids=[...new Set(tasks.flatMap(t=>[t.primaryParentId,...t.relatedProjectIds||[],...t.dependencyIds||[]].filter(Boolean)))];
+ if(!ids.length)return new Map();
+ const rows=await db.prepare('SELECT value FROM work_items WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(ids)).all();
+ return new Map((await hydrate(db,rows.results.map(r=>JSON.parse(r.value)))).map(t=>[t.id,t]));
 }
 
 // Both original endpoints independently retain their session/directory/fresh
