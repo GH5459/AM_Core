@@ -34,6 +34,15 @@ export function createLoginContinuation({store, sources, targets, now = Date.now
     if (!p || !p.active || p.account !== root.account || p.reference !== root.reference || p.generation !== root.generation || p.expiresAt <= now() || p.expiresAt < root.expiresAt) throw rejected();
     return root;
   };
+  const issueFromRoot = async (rootKey, {target, returnPath, challenge}) => {
+    if (!challengePattern.test(challenge || '')) throw rejected();
+    const t = targetFor(target, returnPath), root = await currentRoot(await store.read('root', rootKey));
+    const permission = await t.authorize(root.account);
+    if (!permission?.allowed) throw rejected();
+    const code = random(), expiresAt = Math.min(root.expiresAt, now() + 60000);
+    await store.insert('ticket', digest(code), {rootKey, target, targetOrigin: t.origin, returnPath, challenge, account: root.account, expiresAt});
+    return {code, expiresAt};
+  };
   return {
     async register(source, reference) {
       if (!sources[source] || typeof reference !== 'string' || !reference || reference.length > 200) throw rejected();
@@ -45,12 +54,15 @@ export function createLoginContinuation({store, sources, targets, now = Date.now
     },
     async issue(rootToken, {target, returnPath, challenge}) {
       if (!tokenPattern.test(rootToken || '') || !challengePattern.test(challenge || '')) throw rejected();
-      const t = targetFor(target, returnPath), rootKey = digest(rootToken), root = await currentRoot(await store.read('root', rootKey));
-      const permission = await t.authorize(root.account);
-      if (!permission?.allowed) throw rejected();
-      const code = random(), expiresAt = Math.min(root.expiresAt, now() + 60000);
-      await store.insert('ticket', digest(code), {rootKey, target, targetOrigin: t.origin, returnPath, challenge, account: root.account, expiresAt});
-      return {code, expiresAt};
+      return issueFromRoot(digest(rootToken), {target, returnPath, challenge});
+    },
+    async issueFromChain(chainToken, source, input) {
+      if (!tokenPattern.test(chainToken || '')) throw rejected();
+      const chain = await store.read('chain', digest(chainToken));
+      if (!chain || chain.target !== source || chain.expiresAt <= now()) throw rejected();
+      const root = await currentRoot(await store.read('root', chain.rootKey));
+      if (chain.account !== root.account || !(await targets[source].authorize(root.account))?.allowed) throw rejected();
+      return issueFromRoot(chain.rootKey, input);
     },
     async exchange({code, target, targetOrigin, verifier, currentAccount = null}) {
       if (!tokenPattern.test(code || '') || !tokenPattern.test(verifier || '') || !targets[target] || targets[target].origin !== targetOrigin) throw rejected();
@@ -82,6 +94,13 @@ export function createLoginContinuation({store, sources, targets, now = Date.now
       if (!tokenPattern.test(rootToken || '')) throw rejected();
       await store.revokeRoot(digest(rootToken));
       return {ok: true};
+    },
+    async logoutChain(chainToken, target) {
+      if (!tokenPattern.test(chainToken || '')) throw rejected();
+      const chain = await store.read('chain', digest(chainToken));
+      if (!chain || chain.target !== target) throw rejected();
+      await store.revokeRoot(chain.rootKey);
+      return {ok: true};
     }
   };
 }
@@ -97,6 +116,7 @@ export function postgresContinuationStore(pool) {
     async insert(kind, key, value) {
       await ensure();
       await pool.query('INSERT INTO central_archive.login_continuation(kind,key,value,expires_at) VALUES($1,$2,$3::jsonb,$4)', [kind, key, JSON.stringify(value), value.expiresAt]);
+      await pool.query('DELETE FROM central_archive.login_continuation WHERE (kind,key) IN (SELECT kind,key FROM central_archive.login_continuation WHERE expires_at<$1 LIMIT 100)', [Date.now()]);
     },
     async read(kind, key) {
       await ensure();
