@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.1026.02",
+  "name": "Journal save and original meeting recovery",
+  "type": "reliability",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing registered meeting public origin and management origin; no new permissions"
+  ],
+  "requiresScripts": [
+    "versions/AM-IMP-2026.1026.02/build-worker.cjs",
+    "versions/AM-IMP-2026.1026.02/journal-recovery.mjs",
+    "tools/test-journal-recovery.mjs",
+    "core/login-continuation-http.js",
+    "modules/meetings/workspace-service.js",
+    "modules/meetings/hub-service.js",
+    "modules/meetings/hub-ui.js",
+    "versions/AM-IMP-2026.1023.50/login-continuation-worker.mjs"
+  ],
+  "installTargets": [
+    "AM",
+    "DailyLog",
+    "UOF"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Journal >1MB full authenticated save/readback and idempotent retry",
+    "Original meeting and Calendar inventory through current identity on registered public origin",
+    "Six browser continuation directions and same-origin native fast path",
+    "Reviewed CI, newest full module baselines, private rollback and production functional verification",
+    "No client storage clearing, identity or permission replacement"
+  ]
+}
