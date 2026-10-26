@@ -1,3 +1,3 @@
 # Rollback
 
-No runtime imports, production tables, bindings, settings or deployments have changed. Remove the candidate files if abandoned. Future integration requires fresh private complete packages for all actual deployment targets and a difference-only rollback preserving parallel improvements and original business, identity and permission data.
+Before release, preserve the exact original AM source, receiver module and complete current DailyLog/UOF modules and settings privately. Roll back this feature's source differences only, retaining newer parallel work. Disable unused continuation chains if reverting after use; do not restore business snapshots, original identities, memberships, UOF grants or user passwords. Original native logins remain the fallback. Do not restart old events or the paused heartbeat.

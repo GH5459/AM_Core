@@ -64,6 +64,13 @@ assert.equal((await page(platform.publicBaseUrl)).headers.Location,'https://regi
 assert.equal((await page('https://registered.example.test')).html,canonical.html);
 delete env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL;
 assert.equal((await api({action:'read'},'outside')).status,403);assert.equal((await api({action:'read'},'host','https://foreign.test')).status,403);
+env.AMCORE_MEETING_MANAGEMENT_ORIGIN=platform.publicBaseUrl;
+platform.loginContinuationActor=async()=>({id:host,name:'主持人',account:'111',tenantKey:'fixture'});
+assert.equal((await api({action:'read'},'')).status,200,'continued company identity retains original member access');
+assert.equal((await api({action:'read'},'','https://foreign.test')).status,403,'cookie continuation cannot bypass origin checks');
+platform.loginContinuationActor=async()=>({id:outsider,name:'非成員',account:'333',tenantKey:'fixture'});
+assert.equal((await api({action:'read'},'')).status,403,'continued identity does not grant membership');
+delete platform.loginContinuationActor;delete env.AMCORE_MEETING_MANAGEMENT_ORIGIN;
 let v=(await api({action:'read'})).value;const settings={...v.workspace.fields.settings,topic:'共同確認測試',projectGoal:'準確追蹤事項'};
 assert.equal((await api({action:'edit',field:'settings',value:settings,version:0},'member')).status,200);
 v=(await api({action:'read'})).value;assert.equal((await api({action:'start',revision:v.workspace.revision},'member')).status,403);
