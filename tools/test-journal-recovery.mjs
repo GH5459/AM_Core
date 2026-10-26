@@ -14,3 +14,7 @@ test('save error explains rejection without altering pending content or acknowle
  const script=await r.text();assert.equal(received.headers.get('If-None-Match'),null);assert.equal(r.headers.get('ETag'),null);assert.match(script,/message\?'尚未儲存：'/);assert.match(script,/pending=sent;metadata\(\)/);assert.equal(r.headers.get('Cache-Control'),'private, no-store');
  assert.equal(await journalRecoveryAsset(new Request('https://daily.test/private-data.js'),{},{},base),null);
 });
+test('server-normalized acknowledgement merges against the sent draft and preserves edits or conflicts',async()=>{
+ const r=await journalRecoveryAsset(new Request('https://daily.test/notion-sync-client.js'),{},{},{fetch:async()=>new Response("if(pending===sent)pending=null;state=pending?'pending':result.state==='synced'?'synced':'saved';")});
+ const source=await r.text();assert.match(source,/merge\(JSON.parse\(sent\),packet\(data\),ack\)/);assert.match(source,/reconciled.conflicts.length/);assert.match(source,/backup\(packet\(data\)\);blocked=true/);assert.match(source,/pending=equal\(packet\(data\),ack\)\?null/);assert.match(source,/state=blocked\?'conflict'/);
+});
