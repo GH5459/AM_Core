@@ -17,7 +17,7 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
   const secret = env.AMCORE_MEETING_MANAGEMENT_SECRET || env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY;
   const key = secret && crypto.createHash('sha256').update('login-continuation-line-proof:'+secret).digest();
   let ready;
-  const ensure = () => ready ||= (async()=>{await pool.query('CREATE TABLE IF NOT EXISTS central_archive.login_continuation_line_proofs(key text PRIMARY KEY, value jsonb NOT NULL)');await pool.query('CREATE TABLE IF NOT EXISTS central_archive.login_continuation_nonces(key text PRIMARY KEY, expires_at bigint NOT NULL)');})().catch(e=>{ready=null;throw e;});
+  const ensure = () => ready ||= (async()=>{await pool.query('SELECT key FROM central_archive.login_continuation_line_proofs LIMIT 0');await pool.query('SELECT key FROM central_archive.login_continuation_nonces LIMIT 0');})().catch(e=>{ready=null;throw e;});
   const encrypt = value => {const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-gcm',key,iv);return {iv:iv.toString('base64url'),body:Buffer.concat([c.update(value,'utf8'),c.final()]).toString('base64url'),tag:c.getAuthTag().toString('base64url')};};
   const decrypt = v => {const c=crypto.createDecipheriv('aes-256-gcm',key,Buffer.from(v.iv,'base64url'));c.setAuthTag(Buffer.from(v.tag,'base64url'));return Buffer.concat([c.update(Buffer.from(v.body,'base64url')),c.final()]).toString('utf8');};
   const verifyLine = async value => {
@@ -42,7 +42,7 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
   const validInput=v=>{if(!targets[v.target]||!(/^[a-f0-9]{64}$/).test(v.challenge||''))throw fail();const u=new URL(v.returnPath||defaults[v.target],origins[v.target]);if(u.origin!==origins[v.target]||u.hash||!continuationPaths[v.target](u))throw fail();return {...v,returnPath:u.pathname+u.search};};
   const destination=(target,code)=>origins[target]+'/login-continuation/callback?code='+encodeURIComponent(code);
   const body=async req=>{let size=0,parts=[];for await(const b of req){size+=b.length;if(size>12000)throw fail();parts.push(b);}return Buffer.concat(parts).toString();};
-  const sourceUrl=(v,attempt)=>{const source=Object.keys(origins).filter(s=>s!==v.target)[attempt];if(!source){const fallback=new URL(v.target==='dailylog'?'/login':v.target==='uof'?'/Account/Login':v.returnPath,origins[v.target]);fallback.searchParams.set('continuation','skip');if(v.target==='uof')fallback.searchParams.set('ReturnUrl',v.returnPath);return fallback.href;}return origins[source]+'/login-continuation/authorize?'+new URLSearchParams({target:v.target,returnPath:v.returnPath,challenge:v.challenge,attempt:String(attempt)});};
+  const sourceUrl=(v,attempt)=>{const source=Object.keys(origins).filter(s=>s!==v.target)[attempt];if(!source){const fallback=new URL(v.target==='dailylog'?'/login':v.target==='uof'?'/Account/Login':v.returnPath,origins[v.target]);fallback.searchParams.set('continuation','skip');if(v.target!=='meetings')fallback.searchParams.set(v.target==='dailylog'?'returnTo':'ReturnUrl',v.returnPath);return fallback.href;}return origins[source]+'/login-continuation/authorize?'+new URLSearchParams({target:v.target,returnPath:v.returnPath,challenge:v.challenge,attempt:String(attempt)});};
   return {
     broker,origins,
     async actor(req){const value=readCookie(req);if(!value)return null;const g=await broker.check(value,'meetings'),p=g.permission;if(!p?.userId||!p?.tenantKey)throw fail();return {id:p.userId,name:p.name||'公司同仁',account:g.account,tenantKey:p.tenantKey};},

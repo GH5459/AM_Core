@@ -10,12 +10,13 @@ const readCookie=(request,name)=>request.headers.get('Cookie')?.split(';').map(x
 const redirect=(url,cookies=[])=>{const headers=new Headers({...secureHeaders,Location:url});for(const c of cookies)headers.append('Set-Cookie',c);return new Response(null,{status:303,headers});};
 const browserStep=(endpoint,fallback)=>{
   const data=JSON.stringify({endpoint,fallback}).replaceAll('<','\\u003c');
-  return new Response('<!doctype html><html lang="zh-Hant"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接續登入</title><p id="status">正在接續有效登入…</p><a id="retry" hidden>使用原登入入口</a><script>(async()=>{const b='+data+';history.replaceState(null,"",location.pathname);try{const r=await fetch(b.endpoint,{credentials:"same-origin",cache:"no-store"}),v=await r.json();if(!r.ok||!v.url)throw Error();location.replace(v.url);}catch{document.getElementById("status").textContent="登入接續未完成，請使用原登入入口。";const a=document.getElementById("retry");a.href=b.fallback;a.hidden=false;}})();</script></html>',{headers:{...secureHeaders,'Content-Type':'text/html; charset=utf-8'}});
+  return new Response('<!doctype html><html lang="zh-Hant"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接續登入</title><p id="status">正在接續有效登入…</p><a id="retry" hidden>使用原登入入口</a><script>(async()=>{const b='+data+';history.replaceState(null,"",location.pathname);try{const r=await fetch(b.endpoint,{credentials:"same-origin",cache:"no-store"}),v=await r.json();if(!r.ok||!v.url)throw Error();location.replace(v.url);}catch{document.getElementById("status").textContent="正在返回原功能登入頁…";const a=document.getElementById("retry");a.href=b.fallback;a.hidden=false;location.replace(b.fallback);}})();</script></html>',{headers:{...secureHeaders,'Content-Type':'text/html; charset=utf-8'}});
 };
 const origins=env=>({dailylog:env.DAILYLOG_PUBLIC_ORIGIN||'https://dailylog.chatgpt-673.workers.dev',uof:env.UOF_PUBLIC_ORIGIN||'https://uof-line.ghotel.tw',meetings:env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com'});
 const defaults={dailylog:'/',uof:'/Line/Review',meetings:'/meetings/review/hub'};
 function allowedPath(site,u){return site==='dailylog'?['/','/index.html','/xiaoye','/supervisor','/tasks','/journal'].includes(u.pathname):site==='uof'?['/Line/Review','/Line/Control'].includes(u.pathname):u.pathname==='/meetings/review/hub'||/^\/meetings\/review\/work\/[a-f0-9]{64}$/.test(u.pathname);}
 function navigation(env,v){const o=origins(env);if(!o[v.target]||!/^[a-f0-9]{64}$/.test(v.challenge||''))throw failure();const u=new URL(v.returnPath||defaults[v.target],o[v.target]);if(u.origin!==o[v.target]||u.hash||!allowedPath(v.target,u))throw failure();return {...v,returnPath:u.pathname+u.search};}
+function originalLogin(env,target,returnPath){const o=origins(env),v=navigation(env,{target,returnPath,challenge:'0'.repeat(64)}),url=new URL(target==='dailylog'?'/login':target==='uof'?'/Account/Login':v.returnPath,o[target]);url.searchParams.set('continuation','skip');if(target!=='meetings')url.searchParams.set(target==='dailylog'?'returnTo':'ReturnUrl',v.returnPath);return url.href;}
 export async function continuationCall(env,input){
   const secret=env.AMCORE_MEETING_MANAGEMENT_SECRET;if(!secret||secret.length<32)throw failure();const origin=new URL(origins(env).meetings);if(origin.protocol!=='https:'||origin.pathname!=='/'||origin.search||origin.hash)throw failure();
   const path='/login-continuation/machine',timestamp=String(Date.now()),actor='0',body=JSON.stringify({...input,nonce:random()}),digest=await hash(body),key=await crypto.subtle.importKey('raw',bytes.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
@@ -55,16 +56,15 @@ async function route(request,env,site,port){
   const u=new URL(request.url),o=origins(env),prefix='/login-continuation/',attemptCookie='__Host-'+site+'-continuation-attempt',challengeCookie='__Host-'+site+'-login-challenge';
   const auto=site==='dailylog'?u.pathname==='/login':u.pathname==='/Account/Login'||u.pathname==='/Line/Review';
   if(!u.pathname.startsWith(prefix)){
-    if(request.method==='GET'&&auto&&u.searchParams.get('continuation')!=='skip'&&!readCookie(request,attemptCookie)&&!await port.session())return redirect(o[site]+prefix+'start?returnPath='+encodeURIComponent(site==='dailylog'?(u.searchParams.get('return')||'/'):(u.searchParams.get('ReturnUrl')||'/Line/Review')));
+    if(request.method==='GET'&&auto&&u.searchParams.get('continuation')!=='skip'&&!readCookie(request,attemptCookie)&&!await port.session())return redirect(o[site]+prefix+'start?returnPath='+encodeURIComponent(site==='dailylog'?(u.searchParams.get('returnTo')||u.searchParams.get('return')||'/'):(u.searchParams.get('ReturnUrl')||'/Line/Review')));
     if(request.method==='POST'&&(u.pathname==='/api/auth/logout'||u.pathname==='/api/uof-review/logout')){const s=await port.session(),link=s&&await port.link(s.reference);if(link){if(request.headers.get('Origin')!==u.origin)throw failure();await port.call({action:'logout',target:site,chainToken:link.token});}}
     return null;
   }
   if(request.method!=='GET')return json({ok:false},405);
-  const fallback=site==='dailylog'?o.dailylog+'/login?continuation=skip':o.uof+'/Account/Login?continuation=skip';
-  if(u.pathname===prefix+'authorize')return browserStep(prefix+'authorize-native?'+u.searchParams,fallback);
-  if(u.pathname===prefix+'callback')return browserStep(prefix+'exchange?'+u.searchParams,fallback);
+  if(u.pathname===prefix+'authorize'){const v=navigation(env,Object.fromEntries(u.searchParams));return browserStep(prefix+'authorize-native?'+u.searchParams,originalLogin(env,v.target,v.returnPath));}
+  if(u.pathname===prefix+'callback')return browserStep(prefix+'exchange?'+u.searchParams,originalLogin(env,site,decodeURIComponent(readCookie(request,'__Host-'+site+'-login-return')||defaults[site])));
   if(u.pathname===prefix+'start'){
-    const path=u.searchParams.get('returnPath')||defaults[site];navigation(env,{target:site,returnPath:path,challenge:'0'.repeat(64)});if(await port.session())return redirect(o[site]+path);const verifier=random();return redirect(o.meetings+prefix+'continue?'+new URLSearchParams({target:site,returnPath:path,challenge:await hash(verifier)}),[cookie(site+'-login-challenge',verifier,60),cookie(site+'-continuation-attempt','1',60)]);
+    const path=u.searchParams.get('returnPath')||defaults[site];navigation(env,{target:site,returnPath:path,challenge:'0'.repeat(64)});if(await port.session())return redirect(o[site]+path);const verifier=random();return redirect(o.meetings+prefix+'continue?'+new URLSearchParams({target:site,returnPath:path,challenge:await hash(verifier)}),[cookie(site+'-login-challenge',verifier,60),cookie(site+'-login-return',encodeURIComponent(path),60),cookie(site+'-continuation-attempt','1',60)]);
   }
   if(u.pathname===prefix+'authorize-native'){
     const v=navigation(env,Object.fromEntries(u.searchParams)),s=await port.session();if(!s)return json({url:o.meetings+prefix+'continue?'+new URLSearchParams({...v,attempt:String(Number(v.attempt||0)+1)})});
@@ -72,7 +72,7 @@ async function route(request,env,site,port){
   }
   if(u.pathname===prefix+'exchange'){
     const verifier=readCookie(request,challengeCookie),s=await port.session(),grant=await port.call({action:'exchange',code:u.searchParams.get('code'),target:site,targetOrigin:o[site],verifier,currentAccount:s?.account||null});
-    const cookies=s?[]:await port.save(grant),r=json({url:o[site]+grant.returnPath});for(const c of [...cookies,cookie(site+'-login-challenge','',0)])r.headers.append('Set-Cookie',c);return r;
+    const cookies=s?[]:await port.save(grant),r=json({url:o[site]+grant.returnPath});for(const c of [...cookies,cookie(site+'-login-challenge','',0),cookie(site+'-login-return','',0)])r.headers.append('Set-Cookie',c);return r;
   }
   return json({ok:false},404);
 }
