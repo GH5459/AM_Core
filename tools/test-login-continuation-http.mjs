@@ -19,7 +19,7 @@ function signed(v){const body=JSON.stringify({...v,nonce:random()}),timestamp=St
 async function fixture(){const db=new PGlite();await db.exec('CREATE SCHEMA central_archive');let active=true;const reference='a'.repeat(64),expiresAt=Date.now()+3600000;const service=createLoginContinuationHttp({env:{AMCORE_MEETING_MANAGEMENT_SECRET:secret,AMCORE_MEETINGS_LIFF_ID:'123456-fixture'},pool:db,authority:async v=>v.action==='proof'&&active?{reference,account:'900001',generation:'generation',active,expiresAt}:v.action==='feature'?{allowed:active,userId:'U'+'1'.repeat(32),tenantKey:'fixture',soap:false,attachments:false}:null,lineIdentity:async()=>null});return {db,service,reference,setActive:v=>{active=v;}};}
 test('machine proof is signed, nonce-bound, one-use and cannot be replayed',async()=>{const f=await fixture();try{
  const verifier=random(),v={action:'register-issue',source:'dailylog',reference:f.reference,target:'uof',returnPath:'/Line/Review',challenge:sha(verifier)},s=signed(v);
- assert.equal((await request(f.service,s.path,{...s,headers:{}})).status,401);
+ const denied=await request(f.service,s.path,{...s,headers:{}});assert.equal(denied.status,401);assert.equal(denied.json().code,'CONTINUATION_SIGNATURE');assert(!denied.text.includes(secret));
  const first=await request(f.service,s.path,s);assert.equal(first.status,200);assert(first.json().code);
  assert.equal((await request(f.service,s.path,s)).status,401);
  const exchange=signed({action:'exchange',code:first.json().code,target:'uof',targetOrigin:'https://uof-line.ghotel.tw',verifier});const result=await request(f.service,exchange.path,exchange);assert.equal(result.status,200);assert.equal(result.json().account,'900001');assert.equal(result.json().permission.soap,false);

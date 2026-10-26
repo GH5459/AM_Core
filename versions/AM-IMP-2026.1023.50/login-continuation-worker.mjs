@@ -2,6 +2,7 @@ const bytes=new TextEncoder(),hex=b=>Array.from(new Uint8Array(b),n=>n.toString(
 const hash=async s=>hex(await crypto.subtle.digest('SHA-256',bytes.encode(s)));
 const random=()=>{const b=crypto.getRandomValues(new Uint8Array(32));return btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');};
 const failure=()=>Object.assign(Error('登入接續未完成，請使用原登入入口。'),{status:401});
+const diagnostic=error=>/^CONTINUATION_[A-Z_]{1,50}$/.test(error?.diagnostic||'')?error.diagnostic:'CONTINUATION_UNCONFIRMED';
 const secureHeaders={'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'};
 const json=(v,status=200)=>Response.json(v,{status,headers:secureHeaders});
 const cookie=(site,value,ttl=0)=>'__Host-'+site+'='+value+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+Math.max(0,Math.floor(ttl));
@@ -19,7 +20,7 @@ export async function continuationCall(env,input){
   const secret=env.AMCORE_MEETING_MANAGEMENT_SECRET;if(!secret||secret.length<32)throw failure();const origin=new URL(origins(env).meetings);if(origin.protocol!=='https:'||origin.pathname!=='/'||origin.search||origin.hash)throw failure();
   const path='/login-continuation/machine',timestamp=String(Date.now()),actor='0',body=JSON.stringify({...input,nonce:random()}),digest=await hash(body),key=await crypto.subtle.importKey('raw',bytes.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(await crypto.subtle.sign('HMAC',key,bytes.encode(['POST',path,timestamp,actor,digest].join('\n'))));
-  const r=await fetch(origin.origin+path,{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-meeting-time':timestamp,'x-meeting-actor':actor,'x-meeting-signature':signature},body,signal:AbortSignal.timeout(20000)});if(!r.ok)throw failure();const v=await r.json();if(!v.ok)throw failure();return v;
+  const r=await fetch(origin.origin+path,{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-meeting-time':timestamp,'x-meeting-actor':actor,'x-meeting-signature':signature},body,signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||!v.ok)throw Object.assign(failure(),{diagnostic:/^CONTINUATION_[A-Z_]{1,50}$/.test(v.code||'')?v.code:'CONTINUATION_BROKER_HTTP'});return v;
 }
 async function seal(env,id,v){const iv=crypto.getRandomValues(new Uint8Array(12)),key=await crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',bytes.encode('login-continuation:'+env.TOKEN_ENCRYPTION_KEY)),{name:'AES-GCM'},false,['encrypt']);return {iv:Array.from(iv),value:Array.from(new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:bytes.encode(id)},key,bytes.encode(JSON.stringify(v)))))};}
 async function unseal(env,id,v){if(!env.TOKEN_ENCRYPTION_KEY)throw failure();const key=await crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',bytes.encode('login-continuation:'+env.TOKEN_ENCRYPTION_KEY)),{name:'AES-GCM'},false,['decrypt']);return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(v.iv),additionalData:bytes.encode(id)},key,new Uint8Array(v.value))));}
@@ -91,7 +92,7 @@ export async function dailyContinuationFetch(request,env){
       if(!env.TOKEN_ENCRYPTION_KEY)throw failure();const row=await env.DB.prepare('SELECT user_id,value FROM employees WHERE account=?').bind(grant.account).first();if(!row?.user_id)throw failure();const employee=JSON.parse(row.value),plain=hex(crypto.getRandomValues(new Uint8Array(32))),id=await hash(plain),csrf=hex(crypto.getRandomValues(new Uint8Array(32))),user={id:row.user_id,account:grant.account,name:employee.name||'',team:employee.department||employee.team||'',sessionIssuedAt:Date.now()},encrypted=await seal(env,id,{token:grant.token});
       await env.DB.batch([env.DB.prepare('INSERT INTO sessions(token_hash,csrf,user_json,expires_at) VALUES(?,?,?,?)').bind(id,csrf,JSON.stringify(user),grant.expiresAt),env.DB.prepare("INSERT INTO documents(namespace,key,value) VALUES('login-continuation-sessions',?,?)").bind(id,JSON.stringify(encrypted))]);return ['dailylog_session='+plain+'; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+Math.max(0,Math.floor((grant.expiresAt-Date.now())/1000))];
     }});
-  }catch{if(new URL(request.url).pathname.startsWith('/login-continuation/'))return json({ok:false,error:'登入接續未完成，請從原登入入口重新開啟。'},401);return json({error:'登入接續已失效，請重新登入。',code:'LOGIN_REQUIRED'},401);}
+  }catch(error){if(new URL(request.url).pathname.startsWith('/login-continuation/'))return json({ok:false,error:'登入接續未完成，請從原登入入口重新開啟。',code:diagnostic(error)},401);return json({error:'登入接續已失效，請重新登入。',code:'LOGIN_REQUIRED'},401);}
 }
 export async function uofContinuationSession(app,s){const link=s&&await app.store.get('login-continuation:'+await hash(s.id));if(!link)return s;try{const grant=await callFor(app)({action:'check',target:'uof',chainToken:link.token});if(grant.account!==s.account||grant.expiresAt<=Date.now())return null;return s;}catch{return null;}}
 export async function uofContinuationFetch(app,request){

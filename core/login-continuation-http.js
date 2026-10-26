@@ -48,20 +48,21 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
     async actor(req){const value=readCookie(req);if(!value)return null;const g=await broker.check(value,'meetings'),p=g.permission;if(!p?.userId||!p?.tenantKey)throw fail();return {id:p.userId,name:p.name||'公司同仁',account:g.account,tenantKey:p.tenantKey};},
     async handle(req,res,url){
       if(!url.pathname.startsWith('/login-continuation/'))return false;
+      let phase='ROUTE';
       try {
         if(req.method==='GET'&&url.pathname==='/login-continuation/browser.js'){
           res.writeHead(200,{...headers,'Content-Type':'text/javascript'});res.end(`window.loginContinuationSession=async()=>{try{const r=await fetch('/login-continuation/session',{credentials:'same-origin',cache:'no-store'});return r.ok&&(await r.json()).authenticated===true;}catch{return false;}};window.tryLoginContinuation=async()=>{try{const u=new URL(location.href);if(u.searchParams.get('continuation')==='skip'||Date.now()-Number(sessionStorage.getItem('login-continuation-attempt')||0)<60000)return false;sessionStorage.setItem('login-continuation-attempt',String(Date.now()));location.replace('/login-continuation/start?returnPath='+encodeURIComponent(u.pathname+u.search));return true;}catch{return false;}};`);return true;
         }
         if(url.pathname==='/login-continuation/machine'&&req.method==='POST'){
-          const raw=await body(req);if(!verifyManagementRequest(secret,req,raw))throw fail();const v=JSON.parse(raw);
-          if(!/^[A-Za-z0-9_-]{43}$/.test(v.nonce||''))throw fail();await ensure();const accepted=await pool.query('INSERT INTO central_archive.login_continuation_nonces(key,expires_at) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING key',[sha(v.nonce),Date.now()+60000]);if(!accepted.rows.length)throw fail();
+          phase='SIGNATURE';const raw=await body(req);if(!verifyManagementRequest(secret,req,raw))throw fail();const v=JSON.parse(raw);
+          phase='NONCE';if(!/^[A-Za-z0-9_-]{43}$/.test(v.nonce||''))throw fail();await ensure();const accepted=await pool.query('INSERT INTO central_archive.login_continuation_nonces(key,expires_at) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING key',[sha(v.nonce),Date.now()+60000]);if(!accepted.rows.length)throw fail();
           await pool.query('DELETE FROM central_archive.login_continuation_nonces WHERE key IN (SELECT key FROM central_archive.login_continuation_nonces WHERE expires_at<$1 LIMIT 100)',[Date.now()]);
           let result;
-          if(v.action==='register-issue'){validInput(v);if(!['dailylog','uof'].includes(v.source))throw fail();const root=await broker.register(v.source,v.reference);result=await broker.issue(root.token,v);}
-          else if(v.action==='chain-issue'){validInput(v);result=await broker.issueFromChain(v.chainToken,v.source,v);}
-          else if(v.action==='exchange'){if(v.target==='meetings')throw fail();result=await broker.exchange(v);}
-          else if(v.action==='check')result=await broker.check(v.chainToken,v.target);
-          else if(v.action==='logout')result=await broker.logoutChain(v.chainToken,v.target);
+          if(v.action==='register-issue'){phase='SOURCE_PROOF';validInput(v);if(!['dailylog','uof'].includes(v.source))throw fail();const root=await broker.register(v.source,v.reference);phase='TARGET_ACCESS';result=await broker.issue(root.token,v);}
+          else if(v.action==='chain-issue'){phase='SOURCE_CHAIN';validInput(v);result=await broker.issueFromChain(v.chainToken,v.source,v);}
+          else if(v.action==='exchange'){phase='TICKET_EXCHANGE';if(v.target==='meetings')throw fail();result=await broker.exchange(v);}
+          else if(v.action==='check'){phase='CHAIN_CHECK';result=await broker.check(v.chainToken,v.target);}
+          else if(v.action==='logout'){phase='LOGOUT';result=await broker.logoutChain(v.chainToken,v.target);}
           else throw fail();json(res,{ok:true,...result});return true;
         }
         if(req.method==='GET'&&url.pathname==='/login-continuation/continue'){
@@ -88,7 +89,7 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
           if(req.headers.origin!==origin)throw fail();const v=validInput(JSON.parse(await body(req))),proof=await verifyLine(v.lineToken),reference=sha(token()),issuedAt=Date.now();await ensure();await pool.query('INSERT INTO central_archive.login_continuation_line_proofs(key,value) VALUES($1,$2::jsonb)',[reference,JSON.stringify({account:proof.who.account,userId:proof.who.userId,issuedAt,expiresAt:proof.expiresAt,encrypted:encrypt(v.lineToken)})]);const root=await broker.register('meetings',reference),out=await broker.issue(root.token,v);json(res,{url:destination(v.target,out.code)});return true;
         }
         json(res,{ok:false,error:'找不到登入接續入口。'},404);return true;
-      }catch(error){onError(error);json(res,{ok:false,error:'登入接續未完成，請使用原登入入口。'},401);return true;}
+      }catch(error){error.continuationPhase=phase;onError(error);json(res,{ok:false,error:'登入接續未完成，請使用原登入入口。',code:'CONTINUATION_'+phase},401);return true;}
     }
   };
 }
