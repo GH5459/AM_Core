@@ -108,10 +108,7 @@ export function createLoginContinuation({store, sources, targets, now = Date.now
 // Isolated table: no employee, task, binding, grant or session rows are changed.
 export function postgresContinuationStore(pool) {
   let ready;
-  const ensure = () => ready ||= pool.query(`CREATE TABLE IF NOT EXISTS central_archive.login_continuation (
-    kind text NOT NULL CHECK (kind IN ('root','ticket','chain')),
-    key text NOT NULL CHECK (length(key)=64), value jsonb NOT NULL,
-    expires_at bigint NOT NULL, PRIMARY KEY(kind,key))`).catch(e => {ready = null; throw e;});
+  const ensure = () => ready ||= pool.query('SELECT key FROM central_archive.login_continuation LIMIT 0').catch(e => {ready = null; throw e;});
   return {
     async insert(kind, key, value) {
       await ensure();

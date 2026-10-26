@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import {createRequire} from 'node:module';
 import {dailyContinuationFetch,uofContinuationFetch,continuationCall} from '../versions/AM-IMP-2026.1023.50/login-continuation-worker.mjs';
 const {transformWorker}=createRequire(import.meta.url)('../versions/AM-IMP-2026.1023.50/build-worker.cjs');
@@ -24,4 +25,29 @@ test('UOF browser challenge is target-only, short, HttpOnly and original login r
  assert.equal(r.status,303);const cookies=r.headers.getSetCookie();assert(cookies.some(c=>/^__Host-uof-login-challenge=/.test(c)&&c.includes('HttpOnly; Secure; SameSite=Lax; Max-Age=60')));
  assert.equal(await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/Account/Login?continuation=skip')),null);
  for(const path of ['https://evil.test','//evil.test','/admin'])assert.equal((await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/login-continuation/start?returnPath='+encodeURIComponent(path)))).status,401);
+});
+
+test('a source-site failure automatically returns to the requested app and preserves the exact destination',async()=>{
+ const app={env:{},session:async()=>null,store:{get:async()=>null}};
+ for(const target of ['dailylog','meetings','uof']){
+  const returnPath=target==='dailylog'?'/xiaoye?issue=work-original':target==='meetings'?'/meetings/review/hub?view=mine':'/Line/Review';
+  const r=await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/login-continuation/authorize?'+new URLSearchParams({target,returnPath,challenge:'a'.repeat(64)})));
+  const html=await r.text(),nodes={status:{},retry:{}},navigation=[];
+  await vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],{history:{replaceState(){}},location:{pathname:'/login-continuation/authorize',replace:u=>navigation.push(u)},document:{getElementById:id=>nodes[id]},fetch:async()=>({ok:false,json:async()=>({})})});
+  const back=new URL(navigation[0]);assert.equal(back.origin,target==='dailylog'?'https://dailylog.chatgpt-673.workers.dev':target==='meetings'?'https://am.hozorental.com':'https://uof-line.ghotel.tw');
+  assert.equal(back.searchParams.get('continuation'),'skip');
+  if(target!=='meetings')assert.equal(back.searchParams.get(target==='dailylog'?'returnTo':'ReturnUrl'),returnPath);
+  assert.equal(nodes.retry.href,navigation[0]);
+ }
+});
+
+test('native login returnTo is retained and a callback failure retains its original local destination',async()=>{
+ const app={env:{},session:async()=>null,store:{get:async()=>null}};
+ const env={DB:{prepare(){return {first:async()=>null}}}};
+ const started=await dailyContinuationFetch(new Request('https://dailylog.chatgpt-673.workers.dev/login?returnTo='+encodeURIComponent('/xiaoye?issue=work-original')),env);
+ assert.equal(new URL(started.headers.get('Location')).searchParams.get('returnPath'),'/xiaoye?issue=work-original');
+ const r=await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/login-continuation/callback?code=bad',{headers:{Cookie:'__Host-uof-login-return='+encodeURIComponent('/Line/Review')}}));
+ const html=await r.text();assert(html.includes('ReturnUrl=%2FLine%2FReview'));
+ const denied=await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/login-continuation/authorize?'+new URLSearchParams({target:'dailylog',returnPath:'https://evil.test/',challenge:'a'.repeat(64)})));
+ assert.equal(denied.status,401);
 });
