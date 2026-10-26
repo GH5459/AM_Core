@@ -12,7 +12,7 @@ export async function journalRecoveryAsset(request,env,ctx,base){
  source=source.replace('if(pending===sent)pending=null;',`if(result.snapshot&&!equal(JSON.parse(sent),ack)){
       const reconciled=merge(JSON.parse(sent),packet(data),ack);
       if(reconciled.conflicts.length){backup(packet(data));blocked=true;}
-      else{install(reconciled.snapshot);pending=equal(packet(data),ack)?null:JSON.stringify(packet(data));}
+      else{data=window.dailylogPrivateData.workOnly(reconciled.snapshot);persist(false);pending=equal(packet(data),ack)?null:JSON.stringify(packet(data));}
     }else if(pending===sent)pending=null;`);
  source=source.replace("state=pending?'pending':result.state==='synced'?'synced':'saved';","state=blocked?'conflict':pending?'pending':result.state==='synced'?'synced':'saved';");
  const resultHeaders=new Headers(response.headers);for(const key of ['etag','content-length','content-encoding','last-modified'])resultHeaders.delete(key);resultHeaders.set('Cache-Control','private, no-store');
