@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1023.68 | Deployed | 單案原會議證據、實際日期診斷與同案白話結果 | PR450／451完整CI；AM 743212e2；DailyLog 77模組及最新79模組回讀 | 原6項／4既有任務／2待指派，無重複；原核准與結案保持；不重播或恢復heartbeat。 |
 | AM-IMP-2026.1020.30 | Deployed | 儲存並回報 LINE 個人；直接交辦與會議待辦、組織明選一位同仁 | PR400／401完整CI，AM1dc3d0f兩站，DailyLog f107d650完整54模組100%，正式選人取消通過 | 27AM／4Worker-D1／六寬度；240原工作逐項與246最新工作／22身分保持，並行會議編修保留，未真人測寫。 |
 | AM-IMP-2026.1019.02 | Deployed | 群組@bot本人任務與明確會議入口 | PR329完整CI2m32s／兩站8bc1d71與原target契約 | DailyLog50156c2e完整36模組、其他34bytes及原Assets／配置排程保持；原交辦／Calendar／身份與資料保持，真人自然驗收獨立。 |
 | AM-IMP-2026.1018.01 | Deployed | 發布確認視窗內進度／錯誤及新待辦預設建立當天 | 完整 CI、合成瀏覽器、台灣午夜日期及正式原會議保持 | PR323；AM 77b1f68 兩入口確認，原會議與收據保持；本人連線仍須各自完成，未代發布或建任務。 |
@@ -33,4 +34,3 @@
 | AM-IMP-2026.1008.02 | Deployed | Explicit quoted conversation-archive retrieval | 84 attachment/archive tests; server webhook/private pause checks; 19 core checks | Production main 4c0f048 and native recovery/download/delivery verified. Explicit manual archive requests are independent of project activation; source/member gates remain required. |
 
 | AM-IMP-2026.1008.03 | Deployed | MIME-aware video/audio download filenames | 88 attachment/archive tests, server webhook, 19 core checks | Production main f8b9e7b, old-link MIME/extension and original byte equality verified. Existing valid links retain exact original bytes and receive correct extensions. |
-

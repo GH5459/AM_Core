@@ -45,6 +45,30 @@ const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
   assert.equal((await call(later)).status,200);assert.equal((await call(later)).status,200);
   assert.equal((await db.prepare('SELECT count(*) AS n FROM work_items').first()).n,3);
   assert.equal((await call({...later,deliverySequence:0})).status,400);
+  // Historical meetings can be delivered after their original deadlines. The
+  // real task model must validate the original range before the atomic batch.
+  const pastMeeting='2020-01-13',pastDue='2020-01-20';
+  const oldTask={...input.tasks[0],due:pastDue};
+  const historical={...input,id:'e'.repeat(64),date:pastMeeting,tasks:[oldTask]};
+  r=await call(historical);body=await r.json();assert.equal(r.status,200,JSON.stringify(body));
+  const historicalId=body.tasks[0].id;
+  const readTask=async id=>JSON.parse((await db.prepare('SELECT value FROM work_items WHERE id=?').bind(id).first()).value);
+  let historicalTask=await readTask(historicalId);
+  assert.equal(historicalTask.startDate,pastMeeting);assert.equal(historicalTask.initialStartDate,pastMeeting);assert.equal(historicalTask.sourceDate,pastMeeting);assert.equal(historicalTask.dueDate,pastDue);
+  assert.equal(historicalTask.dueAt,pastDue+'T23:59:59+08:00');
+  const countBeforeReplay=(await db.prepare('SELECT count(*) AS n FROM work_items').first()).n;
+  assert.equal((await call(historical)).status,200);assert.equal((await db.prepare('SELECT count(*) AS n FROM work_items').first()).n,countBeforeReplay);
+  const delayed={...historical,id:'f'.repeat(64),revision:91,deliverySequence:1,removed:[],knownTaskIds:[],tasks:Array.from({length:4},(_,i)=>({...oldTask,id:'todo:'+String(i+3).repeat(8)+'-'+String(i+3).repeat(4)+'-'+String(i+3).repeat(4)+'-'+String(i+3).repeat(4)+'-'+String(i+3).repeat(12),content:'Historical assigned item '+(i+1),due:i===2?pastDue:'2030-10-31'}))};
+  r=await call(delayed);body=await r.json();assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.tasks.length,4);
+  const deliveredIds=body.tasks.map(t=>t.id);assert.equal(new Set(deliveredIds).size,4);
+  for(const [index,id]of deliveredIds.entries()){const task=await readTask(id);assert.equal(task.startDate,pastMeeting);assert.equal(task.initialStartDate,pastMeeting);assert.equal(task.sourceDate,pastMeeting);assert.equal(task.dueDate,delayed.tasks[index].due);assert.equal(task.meetingSource.todoId,delayed.tasks[index].id);}
+  const frozen=JSON.stringify(await Promise.all(deliveredIds.map(readTask)));
+  assert.equal((await call(delayed)).status,200);assert.equal(JSON.stringify(await Promise.all(deliveredIds.map(readTask))),frozen,'A repeated frozen delivery must not recreate or rewrite any of the four tasks');
+  assert.equal((await call({...delayed,date:'2020-01-14'})).status,409,'A changed replay still conflicts with its original receipt');
+  const invalidRange={...historical,id:'9'.repeat(64),tasks:[{...oldTask,due:'2020-01-12'}]};
+  assert.equal((await call(invalidRange)).status,400,'Deadlines before the actual meeting start remain invalid');
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM meeting_task_receipts WHERE id=?').bind(invalidRange.id).first()).n,0);
+  console.log('Historical initial and deferred delivery: original start/deadline, four-item atomic creation, stable replay, changed-replay rejection and invalid-range protection passed.');
   if(names.includes('meeting-task-progress.mjs')){
    await db.prepare("UPDATE documents SET value=? WHERE namespace='settings' AND key='access'").bind(JSON.stringify({revision:2,experienceLocales:{'111':'en'}})).run();
    const query={tenantKey:'fixture',contract:'meeting-live-task-progress-v1',id:input.id,host:input.host,viewer:{account:'111'},todoIds:[input.tasks[0].id]};
@@ -59,7 +83,7 @@ const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
    await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(original,taskRow.id).run();
    console.log('Progress read through full original authenticated Worker + real D1: original task IDs/links, task-model evidence permissions, missing-result confirmation and reopening passed.');
   }
-  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup','deferred delivery sequence at same meeting revision','later connected recipient without duplicate task',...names.includes('meeting-task-progress.mjs')?['read-only live progress','original task evidence permissions','completion evidence','reopening']:[]]},null,2));
+  fs.writeFileSync(folder+'/worker-tests.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,fullLiveWorker:true,tests:['service auth','tenant scope','required deadline','real task creation','same request replay','receipt conflict','personal task owner/due/source','active person lookup','deferred delivery sequence at same meeting revision','later connected recipient without duplicate task','past-due initial delivery','past-due four-item deferred batch','original start and deadline','frozen four-item replay unchanged','invalid historical range rejected',...names.includes('meeting-task-progress.mjs')?['read-only live progress','original task evidence permissions','completion evidence','reopening']:[]]},null,2));
   console.log('Complete live Worker + real workerd/D1: authenticated meeting task creation, real task model, assignee/deadline/source, atomic receipt and duplicate protection passed.');
  }finally{await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

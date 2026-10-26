@@ -68,3 +68,10 @@ Use this table to control whether each shared improvement should stay as-is, be 
 | Uninstall | Follow the package rollback notes in the target project, then update the manifest. |
 | Do Not Install | Intentionally keep the package out of that project. |
 | Review | Needs owner or technical review before changing status. |
+
+
+## AM Platform／DailyLog 正式發布
+
+| Version | Status | Scope | Verified | Notes |
+| --- | --- | --- | --- | --- |
+| AM-IMP-2026.1023.68 | Deployed | 單案原會議證據、實際日期診斷與同案白話結果 | PR450／451完整CI；AM 743212e2；DailyLog 77模組及最新79模組回讀 | 原6項／4既有任務／2待指派，無重複；原核准與結案保持；不重播或恢復heartbeat。 |

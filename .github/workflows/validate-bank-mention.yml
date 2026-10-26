@@ -10,6 +10,9 @@ on:
       - 'core/xiaoye-reporter*'
       - 'versions/AM-IMP-2026.1022.66/**'
       - 'core/xiaoye-inspection*'
+      - 'core/xiaoye-case-evidence.mjs'
+      - 'core/xiaoye-evidence-protocol.mjs'
+      - 'versions/AM-IMP-2026.1023.68/**'
       - 'core/xiaoye-recovery.mjs'
       - 'versions/AM-IMP-2026.1022.65/**'
       - 'versions/AM-IMP-2026.1022.67/**'
@@ -209,6 +212,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.61
       - run: node --test tools/test-xiaoye-owner-adapter.mjs
       - run: node --test tools/test-xiaoye-result.mjs tools/test-xiaoye-result-ui.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.69
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.66
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.62
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.64
@@ -248,6 +252,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.22
       - run: node tools/test-meeting-workspace-service.mjs
       - run: node tools/test-meeting-task-dispatch.mjs
+      - run: node --check tools/test-meeting-workspace-worker.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.35
       - run: node tools/test-meeting-task-progress.mjs
       - run: node tools/test-meeting-task-progress-client.mjs
@@ -339,6 +345,8 @@ jobs:
       - run: node --test tools/test-attachment-retention.mjs
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
       - run: node tools/dryrun-collect-attachment-archive.mjs
+      - run: node --test tools/test-xiaoye-case-evidence.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.68
       - run: node tools/test-engineering-reminders-disabled.mjs
       - run: node tools/dryrun-engineering-convergence.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.01
