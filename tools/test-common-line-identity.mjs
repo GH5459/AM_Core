@@ -63,3 +63,54 @@ test('destination is restored after LIFF init; each app retains its original per
   if(!allowed)assert(nodes.get('#status').textContent.includes('尚未開通'));
  }
 });
+
+
+test('owner-authorized recovery requires current UOF LINE, fresh company login and explicit confirmation',async()=>{
+ const f=fixture({legacy:[{account:'900001',userId:user,groupId:user,bindingId:'current-uof'}]});await f.seed('900001',other);
+ await assert.rejects(f.call({action:'status'}));
+ const before=f.sqlite.prepare('SELECT * FROM documents ORDER BY key').all();
+ const authorization=await f.call({action:'recovery-authorize',account:'900001'});assert(authorization.recoveryAuthorized);
+ assert((await f.call({action:'status'})).recoveryRequired);assert.deepEqual(f.sqlite.prepare('SELECT * FROM documents ORDER BY key').all(),before);
+ await assert.rejects(f.call({action:'prepare',account:'900002',password:'correct'}));
+ await assert.rejects(f.call({action:'prepare',account:'900001',password:'wrong'}));
+ const p=await f.call({action:'prepare',account:'900001',password:'correct'});assert(p.challenge);assert.deepEqual(f.sqlite.prepare('SELECT * FROM documents ORDER BY key').all(),before);
+ await assert.rejects(f.call({action:'confirm',challenge:p.challenge,token:'synthetic-other-token'}));
+ const result=await f.call({action:'confirm',challenge:p.challenge});assert(result.recovered&&result.linked);assert.equal(result.permissions.meetings,true);assert.equal(result.permissions.dailylog,true);assert.equal(result.permissions.uof,false);
+ assert.equal(f.sqlite.prepare("SELECT count(*) n FROM documents WHERE namespace='line-work-recovery'").get().n,1);
+ const identities=f.sqlite.prepare("SELECT value FROM documents WHERE namespace='line-work-identities'").all().map(x=>JSON.parse(x.value));assert.equal(identities.length,2);assert(identities.every(p=>p.lineUserId===user));assert((await f.call({action:'status'})).linked);
+ assert.equal(f.saved.get('bindings')[0].bindingId,'current-uof');assert.equal(f.saved.get('common-line-recovery:900001').consumed,true);
+ await assert.rejects(f.call({action:'prepare',account:'900001',password:'correct',token:'synthetic-other-token'}));
+});
+
+test('recovery refuses revoked proof, expiration, changed native identity, and changed UOF binding',async()=>{
+ for(const change of ['expired','native-changed','uof-changed','inactive']){
+  const f=fixture({legacy:[{account:'900001',userId:user,groupId:user,bindingId:'current-uof'}]});await f.seed('900001',other);await f.call({action:'recovery-authorize',account:'900001'});
+  const p=await f.call({action:'prepare',account:'900001',password:'correct'});
+  if(change==='expired')f.saved.get('common-line-recovery:900001').expiresAt=0;
+  if(change==='native-changed')f.sqlite.prepare("UPDATE documents SET value=json_set(value,'$.identityId','changed') WHERE namespace='line-work-identities'").run();
+  if(change==='uof-changed')f.saved.get('bindings')[0].bindingId='changed';
+  if(change==='inactive')f.snapshot.effectiveActiveAccounts=[];
+  const before=f.sqlite.prepare('SELECT * FROM documents ORDER BY key').all();await assert.rejects(f.call({action:'confirm',challenge:p.challenge}));assert.deepEqual(f.sqlite.prepare('SELECT * FROM documents ORDER BY key').all(),before);
+ }
+});
+
+test('recovery retains previous identity audit and exact concurrent changes win without partial overwrite',async()=>{
+ const f=fixture({legacy:[{account:'900001',userId:user,groupId:user,bindingId:'current-uof'}]});await f.seed('900001',other);await f.call({action:'recovery-authorize',account:'900001'});
+ const p=await f.call({action:'prepare',account:'900001',password:'correct'});await f.call({action:'confirm',challenge:p.challenge});
+ const receipt=JSON.parse(f.sqlite.prepare("SELECT value FROM documents WHERE namespace='line-work-recovery'").get().value);assert(receipt.complete);assert.equal(JSON.parse(receipt.originalLine).lineUserId,other);assert.equal(JSON.parse(receipt.originalReverse).account,'900001');
+});
+
+
+test('native recovery transaction refuses a concurrent edit without deleting identities or creating an audit receipt',async()=>{
+ const f=fixture();await f.seed('900001',other);const originalBatch=f.db.batch;
+ f.db.batch=async stmts=>{f.sqlite.prepare("UPDATE documents SET value=json_set(value,'$.identityId','concurrent-original-edit'),revision=revision+1 WHERE namespace='line-work-identities'").run();return originalBatch(stmts)};
+ await assert.rejects(commonLineIdentity({DB:f.db},{action:'recover',botUserId:bot,lineUserId:user,account:'900001',previousLineUserId:other,expectedIdentityId:'work-line-original',operationId:'a'.repeat(64)}));
+ assert.equal(f.sqlite.prepare("SELECT count(*) n FROM documents WHERE namespace='line-work-recovery'").get().n,0);
+ const rows=f.sqlite.prepare("SELECT value FROM documents WHERE namespace='line-work-identities'").all();assert.equal(rows.length,2);assert(rows.every(r=>JSON.parse(r.value).identityId==='concurrent-original-edit'));
+});
+
+test('native recovery exact operation retry returns the original result and never duplicates audit or identity',async()=>{
+ const f=fixture();await f.seed('900001',other);const v={action:'recover',botUserId:bot,lineUserId:user,account:'900001',previousLineUserId:other,expectedIdentityId:'work-line-original',operationId:'b'.repeat(64)};
+ assert((await commonLineIdentity({DB:f.db},v)).recovered);const before=f.sqlite.prepare('SELECT * FROM documents ORDER BY namespace,key').all();assert((await commonLineIdentity({DB:f.db},v)).recovered);assert.deepEqual(f.sqlite.prepare('SELECT * FROM documents ORDER BY namespace,key').all(),before);
+ await assert.rejects(commonLineIdentity({DB:f.db},{...v,operationId:'c'.repeat(64)}));assert.deepEqual(f.sqlite.prepare('SELECT * FROM documents ORDER BY namespace,key').all(),before);
+});

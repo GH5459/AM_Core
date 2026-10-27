@@ -146,13 +146,17 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
       }
       if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);mutable=true;}
       const text=event.type==='message'&&event.message?.type==='text'?event.message.text:'';
-      if(!/^綁定\s+UOF(?:\s|$)/i.test(text)) continue;
+      if(!/^綁定\s+UOF(?:\s|$)/i.test(text.trim())) continue;
       if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
-      const match=/^綁定\s+UOF\s+([a-zA-Z0-9_-]{22})\s*$/.exec(text);
-      if(!match||!/^U[0-9a-f]{32}$/i.test(event.source.userId||'')) continue;
       if(!Number.isSafeInteger(event.timestamp)||Math.abs(Date.now()-event.timestamp)>600000) continue;
+      const direct=event.source.type==='user';
+      if(direct&&consumed.has(event.webhookEventId))continue;
+      const respond=async message=>{if(direct&&event.replyToken){try{await line.replyLineMessages(event.replyToken,[{type:'text',text:message}],{timeoutMs:5000});}catch{console.warn('UOF binding response could not be delivered.');}}};
+      if(direct){if(consumed.size>=1000)consumed.delete(consumed.keys().next().value);consumed.set(event.webhookEventId,Date.now()+600000);}
+      const match=/^綁定\s+UOF\s+([a-zA-Z0-9_-]{22})\s*$/i.exec(text.trim());
+      if(!match||!/^U[0-9a-f]{32}$/i.test(event.source.userId||'')){await respond('綁定文字不完整，請回原啟用網頁，重新複製整段綁定文字後送出。');continue;}
       const hash=pairingHash(match[1],event.source.type==='user');
-      if(!await store.findCode(hash)) continue;
+      if(!await store.findCode(hash)){await respond('這組綁定碼已失效、已使用，或不適用此私訊。請回原啟用網頁查看狀態；尚未完成時，取得新的個人綁定碼，於 10 分鐘內送出。');continue;}
       consumed.set(event.webhookEventId,Date.now()+600000);
       try {
         if(clients.some(c=>c.groupIds.includes(groupId))) throw ioError(409,'binding_conflict');
@@ -160,19 +164,21 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
         if(route?.binding) throw ioError(409,'binding_conflict');
         await store.candidate(hash,event,await proof(groupId,event.source.userId));
         mutable=true;
-      } catch(error) { if(error.status<500) continue; throw error; }
+        await respond('已收到綁定資料，尚未完成綁定。請回原啟用網頁，核對自己的 LINE 名稱並按下確認，完成後再開啟會議、UOF 或工作日誌。');
+      } catch(error) {if(direct){await respond(error.status<500?'目前綁定資料有衝突，原綁定已保留。請回啟用網頁核對，或請管理者協助。':'暫時無法確認 LINE 身分，尚未完成綁定。請稍後回原啟用網頁查看狀態並重新嘗試。');continue;}if(error.status<500) continue;throw error;}
     }
     // Ordinary input already loaded the current rows. Binding/member changes
     // still refresh before capture can authorize or persist any event.
     if(mutable) await refresh();
   }
   const active=client=>rows.filter(r=>r.status==='bound'&&r.tenant_key===client.tenantKey&&r.client_id===client.id);
-  // The paused general assistant admits only a live, server-issued direct code.
+  // Admit only the bounded binding command, including expired/malformed codes,
+  // so the binding handler can explain failure without starting the assistant.
   async function acceptsBindingEvent(event) {
     if(event?.source?.type!=='user'||!conversationId(event)||event.type!=='message'||event.message?.type!=='text') return false;
     if(!event.webhookEventId||!Number.isSafeInteger(event.timestamp)||Math.abs(Date.now()-event.timestamp)>600000) return false;
-    const match=/^綁定\s+UOF\s+([a-zA-Z0-9_-]{22})\s*$/.exec(event.message.text||'');
-    return Boolean(match && await store.findCode(pairingHash(match[1],true)));
+    const text=String(event.message.text||'').trim();
+    return text.length<=200&&/^綁定\s+UOF(?:\s|$)/i.test(text);
   }
   const lookup=group=>rows.find(r=>r.group_id===group&&['bound','suspended'].includes(r.status)) || rows.find(r=>r.group_id===group);
   const owns=event=>consumed.has(event?.webhookEventId)||rows.some(r=>r.group_id===conversationId(event)

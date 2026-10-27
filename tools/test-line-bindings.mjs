@@ -391,3 +391,16 @@ test('90-day cleanup removes personal copies and send records while preserving o
   assert.deepEqual((await h.db.query('SELECT client_id FROM line_io.line_io_sends')).rows.map(x=>x.client_id),['other-client']);
   assert.equal((await h.bindingStore.get(row.bindingId)).status,'bound');
 });
+
+
+test('private binding replies explain candidate, invalid and malformed codes without granting access or storing the command',async t=>{
+ const h=await harness(t),start=await h.request('/bindings/start',{method:'POST',body:{externalUserId:'synthetic-owner',displayName:'Owner',replace:true,conversationType:'user'}});
+ const ev=(id,text)=>({...h.event(id,text),source:{type:'user',userId:user}});
+ const first=ev('private-pair',start.body.command);assert(await h.gateway.acceptsBindingEvent(first));await h.gateway.capture([first]);
+ assert.equal(h.replies.length,1);assert(h.replies[0][1][0].text.includes('尚未完成綁定'));
+ assert.equal((await h.request('/bindings/'+start.body.bindingId+'?externalUserId=synthetic-owner')).body.status,'pending_confirmation');
+ await h.gateway.capture([first]);assert.equal(h.replies.length,1);
+ await h.gateway.capture([ev('invalid-code','綁定 UOF '+'x'.repeat(22)),ev('bad-code','綁定 UOF bad')]);assert.equal(h.replies.length,3);assert(h.replies[1][1][0].text.includes('已失效'));assert(h.replies[2][1][0].text.includes('不完整'));
+ assert.equal(Number((await h.db.query('SELECT count(*) AS n FROM line_io.line_io_events')).rows[0].n),0);
+ assert.equal(await h.gateway.acceptsBindingEvent(ev('not-binding','會議')),false);
+});
