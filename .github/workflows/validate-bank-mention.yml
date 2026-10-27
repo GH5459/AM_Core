@@ -280,6 +280,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.70
       - run: node tools/test-meeting-audio-stream.mjs
       - run: node tools/test-meeting-hub.mjs
+      - run: node tools/test-meeting-transcript-input.mjs
+      - run: node --check tools/test-meeting-input-tools-browser.cjs
       - run: node tools/test-meeting-calendar-recovery.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.71
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.04

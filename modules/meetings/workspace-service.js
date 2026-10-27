@@ -117,10 +117,10 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function generate(r,row){
   const heartbeat=setInterval(()=>pool.query(`UPDATE central_archive.meeting_workspaces SET lease_until=now()+interval '2 minutes' WHERE id=$1 AND state='processing'`,[r.id]).catch(()=>{}),20000);heartbeat.unref();
   try{
-   const ctx=await context(row,r.source,{senderName:r.host_name});await original(r,row);
+   const ctx=await context(row,r.source,{senderName:r.host_name});if(r.receipt.generationSnapshot?.input?.source!=='transcript')await original(r,row);
    const audioStreamFactory=async()=>{const file=await original(r,row),token=await platform.drive.getAccessToken();const response=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(300000)});if(!response.ok)throw Error('original_audio_unavailable');return {stream:response.body};};
    const preparation=r.receipt.generationSnapshot||{preparation:'',version:null};
-   const result=await meetingModule.generateWorkspace({tenant:ctx.tenant,audioStreamFactory,loadAudio:()=>download(r,row),filename:r.filename,settings:r.fields.settings,preparation:preparation?.preparation||''});
+   const result=await meetingModule.generateWorkspace({tenant:ctx.tenant,audioStreamFactory,loadAudio:()=>download(r,row),filename:r.filename,settings:r.fields.settings,preparation:preparation?.preparation||'',inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null});
    const fields={...r.fields,record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:1,transcript:1};
    for(const t of (result.parsed.todos||[]).slice(0,60)){
@@ -149,17 +149,17 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    locked=(await db.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok',['publish-meeting:'+r.id])).rows[0].ok;if(!locked)return;
    r=await store.get(r.id);if(r.state!=='publishing')return;
    await assertMember(row,r.host_id);await validateAssignees(r,row);const destination=await publication.resolve(r,row);
-   const ctx=await context(row,r.source,{senderName:r.host_name}),target=await ensureDatabase(row),audio=await original(r,row),marker='meeting-workspace:'+r.id;
+   const ctx=await context(row,r.source,{senderName:r.host_name}),target=await ensureDatabase(row),audio=r.receipt.generationSnapshot?.input?.source==='transcript'&&!hub.file(r)&&!r.filename?null:await original(r,row),marker='meeting-workspace:'+r.id;
    let receipt={...r.receipt};const save=async()=>{await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=$2::jsonb,error_code='',updated_at=now() WHERE id=$1`,[r.id,JSON.stringify(receipt)]);};
    if(!receipt.notionId){
     const found=await request('/data_sources/'+target.dbId+'/query','POST',{filter:{property:'來源識別',rich_text:{equals:marker}},page_size:2});
     if(found.results?.length>1)throw Error('duplicate_meeting_source');
     const page=found.results?.[0]||await request('/pages','POST',{parent:{type:'data_source_id',data_source_id:target.dbId},properties:{
      '會議':{title:rich(r.fields.settings.date+' '+r.fields.settings.topic)},'日期':{date:{start:r.fields.settings.date}},'類型':{select:{name:r.fields.settings.type}},
-     '參與者':{rich_text:rich(r.fields.settings.speakers.map(s=>s.name).filter(Boolean).join('、'))},'原始錄音名稱':{rich_text:rich(r.filename)},'Google Drive 錄音':{url:audio.webViewLink},'錄音保存狀態':{rich_text:rich('已保存')},'來源識別':{rich_text:rich(marker)}
+     '參與者':{rich_text:rich(r.fields.settings.speakers.map(s=>s.name).filter(Boolean).join('、'))},'原始錄音名稱':{rich_text:rich(r.filename)},'Google Drive 錄音':{url:audio?.webViewLink||null},'錄音保存狀態':{rich_text:rich(audio?'已保存':'逐字稿來源（無錄音）')},'來源識別':{rich_text:rich(marker)}
     }});receipt.notionId=page.id;await save();
    }
-   const lines=['會議記錄',r.fields.record,'','待辦事項',...todos(r.fields).map((t,i)=>`${i+1}. ${t.content}\n負責人：${t.ownerId?receipt.ownerNames?.[t.ownerId]||t.ownerId:'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'','逐字稿',r.fields.transcript||r.result.warning||'未提供','',`來源：${row.display_name||'LINE 對話'}／${r.filename}／上傳者 ${r.host_name}／${new Date(r.source.timestamp).toISOString()}／訊息 ${r.message_id}`,`專案／目標：${r.fields.settings.projectGoal||'尚待補充'}`,`原始錄音：${audio.webViewLink}`,`會議連結：${link(r.id)}`,`整理類型：${r.fields.settings.type}\n整理要求：${r.fields.settings.prompt}`];
+   const lines=['會議記錄',r.fields.record,'','待辦事項',...todos(r.fields).map((t,i)=>`${i+1}. ${t.content}\n負責人：${t.ownerId?receipt.ownerNames?.[t.ownerId]||t.ownerId:'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'','逐字稿',r.fields.transcript||r.result.warning||'未提供','',`來源：${row.display_name||'LINE 對話'}／${r.filename}／上傳者 ${r.host_name}／${new Date(r.source.timestamp).toISOString()}／訊息 ${r.message_id}`,`專案／目標：${r.fields.settings.projectGoal||'尚待補充'}`,`原始錄音：${audio?.webViewLink||'逐字稿來源（無錄音）'}`,`會議連結：${link(r.id)}`,`整理類型：${r.fields.settings.type}\n整理要求：${r.fields.settings.prompt}`];
    await appendVerifiedMeetingBlocks(request,receipt.notionId,meetingNotionBlocks(lines));
    receipt.notionSaved=true;await save();
    await taskDispatch.enqueue({...r,receipt});
@@ -215,7 +215,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
    const input=await readBody(req);let current=r,actor;
    try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action));}catch(e){if(input.action==='read'&&canReadShared(r)){
-    sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public'))});return true;
+    sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null});return true;
    }throw e;}
    const experience=await locale.profile(actor);
    if(actor.publicationReader&&!['read','locale','translate','reply-list'].includes(input.action))throw failure(403,'發布群組成員只能閱讀正式會議記錄。');
@@ -223,7 +223,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='translate'){sendJson(res,200,await locale.translate(actor,row,input));return true;}
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
    if(!['read','members','history','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
-   if(actor.readOnly){sendJson(res,200,{ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies:r.state==='published'?await locale.list(r):[],host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:await taskProgress(r,actor),audioUrl:'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id))});return true;}
+   if(actor.readOnly){sendJson(res,200,{ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies:r.state==='published'?await locale.list(r):[],host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:await taskProgress(r,actor),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null});return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
@@ -274,7 +274,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     current=await store.revise(r.id,actor,fields,input.revision,ownerNames);drain().catch(()=>{});
    }
    else if(input.action==='start'||input.action==='publish'||input.action==='retry-publish'){
-    if(input.action==='start'){if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');await original(r,row);}
+    if(input.action==='start'){if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');if(r.receipt.transcriptInput?.source!=='transcript')await original(r,row);}
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉或無法接收，請聯絡管理者。');
    if(input.action==='publish'&&r.state==='review'){
      if(actor.id!==r.host_id)throw failure(403,'只有主持人可以發布。');
