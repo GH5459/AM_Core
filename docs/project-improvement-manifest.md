@@ -1,5 +1,7 @@
 # Root OA runtime improvements
 
+2026-10-27：AM-IMP-2026.1027.90 工作日誌「會議」分頁與個人 Calendar 建檔為 Ready；原畫面隔離接線與防重、權限、分頁保留已驗證，未正式發布。見 [本機驗證](upgrades/dailylog-meetings-tab-20261027.md)。
+
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |

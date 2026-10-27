@@ -1,0 +1,13 @@
+{
+ "id":"AM-IMP-2026.1027.90",
+ "name":"工作日誌會議分頁與個人 Calendar 建檔",
+ "type":"meeting integration",
+ "portable":true,
+ "status":"Ready",
+ "requiresDatabases":[],
+ "requiresEnv":["Existing AMCORE_MEETING_MANAGEMENT_ORIGIN and AMCORE_MEETING_MANAGEMENT_SECRET"],
+ "requiresScripts":["tools/test-dailylog-meetings.mjs","tools/test-dailylog-meeting-service.mjs"],
+ "installTargets":["AM Platform","Original DailyLog"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Meeting tab reuses original meeting screens and records","Tab switching preserves meeting drafts and recording context","Personal Calendar files to the original private meeting source or explicitly requests source selection","Exact Calendar identity and existing idempotency prevent duplicates","Current session, confirmed bidirectional identity, signed transport, replay and original meeting permissions verified","Original target latest complete packages preserved and production separately verified before marking Deployed"]
+}

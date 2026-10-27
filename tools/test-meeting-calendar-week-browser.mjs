@@ -7,6 +7,7 @@ try{
  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],weeks=[],creates=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://fixture.test/**',async route=>{
+  if(new URL(route.request().url()).pathname==='/login-continuation/browser.js')return route.fulfill({contentType:'text/javascript',body:''});
   const request=route.request();if(!request.url().endsWith('/api'))return route.fulfill({contentType:'text/html',body:hubHtml({liffId:'fixture'}).replace('<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>',`<script>window.liff={init:async()=>{},isLoggedIn:()=>true,getAccessToken:()=> 'fixture'};</script>`)});
   const v=request.postDataJSON();let result={ok:true};
   if(v.action==='list')result={...result,items:[{id:'saved-fixture',topic:'已建檔會議',start:new Date().toISOString(),end:new Date(Date.now()+86400000).toISOString(),state:'review',kind:'本人會議',host:'合成主持人',url:'https://fixture.test/meetings/review/work/saved-fixture'}],next:null};
@@ -25,5 +26,6 @@ try{
  await page.click('#create');await page.waitForFunction(()=>document.querySelector('#status').textContent==='合成測試保留輸入');assert.equal(creates[0].calendarRef,'signed-for-current-person');assert.equal(creates[0].calendar,false);
  for(const width of [360,390,430,768,1024,1440]){await page.setViewportSize({width,height:900});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Overflow '+width);}
  await page.click('#new');await page.setViewportSize({width:390,height:844});assert((await page.locator('#calendarItems article').first().boundingBox()).height<120);if(process.argv[3])await page.screenshot({path:process.argv[3],fullPage:true});assert.deepEqual(errors,[]);
- console.log('Compact Calendar UI: day/week modes, one-day/seven-day navigation, private preview without creation, explicit source/filing, no duplicate Calendar write, preserved retry input and six widths passed.');
+ await page.goto('https://fixture.test/meetings/review/hub?event=recurring-instance&start='+weeks[0]);await page.locator('#newPanel').waitFor({state:'visible'});assert.equal(await page.locator('#topic').inputValue(),'每週討論');assert.equal(creates.length,1,'Opening URL only previews; creation needs explicit click');
+ console.log('Compact Calendar UI: day/week modes, one-day/seven-day navigation, private preview without creation, explicit source/filing, no duplicate Calendar write, preserved retry input, requested Calendar entry and six widths passed.');
 }finally{await browser.close();}
