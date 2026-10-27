@@ -1,0 +1,28 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
+(async()=>{
+ const candidate=folder+'/dailylog/candidate',names=fs.readdirSync(candidate).filter(n=>/\.(?:mjs|js)$/.test(n));
+ const modules=names.map(name=>({type:'ESModule',path:candidate+'/'+name,contents:fs.readFileSync(candidate+'/'+name,'utf8')+(name==='worker.mjs'?'\nexport {assignmentMachine as testMachine,memoryTaskService as testMemory,taskCore as testCore};':'')}));
+ // Locate the actual bundled task core name used by the live Worker.
+ const main=modules.find(m=>m.path.endsWith('/worker.mjs')),match=main.contents.match(/memoryTaskService\((dailylogExecutionRelease\.core),/);assert(match,'Find deployed task core');main.contents=main.contents.replace('taskCore as testCore','meetingTestCore as testCore')+'\nconst meetingTestCore='+match[1]+';';
+ const entry=`import {testMachine,testMemory,testCore} from './worker.mjs';
+ const people=[{account:'111',name:'主持人',id:'uof:111',team:'合成部門',teamId:'fixture'},{account:'222',name:'負責人',id:'uof:222',team:'合成部門',teamId:'fixture'}];
+ export default {fetch(request,env){return testMachine(request,env,{directory:async()=>({people,assertCurrent:async()=>{if(request.headers.get('x-fixture-race'))await env.DB.prepare("UPDATE work_items SET revision=revision+1,value=json_set(value,'$.version',revision+1,'$.progressNote','concurrent progress')").run();}}),permission:a=>people.some(p=>p.account===a),makeService:members=>testMemory(testCore,members.people,Date.now,a=>people.some(p=>p.account===a)),publish:()=>{}});}};`;
+ const worker={name:'meeting-test',modules:[{type:'ESModule',path:candidate+'/entry.mjs',contents:entry},...modules],modulesRoot:candidate,compatibilityDate:process.env.MEETING_TEST_COMPATIBILITY_DATE||'2026-10-06',compatibilityFlags:['nodejs_compat'],bindings:{LEAF_TASK_SERVICE_KEY:'synthetic-meeting-secret'.repeat(3),LEAF_TASK_TENANT:'fixture',PUBLIC_ORIGIN:'https://fixture.example.test'},d1Databases:['DB']};
+ const options={workers:[worker]},mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
+ try{
+  const db=await mf.getD1Database('DB');await db.exec(fs.readFileSync(path.resolve(__dirname,'../modules/meetings/dailylog-workspace.sql'),'utf8').replaceAll('\n',' '));await db.exec('CREATE TABLE work_items(id TEXT PRIMARY KEY,level INTEGER,department TEXT,department_id TEXT,value TEXT,revision INTEGER); CREATE TABLE documents(namespace TEXT,key TEXT,value TEXT,revision INTEGER);');
+  await db.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('settings','access',?,1)").bind(JSON.stringify({revision:1,experienceLocales:{}})).run();
+  const input={tenantKey:'fixture',id:'a'.repeat(64),host:{userId:'U'+'1'.repeat(32),account:'111',bindingId:'fixture-host'},tasks:[{id:'todo:11111111-1111-4111-8111-111111111111',content:'確認合成來源資料',due:'2026-10-25',evidence:'錄音 01:20 決議',owner:{userId:'U'+'2'.repeat(32),account:'222',bindingId:'fixture-owner'}}],date:'2026-10-17',goal:'追蹤會議決議',source:{messageId:'synthetic',filename:'fixture.m4a',timestamp:Date.now()},url:'https://fixture.example.test/meetings/review/work/'+'a'.repeat(64),notionId:'fixture-page'};
+  const call=async(v,auth=true,op='meeting-publish')=>mf.dispatchFetch('https://fixture/api/integrations/leaf-snail/tasks/'+op,{method:'POST',headers:{'Content-Type':'application/json',...auth?{Authorization:'Bearer '+'synthetic-meeting-secret'.repeat(3)}:{}},body:JSON.stringify(v)});
+  assert.equal((await call(input,false)).status,401);assert.equal((await call({...input,tenantKey:'other'})).status,403);
+  let r,body;
+  // A participant requests cleanup in the original host's personal tasks.
+  const cleanup={...input,id:'9'.repeat(64),host:input.tasks[0].owner,revision:1,deliverySequence:1,removed:[],knownTaskIds:[],date:new Date(Date.now()+8*3600000).toISOString().slice(0,10),tasks:[{...input.tasks[0],owner:input.host,content:'處理未完成會議：合成會議',due:new Date(Date.now()+8*3600000+86400000).toISOString().slice(0,10),evidence:'參與者請主持人繼續整理或刪除。原會議日期：2026-10-17。並非會議決議。'}],source:{kind:'meeting-cleanup-request',messageId:'synthetic-original',timestamp:Date.now(),originalWorkspaceId:input.id}};
+  r=await call(cleanup);body=await r.json();assert.equal(r.status,200,JSON.stringify(body));const cleanupId=body.tasks[0].id;
+  const cleanupRow=JSON.parse((await db.prepare('SELECT value FROM work_items WHERE id=?').bind(cleanupId).first()).value);assert.equal(cleanupRow.lead.account,'111');assert.equal(cleanupRow.requester.account,'222');assert(cleanupRow.description.includes(cleanup.url));assert(cleanupRow.description.includes('並非會議決議'));assert.equal(cleanupRow.meetingSource.source.originalWorkspaceId,input.id);
+  cleanupRow.progressNote='主持人已開始整理';await db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(cleanupRow),cleanupId).run();r=await call(cleanup);assert.equal(r.status,200);assert.equal(JSON.parse((await db.prepare('SELECT value FROM work_items WHERE id=?').bind(cleanupId).first()).value).progressNote,'主持人已開始整理');
+  console.log('Original task receiver: participant requester, original host assignee, source evidence and replay preserving host progress passed.');
+  fs.writeFileSync(folder+'/host-attention-worker.private.json',JSON.stringify({passed:true,realWorkerd:true,realD1:true,originalTaskModel:true,requester:'222',owner:'111',sourcePreserved:true,replayPreservedProgress:true}));
+ }finally{await mf.dispose();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

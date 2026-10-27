@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.1027.05",
+  "name": "未完成會議請主持人處理待辦",
+  "type": "Meeting workflow",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "central_archive.meeting_host_attention (project-local only)"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/install-meeting-host-attention.mjs",
+    "tools/test-meeting-host-attention.mjs",
+    "tools/test-meeting-host-attention-browser.cjs",
+    "tools/test-meeting-host-attention-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meetings"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Original host receives exactly one task with meeting source evidence",
+    "Requester and owner verified in original task service",
+    "Frozen retries preserve task identity and progress",
+    "Unconnected or failed delivery never reports success",
+    "Horizontal mobile actions preserved",
+    "Exact production version and signed-in list verified"
+  ]
+}

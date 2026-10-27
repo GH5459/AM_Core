@@ -1,0 +1,50 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {PGlite} from '@electric-sql/pglite';
+import {createWorkspaceStore} from '../modules/meetings/workspace-store.js';
+import {meetingHostAttention} from '../modules/meetings/host-attention.js';
+import {Readable} from 'node:stream';
+const pg=new PGlite();for(const f of ['core/central-archive/schema.sql','modules/meetings/workspace.sql'])await pg.exec(fs.readFileSync(f,'utf8'));
+const pool={query:(...a)=>pg.query(...a),connect:async()=>({query:(...a)=>pg.query(...a),release(){}})},store=createWorkspaceStore(pool);
+const host='U'+'1'.repeat(32),guest='U'+'2'.repeat(32),other='U'+'3'.repeat(32),bot='U'+'b'.repeat(32),key='a'.repeat(64);
+const who=id=>({userId:id,account:id===host?'111':id===guest?'222':'333',tenantKey:'fixture',bindingId:'binding-'+id,name:'合成同仁'});
+const ids=new Map([host,guest,other].map(u=>[u,who(u)])),shares=new Map(ids),calls=[],tasks=new Map(),receipts=new Map();let lose=false;
+await pool.query("INSERT INTO central_archive.conversations(key,bot_id,source_kind,source_id) VALUES($1,$2,'group',$3)",[key,bot,'C'+'c'.repeat(32)]);
+const platform={meetingShareIdentity:async id=>shares.get(id),meetingTaskIdentity:async id=>ids.get(id),publishMeetingTasks:async({preparedPayload:p,taskTenant})=>{
+ calls.push(structuredClone(p));const operation=p.id+':delivery:'+p.deliverySequence,encoded=JSON.stringify(p);
+ if(receipts.has(operation)){assert.equal(encoded,receipts.get(operation).encoded);return receipts.get(operation).result;}
+ assert.equal(taskTenant,'fixture');assert.equal(p.host.userId,guest);assert.equal(p.tasks[0].owner.userId,host);assert(p.tasks[0].evidence.includes('並非會議決議'));
+ tasks.set(p.id,{title:p.tasks[0].content,progress:'new'});const result={tasks:[{id:'work-fixture',owner:'111'}],tenantKey:'fixture'};receipts.set(operation,{encoded,result});if(lose){lose=false;throw Error('reply lost after task commit');}return result;
+}};
+const args={pool,store,platform,botId:bot,getConversation:async()=>({bot_id:bot}),origin:()=> 'https://meeting.example.test',check:async(r,row,actor,hostOnly,allowDeleted)=>{assert.equal(row.bot_id,bot);if(![guest,host,other].includes(actor.id))throw Object.assign(Error('not member'),{status:403});if(r.receipt.deletion?.active&&!allowDeleted)throw Object.assign(Error('deleted'),{status:410});}};
+let attention=meetingHostAttention(args),serial=0;
+async function make(){const r=await store.create(key,{source:{userId:host},timestamp:1,message:{id:'fixture-'+(++serial),type:'audio'}},'fixture.m4a','合成主持人');await pool.query("UPDATE central_archive.meeting_workspaces SET state='setup',fields=jsonb_set(fields,'{settings,date}','\"2020-01-01\"'::jsonb) WHERE id=$1",[r.id]);return {id:r.id,revision:Number(r.revision)};}
+const actor={id:guest},v=await make(),original=await store.get(v.id);
+await assert.rejects(()=>attention.request({id:host},v),/直接開啟/);
+await assert.rejects(()=>attention.request({id:'unknown'},v),/not member/);
+await assert.rejects(()=>attention.request(actor,{...v,revision:999}),/剛有修改/);
+ids.delete(guest);await assert.rejects(()=>attention.request(actor,v),/工作日誌連線/);ids.set(guest,who(guest));
+lose=true;assert.equal((await attention.request(actor,v)).attention.state,'waiting');assert.equal(tasks.size,1);
+const task=tasks.values().next().value;task.progress='in_progress';
+attention=meetingHostAttention(args);assert.equal((await attention.request({id:other},v)).attention.state,'delivered');
+assert.equal(tasks.size,1);assert.equal(task.progress,'in_progress');assert.deepEqual(calls[0],calls[1]);
+assert.equal(calls[0].tasks[0].due,new Date(Date.parse(calls[0].date+'T00:00:00+08:00')+8*3600000+86400000).toISOString().slice(0,10));
+assert.notEqual(calls[0].id,v.id,'Cleanup task cannot collide with actual meeting decision tasks');assert.equal(calls[0].source.originalWorkspaceId,v.id);assert(calls[0].url.endsWith(v.id));
+const n=calls.length;await attention.request(actor,v);await attention.drain();assert.equal(calls.length,n);
+assert.deepEqual(await store.get(v.id),original,'Request never changes meeting content, revisions or recording');
+const waiting=await make();ids.delete(host);assert.equal((await attention.request(actor,waiting)).attention.state,'waiting');assert.equal(calls.length,n);
+ids.set(host,who(host));await pool.query("UPDATE central_archive.meeting_host_attention SET next_attempt_at=now()-interval '1 minute'");await attention.drain();assert.equal(tasks.size,2);
+const changed=await make();ids.set(host,{...who(host),tenantKey:'different'});assert.equal((await attention.request(actor,changed)).attention.state,'blocked');assert.equal(tasks.size,2);ids.set(host,who(host));
+const obsolete=await make();ids.delete(host);await attention.request(actor,obsolete);await pool.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[obsolete.id]);ids.set(host,who(host));await attention.deliver(obsolete.id);assert.equal((await pool.query('SELECT state FROM central_archive.meeting_host_attention WHERE workspace_id=$1',[obsolete.id])).rows[0].state,'cancelled');assert.equal(tasks.size,2);
+const deleted=await make();lose=true;await attention.request(actor,deleted);const before=calls.at(-1);tasks.get(before.id).progress='completed';await pool.query("UPDATE central_archive.meeting_workspaces SET state='declined',receipt='{\"deletion\":{\"active\":true}}'::jsonb WHERE id=$1",[deleted.id]);await attention.deliver(deleted.id);assert.deepEqual(calls.at(-1),before);assert.equal(tasks.get(before.id).progress,'completed');
+const crossed=await make();shares.set(host,{...who(host),tenantKey:'different'});await assert.rejects(()=>attention.request(actor,crossed),/工作帳號/);
+await pg.close();
+process.env.MEETING_HUB_PREVIEW='1';const {fixture:f}=await import('./test-meeting-hub.mjs');
+f.platform.meetingTaskIdentity=async id=>who(id);f.platform.publishMeetingTasks=platform.publishMeetingTasks;f.platform.lineGet=async path=>({userId:path.split('/').at(-1)});
+const created=await f.service.store.create(f.key,{timestamp:1,source:{userId:f.host},message:{id:'attention-endpoint-fixture',type:'audio'}},'fixture.m4a','主持人');
+await f.pg.query("UPDATE central_archive.meeting_workspaces SET state='setup',fields=jsonb_set(fields,'{settings,date}','\"2020-01-01\"'::jsonb) WHERE id=$1",[created.id]);
+async function api(value,token='guest',origin='https://meeting.example.test'){let status=200,output;const req=Readable.from([Buffer.from(JSON.stringify(value))]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};await f.service.handle(req,{writeHead(v){status=v;},setHeader(){},set statusCode(v){status=v;},end(s){output=JSON.parse(s);}},new URL('https://meeting.example.test/meetings/review/hub/api'));return {status,...output};}
+const request={action:'request-host-attention',id:created.id,revision:1};assert.equal((await api(request,'guest','https://untrusted.example')).status,403);assert.equal((await api(request,'')).status,401);assert.equal((await api(request,'host')).status,403);
+assert.equal((await api({action:'list'})).items.find(x=>x.id===created.id).canRequestAttention,true);
+const response=await api(request);assert.equal(response.status,200,JSON.stringify(response));assert.equal(response.attention.state,'delivered');assert.equal((await api({action:'list'})).items.find(x=>x.id===created.id).attention.state,'delivered');await f.pg.close();
+console.log('Host attention: authenticated HTTP/origin gates, nonhost list control, permissions, same-service identities, frozen durable delivery, lost-response replay, one host task across requesters, original source evidence, unchanged meeting/task progress, unconnected host retry, identity change block and resolved-meeting cancellation passed.');

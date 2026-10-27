@@ -130,3 +130,19 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_audio_streams (
  PRIMARY KEY(workspace_id,upload_id),
  FOREIGN KEY(workspace_id,upload_id) REFERENCES central_archive.meeting_audio_uploads(workspace_id,upload_id)
 );
+
+-- BEGIN meeting-host-attention-v1
+CREATE TABLE IF NOT EXISTS central_archive.meeting_host_attention (
+ workspace_id text PRIMARY KEY REFERENCES central_archive.meeting_workspaces(id),
+ bot_id text NOT NULL,
+ snapshot jsonb NOT NULL,
+ payload jsonb,
+ result jsonb,
+ state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','waiting','delivered','blocked','cancelled')),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ next_attempt_at timestamptz NOT NULL DEFAULT now(),
+ delivered_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS meeting_host_attention_pending ON central_archive.meeting_host_attention(bot_id,next_attempt_at) WHERE state IN ('pending','waiting');
+-- END meeting-host-attention-v1
