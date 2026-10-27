@@ -20,7 +20,7 @@ const {chromium}=require(process.argv[2]||'playwright');
    if(v.action==='audio-fast-finish'){assert.equal(offset,total);saved=true;result={ok:true,audio:true,saved:true};}
    return route.fulfill({json:result});
   });
-  await page.goto('https://meeting.example.test/work');await page.waitForFunction(()=>document.querySelector('#planTopic')?.value==='合成快速上傳');
+  await page.goto('https://meeting.example.test/work');await page.waitForFunction(()=>document.querySelector('#start')?.textContent==='進行會議記錄整理');
   // Real file input, larger than two upload blocks.
   await page.locator('#recordFile').setInputFiles({name:'synthetic.wav',mimeType:'audio/wav',buffer:Buffer.alloc(block*2+44,5)});
   await page.waitForFunction(()=>document.querySelector('#recordStatus').textContent.includes('音檔已在裝置暫存'));

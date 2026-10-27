@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.1027.01",
+  "name": "外部瀏覽器會議工具恢復與逐字稿來源",
+  "type": "Meeting workflow",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-transcript-input.mjs",
+    "tools/test-meeting-workspace-generation.mjs",
+    "tools/test-meeting-input-tools-browser.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting workspace"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "External continued login initializes meeting tools without a bearer token",
+    "Agenda toggles and recorder/upload remain available without a schedule",
+    "Transient load failures leave a retry control",
+    "Host transcript source is versioned and snapshotted with evidence",
+    "Text-only summary and publication preserve source without requesting audio",
+    "Exact production commit and signed-in original page verified"
+  ]
+}
