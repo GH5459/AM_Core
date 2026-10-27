@@ -3,7 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
-| AM-IMP-2026.1027.02 | Original AM pending meeting list | Ready | Host-only recoverable delete/restore with revision and active-job gates; source/calendar retention and stale worker protection. Synthetic service and Chrome checks passed; production pending. |
+| AM-IMP-2026.1027.02 | Original AM pending meeting list | Deployed | PR462 full CI40441510501/201 steps; tested/merged tree equal. AM f671857 both origins/exact clients; Render49.2s Live. Original signed-in8 pending IDs retained,3 host delete buttons and empty trash verified. 29 meetings/130 todos preserved; no real delete/restore or DailyLog/UOF/Rich Menu release. |
 | AM-IMP-2026.1027.01 | Original AM meeting input tools | Deployed | PR460 full CI40437758932/198 steps; reviewed/merged trees equal. AM c0c8670 both origins and exact embedded client; Render41.4s Live. Signed-in external page agenda/recording/upload/transcript controls verified, original18 settings and29 meetings/130 todos preserved; no real business writes or DailyLog/UOF/Rich Menu release. |
 | AM-IMP-2026.1023.50 | Three-site login continuation candidate | Proposed | Isolated protocol and authority tests only. No HTTP/RPC integration or runtime imports, no production changes; full feature and deployment remain incomplete. |
 | [AM-IMP-2026.1022.65](upgrades/xiaoye-blocked-recovery-20261022.md) | 2026-10-22 | 8f361097-9986-42a2-b839-77079d1ee1ce | Git／PR工具與官方CI接線、原因／下一步受阻通知、同卡重新分析及逐版核准；56檢查／六寬與正式回讀 |
