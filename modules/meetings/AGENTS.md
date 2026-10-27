@@ -1,3 +1,7 @@
+# 講話者換名同步標題與摘要（2026-10-27）
+
+AM-IMP-2026.1027.82 已 Installed／Deployed：PR481 完整 CI40507321806／214 步通過，受測與合併樹一致；原 AM80e82b5 兩站與內嵌程式確認，Render42.3秒 Live。整份換名可勾選逐字稿／引文講者與標題／摘要／結論姓名；逐字稿已改好時只勾選摘要範圍。逐段維持單段與唯一時間引文，不改引文原話或待辦指派。本人授權指定會議已保存2標題＋9摘要；逐字稿與版本、引文、來源、錄音、分享及狀態保持，11筆歷程追加，其他31會議保持。DailyLog／UOF未重發，未首次發布會議或傳LINE。詳 docs/upgrades/meeting-speaker-summary-20261027.md；私人證據留 C:/Users/seven/.codex/private/meeting-speaker-summary-20261027/。
+
 # Meetings 模組工作指南
 
 ## 任務負責人權限修正（2026-10-27）
