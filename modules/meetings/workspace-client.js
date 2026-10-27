@@ -165,13 +165,15 @@ export function workspaceClient(BOOT){
  function previewSpeakers(mapping,scope={}){
   if(!editable()||saving.size||savingAll)return;
   if(Object.entries(mapping).some(([a,b])=>!a.trim()||!b.trim()||b.length>240||/[\r\n：:]/.test(b))){error('請填寫有效的講話者姓名，不可含換行或冒號。');return;}
-  const changes=[],transcript=transcriptValue(),after=speakerTools.replace(transcript,mapping,{line:scope.line??null});
+  const whole=scope.line===undefined,labels=!whole||$('#correctSpeakerLabels').checked,names=whole&&$('#correctSpeakerNarrative').checked;
+  if(!labels&&!names){error('請至少勾選一個修正範圍。');return;}
+  const changes=[],transcript=transcriptValue(),after=labels?speakerTools.replace(transcript,mapping,{line:scope.line??null}):transcript;
   if(after!==transcript)changes.push({key:'transcript',before:transcript,after,version:Number(document.querySelector('[data-part="transcript"]').dataset.version)});
   // Only timestamp-matched evidence follows a single-segment correction.
   const uniqueTime=scope.time&&speakerTools.entries(transcript).filter(e=>e.timestamp===scope.time&&Object.hasOwn(mapping,e.speaker)).length===1;
-  for(const e of $('#recordEditor').children){const key=e.dataset.part,area=e.querySelector('[contenteditable]'),before=area.innerText,value=scope.line!==undefined&&!uniqueTime?before:speakerTools.replace(before,mapping,{time:scope.time||null});if(value!==before)changes.push({key,before,after:value,version:Number(e.dataset.version)});}
+  for(const e of $('#recordEditor').children){const key=e.dataset.part,area=e.querySelector('[contenteditable]'),before=area.innerText,value=whole?speakerTools.record(before,mapping,{labels,names}):!uniqueTime?before:speakerTools.replace(before,mapping,{time:scope.time||null});if(value!==before)changes.push({key,before,after:value,version:Number(e.dataset.version)});}
   if(!changes.length){error('找不到符合的講話者標示，原內容保持。');return;}
-  speakerPlan={changes};$('#speakerPreview').textContent=Object.entries(mapping).map(([a,b])=>a+' → '+b).join('\n')+'\n\n將修改 '+changes.length+' 處內容。'+(scope.line!==undefined?(uniqueTime?'僅此段逐字稿與相同時間的對話依據。':'僅此段逐字稿；時間未能唯一對應，請另行核對會議記錄的對話依據。'):'整份逐字稿及明確講話者標示。')+'\n\n'+changes.slice(0,5).map(c=>'修改前：'+c.before.slice(0,500)+'\n修改後：'+c.after.slice(0,500)).join('\n\n');$('#speakerDialog').showModal();error('');
+  speakerPlan={changes};$('#speakerPreview').textContent=Object.entries(mapping).map(([a,b])=>a+' → '+b).join('\n')+'\n\n將修改 '+changes.length+' 處內容。'+(scope.line!==undefined?(uniqueTime?'僅此段逐字稿與相同時間的對話依據。':'僅此段逐字稿；時間未能唯一對應，請另行核對會議記錄的對話依據。'):[labels?'整份逐字稿與引文講話者':'',names?'標題、摘要與結論中的姓名':''].filter(Boolean).join('；')+'。引文發言內容與待辦負責人保持，請核對預覽。')+'\n\n'+changes.slice(0,5).map(c=>'修改前：'+c.before.slice(0,500)+'\n修改後：'+c.after.slice(0,500)).join('\n\n');$('#speakerDialog').showModal();error('');
  }
  function setSpeakerValue(key,value,version){const e=document.querySelector('[data-part="'+key+'"]'),area=e.querySelector(key==='transcript'?'textarea':'[contenteditable]');if(key==='transcript')area.value=value;else area.textContent=value;mark(key,value,version);}
  $('#segmentCorrection').addEventListener('toggle',()=>{if(data&&editable())renderSpeakerCorrection();});
