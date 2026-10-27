@@ -3,6 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
+| AM-IMP-2026.1027.07 | Original AM meeting preparation | Ready | Markdown source/preview, safe renderer, original hub service and Chrome save/reload at four widths passed. Production pending. |
 | AM-IMP-2026.1027.06 | Original AM and DailyLog cleanup reminders | Deployed | PR470 CI40447711937/209 steps and equal trees; AM a0e66a3 both origins/exact client, Render54.6s Live. DailyLog400b300c/86 modules, only original meeting receiver changed;85 modules/settings/assets/secrets/schedules preserved. Signed-in5 IDs/actions retained;29 meetings/130 todos preserved;396 tasks retained with1 pre-upload human date edit preserved. No real test task/LINE writes or UOF release. |
 | AM-IMP-2026.1027.05 | Original AM host cleanup task requests | Deployed | PR468 CI40445864592/206 steps; AM 4b305da both origins/exact client, Render41.5s Live. Signed-in5 original nonhost meetings have horizontal open/notify controls;29 meetings/130 todos preserved,new requests0. Original task Worker/D1 replay and four widths pass; no real task/LINE test writes or other service release. |
 | AM-IMP-2026.1027.03 | Original AM meeting list | Deployed | PR464 full CI40442967813/201 steps, matching trees; AM a165a08 both origins/exact client and CSS, Render39.1s Live. Signed-in3 button pairs aligned/equal height; original8 pending IDs retained, four widths pass, no business writes or other service release. |
