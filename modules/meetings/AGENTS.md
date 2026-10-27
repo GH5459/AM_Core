@@ -1,5 +1,9 @@
 # Meetings 模組工作指南
 
+## 會前資料 Markdown（2026-10-27）
+
+AM-IMP-2026.1027.07：Ready。會前資料新增 Markdown 原文編輯／格式預覽，保存原文及版本，預覽不自動儲存。只呈現安全文字排版與連結，不載入外部圖片，不改原權限、錄音、發布或任務。驗證與限制見 docs/upgrades/meeting-preparation-markdown-20261027.md。
+
 ## 首頁排列與預設收合（2026-10-20）
 
 AM-IMP-2026.1020.33：Deployed。PR410受測程式完整CI通過，AM0f7fbce兩站與Render43.2秒Live確認；本人首頁五區／預設與原18列連結保持。首頁固定依序為 Google Calendar 的活動、未完成的會議、已結束的會議、分享給我的會議、較早的會議。五區皆使用可展開／收起標題，首次開頁只有 Google Calendar 展開。重新讀取及日期切換保留手動收合，重新開頁恢復預設；未完成為零仍保留入口。詳見 docs/upgrades/meeting-hub-section-order-20261020.md。

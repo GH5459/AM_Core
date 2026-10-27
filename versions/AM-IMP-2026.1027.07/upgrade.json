@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.1027.07",
+  "name": "會前資料 Markdown 編輯與格式預覽",
+  "type": "Meeting preparation display",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-preparation-markdown.mjs",
+    "tools/test-meeting-preparation-markdown-browser.cjs",
+    "tools/test-meeting-hub.mjs"
+  ],
+  "installTargets": [
+    "Original AM meeting workspace"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Markdown source remains exact through save/reload",
+    "Preview safely renders common GFM structures",
+    "No new task, recording, share or notification side effects",
+    "Synthetic browser and four widths pass",
+    "Production verified separately before Deployed"
+  ]
+}

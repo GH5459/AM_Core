@@ -288,6 +288,7 @@ jobs:
       - run: node --check tools/test-meeting-host-attention-worker.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.05
       - run: node tools/test-meeting-hub.mjs
+      - run: node tools/test-meeting-preparation-markdown.mjs
       - run: node tools/test-meeting-transcript-input.mjs
       - run: node tools/test-meeting-pending-delete.mjs
       - run: node --check tools/test-meeting-pending-delete-browser.cjs
