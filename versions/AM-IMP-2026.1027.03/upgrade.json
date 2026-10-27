@@ -3,7 +3,7 @@
   "name": "會議開啟與刪除左右並排",
   "type": "Meeting UI",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [],
   "requiresScripts": [
