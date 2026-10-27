@@ -33,6 +33,10 @@ assert.equal(tools.replace('[0:01] 甲：一\n[0:02] 甲：二',mapping,{line:1}
 assert.equal(tools.replace('- [0:01] 甲：一\n- [0:02] 甲：二',mapping,{time:'0:01'}),'- [0:01] 乙：一\n- [0:02] 甲：二');
 assert.deepEqual(tools.segments('[1:02:03] 甲：內容'),[{start:3723000,speaker:'甲',text:'內容'}]);
 assert.equal(tools.segments('[1:99] 甲：無效時間').length,0);
+assert.equal(tools.record('### Seven 對未來的看法\n摘要：Seven 分享，Kevin 回應\n- [0:01] Seven：Kevin 的看法',{Seven:'Kevin',Kevin:'Seven'}),'### Kevin 對未來的看法\n摘要：Kevin 分享，Seven 回應\n- [0:01] Kevin：Kevin 的看法');
+assert.equal(tools.record('摘要：Seven 提案\n- [0:01] Kevin：Seven 的看法',{Seven:'Kevin',Kevin:'Seven'},{labels:false}),'摘要：Kevin 提案\n- [0:01] Kevin：Seven 的看法');
+assert.equal(tools.narrative('SevenAM / Seven / Kevin / Kevin2',{Seven:'Kevin',Kevin:'Seven'}),'SevenAM / Kevin / Seven / Kevin2');
+assert.equal(tools.narrative('### 同仁甲與同仁乙',{同仁甲:'同仁乙',同仁乙:'同仁甲'}),'### 同仁乙與同仁甲');
 const view=readerData({fields:{settings:{},record:'',transcript:'[0:01] 乙：已修正'},receipt:{},result:{segments:[{start:1000,speaker:'甲',text:'舊原文'}]}});
 assert.equal(view.segments[0].speaker,'乙');assert.equal(view.segments[0].text,'已修正');
 {
@@ -45,7 +49,7 @@ assert.equal(view.segments[0].speaker,'乙');assert.equal(view.segments[0].text,
  $('#cancelSpeaker').click();assert.equal(f.requests.filter(r=>r.action==='save-part').length,0);
  $('#swapSpeakers').click();$('#applySpeaker').click();
  assert.equal(f.el('transcript').querySelector('textarea').value,'[0:01] 乙：甲提到乙\n[0:02] 甲：確認甲的說法\n[0:03] 乙：待處理');
- assert(f.el(record).textContent.includes('乙：甲提到乙，人工編輯'));assert(f.el(record).textContent.includes('摘要：甲與乙需核對'));
+ assert(f.el(record).textContent.includes('乙：甲提到乙，人工編輯'));assert(f.el(record).textContent.includes('摘要：乙與甲需核對'));
  assert.equal(f.el(todo).querySelector('[data-content]').innerText,todoDraft);assert.equal(f.el(todo).querySelector('[data-owner]').value,originalTodo.ownerId);
  $('#undoSpeaker').click();assert.equal(f.el('transcript').querySelector('textarea').value,f.state.editing.fields.transcript);assert(f.el(record).classList.contains('dirty'));assert(f.el(record).textContent.includes('甲：甲提到乙，人工編輯'));
  $('#swapSpeakers').click();$('#applySpeaker').click();
@@ -55,6 +59,16 @@ assert.equal(view.segments[0].speaker,'乙');assert.equal(view.segments[0].text,
  $('#returnReview').click();assert(!$('#recordPanel').hidden);assert(f.el(record).textContent.includes('人工編輯'));assert(f.el(todo).textContent.includes(todoDraft));
  await $('#saveContent').onclick();assert.equal(f.state.editing.fields.settings.projectGoal,'修正後的合成目標');assert.equal(f.state.editing.fields[todo].ownerId,originalTodo.ownerId);assert.equal(f.state.editing.fields[todo].due,originalTodo.due);assert.equal(f.state.editing.fields[todo].content,todoDraft);assert.equal(f.state.editing.fields.transcript.split('\n')[0],'[0:01] 乙：甲提到乙');
  assert.equal(f.requests.filter(r=>['start','publish','sharing'].includes(r.action)).length,0);
+ }finally{f.close();}
+}
+{
+ const f=await fixture();try{const $=s=>f.w.document.querySelector(s),original=f.state.editing.fields.transcript;
+ $('#correctSpeakerLabels').checked=false;$('#swapSpeakers').click();$('#applySpeaker').click();
+ assert.equal(f.el('transcript').querySelector('textarea').value,original);
+ assert(f.el(record).textContent.includes('- [0:01] 甲：甲提到乙'));
+ assert(f.el(record).textContent.includes('摘要：乙與甲需核對'));
+ await $('#saveContent').onclick();assert.equal(f.state.editing.fields.transcript,original);
+ assert(f.state.editing.fields.record.includes('摘要：乙與甲需核對'));
  }finally{f.close();}
 }
 {
@@ -86,4 +100,4 @@ assert.equal(view.segments[0].speaker,'乙');assert.equal(view.segments[0].text,
  await pg.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[row.id]);await assert.rejects(()=>store.edit(row.id,host,{field:'settings',value,version:1}),e=>e.status===409);
  }finally{await pg.close();}
 }
-console.log('Speaker correction: simultaneous swap, single-segment evidence, unchanged narrative/owners/dates, undo, settings round-trip, unsaved drafts, persisted saves, preview changes, concurrent conflict, host-only settings and audit passed.');
+console.log('Speaker correction: simultaneous swap, single-segment evidence, updated narrative, unchanged quotes/owners/dates, undo, settings round-trip, unsaved drafts, persisted saves, preview changes, concurrent conflict, host-only settings and audit passed.');

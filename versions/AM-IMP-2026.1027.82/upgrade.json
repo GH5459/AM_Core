@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.1027.82",
+  "name": "講話者換名同步標題與摘要",
+  "type": "meeting speaker correction",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-speaker-correction.mjs",
+    "tools/test-meeting-speaker-browser.cjs"
+  ],
+  "installTargets": [
+    "AM Platform meetings"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Whole-meeting swap updates narrative headings and summaries",
+    "Narrative-only correction preserves already-corrected transcript and evidence labels",
+    "Single-segment scope, quoted words, tasks and permissions preserved",
+    "Preview, undo, version conflict and persistence checks pass",
+    "Exact deployed version verified before marking Deployed"
+  ]
+}

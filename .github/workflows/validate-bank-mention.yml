@@ -2,6 +2,7 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1027.82/**'
       - 'versions/AM-IMP-2026.1027.81/**'
       - 'tools/test-task-assignee-permission.mjs'
       - 'versions/AM-IMP-2026.1027.80/**'
@@ -251,6 +252,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.37
       - run: node tools/test-meeting-workspace.mjs
       - run: node tools/test-meeting-save-version.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.82
       - run: node tools/test-meeting-speaker-correction.mjs
       - run: node tools/test-meeting-publication-target.mjs
       - run: node tools/test-meeting-publication-client.mjs
