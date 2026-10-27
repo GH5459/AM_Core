@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1027.81",
+  "name":"任務負責人權限優先",
+  "type":"task permission correction",
+  "portable":true,
+  "status":"Ready",
+  "requiresDatabases":[],
+  "requiresEnv":["Original private service bindings"],
+  "requiresScripts":["tools/test-task-assignee-permission.mjs"],
+  "installTargets":["Original DailyLog"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Direct assignee can edit and complete under inherited project collaboration","Unrelated viewers and former executors remain restricted","Full Worker-D1 and CI pass","Exact production version and preserved original task histories verified"]
+}
