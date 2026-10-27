@@ -12,6 +12,7 @@ exports.build=async function(root){
  u=once(u,'cases,queriedAt:new Date().toISOString()','cases,urgencyPolicy:URGENCY_POLICY,queriedAt:new Date().toISOString()');
  u=once(u,'uofInboxPolicy:INBOX_POLICY,','uofUrgencyPolicy:URGENCY_POLICY,uofInboxPolicy:INBOX_POLICY,');
  write('uof-line-cloud','worker.mjs',u);write('uof-line-cloud','uof-urgency.mjs',fs.readFileSync(__dirname+'/urgency.mjs','utf8'));
+ write('uof-line-cloud','login-continuation-worker.mjs',require('./patch-review-return.cjs').patch(read('uof-line-cloud','login-continuation-worker.mjs')));
  let pending=read('uof-line-cloud','uof-pending.mjs');
  pending="import {createUrgency,URGENCY_POLICY} from './uof-urgency.mjs';\n"+pending;
  pending=once(pending,'name:c.name,count:0','name:c.name,count:0,timings:[]');

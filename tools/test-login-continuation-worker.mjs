@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
 import {dailyContinuationFetch,uofContinuationFetch,continuationCall} from '../versions/AM-IMP-2026.1023.50/login-continuation-worker.mjs';
+test('UOF category and urgency survive missing-cookie continuation without state writes',async()=>{
+ const app={env:{},session:async()=>null,store:{get:async()=>null,put(){throw Error('Navigation must not write state');}}};
+ const path='/Line/Review?category=leave&urgency=green&openExternalBrowser=1';
+ const r=await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw'+path));assert.equal(r.status,200);
+ const data=JSON.parse((await r.text()).match(/const b=(.*?);history/)[1]);
+ assert.equal(new URL(data.endpoint,'https://uof-line.ghotel.tw').searchParams.get('returnPath'),path);
+ assert.equal(new URL(data.fallback).searchParams.get('ReturnUrl'),path);
+});
+test('UOF query preservation retains same-origin guards and existing logged-in behavior',async()=>{
+ const app={env:{},session:async()=>null,store:{get:async()=>null}};
+ assert.equal((await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/Line/Review?ReturnUrl=https%3A%2F%2Fevil.test'))).status,401);
+ app.session=async()=>({account:'900001',id:'original'});
+ assert.equal(await uofContinuationFetch(app,new Request('https://uof-line.ghotel.tw/Line/Review?category=leave&urgency=red')),null);
+});
 const {transformWorker}=createRequire(import.meta.url)('../versions/AM-IMP-2026.1023.50/build-worker.cjs');
 test('latest complete Worker wrapper and scheduled behavior remain the base',()=>{
  const source='var SharedManagementService = class extends WorkerEntrypoint {}\nexport {SharedManagementService,future_work_worker as default};';
