@@ -35,7 +35,7 @@ export function hubClient(BOOT){
   const meta=[x.location,x.calendar?'':stateLabel(x),x.host].filter(Boolean);if(meta.length){const detail=document.createElement('p');detail.className='meeting-meta';detail.textContent=meta.join(' · ');body.append(detail);}
   if(!x.calendar&&x.state==='published'){const p=document.createElement('p');p.className='meeting-meta meeting-progress';p.dataset.progressId=x.id;paintProgress(p,progressLabel(x));body.append(p);}
   let action;if(x.calendar){action=document.createElement('button');action.textContent='建檔';action.setAttribute('aria-label','建立／開啟會議記錄：'+x.topic);action.onclick=()=>openCalendar(x,action);}else{action=document.createElement('a');action.href=x.url;action.textContent='開啟';action.setAttribute('aria-label','開啟會議記錄：'+x.topic);}
-  action.className='meeting-open';const actions=document.createElement('div');actions.className='meeting-row-actions';actions.append(action);if(allowDelete&&x.canDelete){const remove=document.createElement('button');remove.type='button';remove.className='meeting-delete';remove.textContent='刪除';remove.setAttribute('aria-label','刪除未完成會議：'+x.topic);remove.onclick=()=>deleteMeeting(x,remove);actions.append(remove);}article.append(when,body,actions);return article;
+  action.className='meeting-open';const actions=document.createElement('div');actions.className='meeting-row-actions';actions.append(action);if(allowDelete&&x.canDelete){const remove=document.createElement('button');remove.type='button';remove.className='meeting-delete';remove.textContent='刪除';remove.setAttribute('aria-label','刪除未完成會議：'+(x.topic||'未命名會議'));remove.onclick=()=>deleteMeeting(x,remove);actions.append(remove);}article.append(when,body,actions);return article;
  }
  function render(){
   const from=atDate(weekStart),until=from+(view==='day'?1:7)*dayMs;
@@ -62,8 +62,8 @@ export function hubClient(BOOT){
  let sharedOffset=0,sharedItems=[],sharedBusy=false;
  let trashOffset=0,trashLoaded=false,trashBusy=false;
  async function deleteMeeting(x,button){
-  if(!window.confirm('刪除「'+x.topic+'」？\n會議將移到「最近刪除」，可再恢復。原錄音與 Google 行程會保留。'))return;
-  button.disabled=true;try{await api({action:'delete-meeting',id:x.id,revision:x.revision});await load(true);if(trashLoaded)await loadTrash(true);$('#status').textContent='已刪除「'+x.topic+'」，可從最近刪除恢復。';}catch(e){fail(e);}finally{button.disabled=false;}
+  const label=x.topic||'未命名會議';if(!window.confirm('刪除「'+label+'」？\n日期：'+(x.start||'未設定')+'\n會議將移到「最近刪除」，可再恢復。原錄音與 Google 行程會保留。'))return;
+  button.disabled=true;try{await api({action:'delete-meeting',id:x.id,revision:x.revision});await load(true);if(trashLoaded)await loadTrash(true);$('#status').textContent='已刪除「'+label+'」，可從最近刪除恢復。';}catch(e){fail(e);}finally{button.disabled=false;}
  }
  async function loadTrash(reset=false){
   if(trashBusy)return;trashBusy=true;$('#refreshTrash').disabled=true;$('#trashMore').disabled=true;

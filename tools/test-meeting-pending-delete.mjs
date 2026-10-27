@@ -11,6 +11,8 @@ try{
  const list=(await hub({action:'list'})).items.find(x=>x.id===id);assert.equal(list.canDelete,true);assert.equal(list.revision,Number(r.revision));
  assert.equal((await call('/meetings/review/hub/api',{action:'delete-meeting',id,revision:1},'guest')).status,403);
  assert.equal((await call('/meetings/review/hub/api',{action:'delete-meeting',id,revision:1},'host','https://other.example')).status,403);
+ const oldBot=row.bot_id;row.bot_id='U'+'d'.repeat(32);assert.equal((await remove(1)).status,403);row.bot_id=oldBot;
+ await pg.query("UPDATE central_archive.meeting_plans SET tenant_key='other-service' WHERE workspace_id=$1",[id]);assert.equal((await remove(1)).status,409);await pg.query("UPDATE central_archive.meeting_plans SET tenant_key='fixture' WHERE workspace_id=$1",[id]);
  assert.equal((await remove(0)).status,400);assert.equal((await remove(2)).status,409);
  await pg.query("UPDATE central_archive.meeting_workspaces SET state='processing' WHERE id=$1",[id]);assert.equal((await remove(1)).status,409);
  await pg.query("UPDATE central_archive.meeting_workspaces SET state='publishing' WHERE id=$1",[id]);assert.equal((await remove(1)).status,409);
