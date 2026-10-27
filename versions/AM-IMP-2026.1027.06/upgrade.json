@@ -3,7 +3,7 @@
   "name": "主持人會議提醒自動完成",
   "type": "Meeting task synchronization",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [
     "Original AM meeting_host_attention additive completion columns",
     "Original DailyLog meeting_task_receipts and work_items (existing)"
