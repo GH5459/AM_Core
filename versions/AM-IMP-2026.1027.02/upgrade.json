@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1027.02",
+  "name": "未完成會議刪除與恢復",
+  "type": "Meeting workflow",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-pending-delete.mjs",
+    "tools/test-meeting-pending-delete-browser.cjs",
+    "tools/test-meeting-publication-target.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting hub"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Only the verified host may delete inactive unpublished work",
+    "Named confirmation precedes deletion",
+    "Deleted records leave ordinary lists and cannot be opened or mutated",
+    "Host can restore the same record from a paginated private trash list",
+    "Source fields, original recordings, Calendar events and evidence remain intact",
+    "Old background claims cannot wake deleted records",
+    "Exact production version and original signed-in list verified without real deletion"
+  ]
+}
