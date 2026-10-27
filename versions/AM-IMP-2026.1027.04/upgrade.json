@@ -1,0 +1,13 @@
+{
+ "id":"AM-IMP-2026.1027.04",
+ "name":"UOF 待簽三色與剩餘時間",
+ "type":"approval visibility",
+ "portable":true,
+ "status":"Ready",
+ "requiresDatabases":[],
+ "requiresEnv":["Original UOF and DailyLog bindings"],
+ "requiresScripts":["versions/AM-IMP-2026.1027.04/build.cjs","tools/test-uof-remaining.mjs"],
+ "installTargets":["Original DailyLog","Original UOF"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":["Exact 24/48/72 elapsed hours from current node","Category counts and per-case urgency agree","Original access and approval workflow preserved","Complete Worker integration and mobile browser checks pass","Reviewed CI and production module/data preservation readback"]
+}

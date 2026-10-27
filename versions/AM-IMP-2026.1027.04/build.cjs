@@ -1,0 +1,46 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const once=(s,a,b)=>{assert.equal(s.split(a).length,2,'Unexpected baseline: '+a.slice(0,100));return s.replace(a,b);};
+exports.build=async function(root){
+ const {createUrgency}=await import('./urgency.mjs'),factory=createUrgency.toString();
+ const read=(system,file)=>fs.readFileSync(path.join(root,system,'baseline',file),'utf8');
+ const write=(system,file,s)=>{const f=path.join(root,system,'candidate',file);fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,s);};
+ let u=read('uof-line-cloud','worker.mjs');
+ u="import {createUrgency,URGENCY_POLICY} from './uof-urgency.mjs';\n"+u;
+ u=once(u,'t.DOC_NBR AS documentNumber,','t.URGENT_LEVEL AS urgentLevel,t.DOC_NBR AS documentNumber,');
+ u=once(u,'        nodeStartedAt: row.nodeStartedAt,','        urgentLevel: Number.isInteger(row.urgentLevel)?row.urgentLevel:null,\n        nodeStartedAt: row.nodeStartedAt,');
+ u=once(u,'    item.nativeFormUrl = this.nativeCaseUrl(snapshot.taskId);','    item.nodeStartedAt=snapshot.nodeStartedAt;item.urgentLevel=snapshot.urgentLevel;\n    item.nativeFormUrl = this.nativeCaseUrl(snapshot.taskId);');
+ u=once(u,'cases,queriedAt:new Date().toISOString()','cases,urgencyPolicy:URGENCY_POLICY,queriedAt:new Date().toISOString()');
+ u=once(u,'uofInboxPolicy:INBOX_POLICY,','uofUrgencyPolicy:URGENCY_POLICY,uofInboxPolicy:INBOX_POLICY,');
+ write('uof-line-cloud','worker.mjs',u);write('uof-line-cloud','uof-urgency.mjs',fs.readFileSync(__dirname+'/urgency.mjs','utf8'));
+ let pending=read('uof-line-cloud','uof-pending.mjs');
+ pending="import {createUrgency,URGENCY_POLICY} from './uof-urgency.mjs';\n"+pending;
+ pending=once(pending,'name:c.name,count:0','name:c.name,count:0,timings:[]');
+ pending=once(pending,'counts.get(c.categoryId).count++;','counts.get(c.categoryId).count++;counts.get(c.categoryId).timings.push({urgentLevel:c.urgentLevel??null,nodeStartedAt:c.nodeStartedAt??null});');
+ pending=once(pending,'categories:[...counts.values()],queriedAt:data.queriedAt','urgencyPolicy:URGENCY_POLICY,categories:[...counts.values()].map(c=>({...c,...createUrgency().counts(c.timings,Date.parse(data.queriedAt))})),queriedAt:data.queriedAt');
+ write('uof-line-cloud','uof-pending.mjs',pending);
+ for(const file of ['assets/review.mjs','entry-review.mjs']){
+  let html=(await import('file:///'+path.join(root,'uof-line-cloud/baseline',file).replaceAll('\\','/'))).default;
+  html=once(html,' const Q={items:',` const createUrgency=${factory};\n${fs.readFileSync(__dirname+'/review-client.js','utf8')}\n const Q={items:`);
+  html=once(html,"S.cases.filter(c=>(S.category==='all'", "S.cases.filter(c=>urgencyMatches(c)&&(S.category==='all'");
+  html=once(html,".includes(text)));}",".includes(text))).sort((a,b)=>urgency.compare(a,b,urgencyNow()));}");
+  html=once(html,"S.category=group.id;S.page=0;","S.category=group.id;S.urgency='all';S.page=0;");
+  html=once(html,"label.append(nodes('div',group.name));","label.append(nodes('div',group.name),urgencyChips(S.cases.filter(c=>group.id==='all'||c.categoryId===group.id)));");
+  html=once(html,"function renderList(){const all=matches();","function renderList(){installUrgencyFilter();const all=matches();");
+  html=once(html,'card.append(top,nodes(\'h2\'',"card.append(urgencyBadge(item),top,nodes('h2'");
+  html=once(html,'S.cases=data.cases;S.categories=data.categories;',"urgencyOffset=Date.parse(data.queriedAt)-Date.now();S.cases=data.cases;S.categories=data.categories;");
+  html=once(html,"if(!S.entryCategoryApplied){S.entryCategoryApplied=true;","if(!S.entryCategoryApplied){S.entryCategoryApplied=true;const wanted=new URL(location.href).searchParams.get('urgency');S.urgency=['red','orange','green','overdue','unknown'].includes(wanted)?wanted:'all';");
+  html=once(html,'for(const item of demoCases)item.summary=demoSummary(item);',"for(const [i,item]of demoCases.entries()){item.summary=demoSummary(item);item.urgentLevel=i%3;item.nodeStartedAt=new Date(Date.now()-[30,30,12,6,6,30,60,6][i]*3600000).toISOString();}");
+  html=once(html,'</style>',`.urgency-detail{display:grid;gap:2px;margin:0 0 12px;padding:9px 11px;border-left:4px solid currentColor;border-radius:4px;background:#f5f7f6;overflow-wrap:anywhere}.urgency-detail strong{font-size:16px}.urgency-deadline{font-size:13px;color:#4f6257}.urgency-red{color:#ad2929}.urgency-orange{color:#995005}.urgency-green{color:#216b3d}.urgency-unknown{color:#5b6064}.urgency-chips{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:14px;margin-top:6px;font-weight:500}.urgency-overdue{color:#ad2929}.category{align-items:flex-start}#urgencyFilter{min-height:48px} </style>`);
+  write('uof-line-cloud',file,'export default '+JSON.stringify(html)+';\n');
+ }
+ let daily=read('dailylog','uof-inbox.mjs');
+ daily="import clientSource from './uof-urgency-client.mjs';\n"+daily;
+ daily=once(daily,'  return respond({policy:POLICY,total:value.total,categories,queriedAt:value.queriedAt,reviewUrl:review+\'?category=all\'});',`  if(value.urgencyPolicy!=='uof-remaining-hours-v1')throw Error('Urgency response unavailable');
+  let size=0;for(let i=0;i<categories.length;i++){const input=value.categories[i];if(!Array.isArray(input.timings)||input.timings.length!==categories[i].count)throw Error('Invalid timing count');categories[i].timings=input.timings.map(t=>{if(!t||!['number','object'].includes(typeof t.urgentLevel)||t.urgentLevel!==null&&!Number.isInteger(t.urgentLevel)||t.nodeStartedAt!==null&&(typeof t.nodeStartedAt!=='string'||t.nodeStartedAt.length>50))throw Error('Invalid timing');return {urgentLevel:t.urgentLevel,nodeStartedAt:t.nodeStartedAt};});size+=input.timings.length;}if(size>500)throw Error('Timing limit');
+  return respond({policy:POLICY,urgencyPolicy:value.urgencyPolicy,total:value.total,categories,queriedAt:value.queriedAt,reviewUrl:review+'?category=all'});`);
+ daily=once(daily,"export async function inboxResponse(request,response,client){","export async function inboxResponse(request,response,client){\n client=clientSource;");
+ write('dailylog','uof-inbox.mjs',daily);
+ const client=once(fs.readFileSync(__dirname+'/inbox-client.js','utf8')," 'use strict';",` 'use strict';const createUrgency=${factory};`);
+ write('dailylog','uof-urgency-client.mjs','export default '+JSON.stringify(client)+';\n');
+};
+if(require.main===module)exports.build(path.resolve(process.argv[2])).catch(e=>{console.error(e.stack);process.exitCode=1;});
