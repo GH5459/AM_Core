@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.1027.80",
+  "name": "LINE 本人重新驗證與綁定回覆",
+  "type": "identity recovery",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Original private service bindings"
+  ],
+  "requiresScripts": [
+    "tools/test-common-line-identity.mjs",
+    "tools/test-line-bindings.mjs"
+  ],
+  "installTargets": [
+    "Original AM",
+    "Original DailyLog",
+    "Original UOF"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Fresh verified LINE plus company password and explicit confirmation",
+    "Exact owner-authorized migration only with transactional audit",
+    "Bindings reply without granting permissions",
+    "Full CI, Worker-D1, browser and production preservation checks"
+  ]
+}

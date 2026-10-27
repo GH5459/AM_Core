@@ -96,3 +96,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | AM-IMP-2026.1022.54 | 葉小蝸100字白話處理方案 | Deployed | PR432／CI39730899764；DailyLoge6178153完整65模組、其他62與原設定保持；原案件／建議／核准保持，AM不重發。 |
 
 | `AM-IMP-2026.1023.01` | Engineering reminders disabled; legacy BuildAM workflow removed | Deployed | 2026-10-23 | `versions/AM-IMP-2026.1023.01/`; `tools/test-engineering-reminders-disabled.mjs` | Tenant isolation, blocked reminder I/O, explicit meeting tasks and engineering convergence tests passed; production ecfe1b9 verified on both origins; LINE official webhook Verify succeeded; legacy workflow deleted. |
+
+| AM-IMP-2026.1027.80 | LINE 本人重新驗證與綁定回覆 | Ready | 精確短效重新驗證、本人確認後原子更新及私人原紀錄；CI／正式回讀待完成。 |

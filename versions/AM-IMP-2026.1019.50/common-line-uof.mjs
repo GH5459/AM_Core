@@ -1,3 +1,4 @@
+import {authorizeRecovery,recoverCommonLine} from '../AM-IMP-2026.1027.80/common-line-recovery.mjs';
 export const COMMON_LINE_CONTRACT='line-company-common-first-link-v1';
 const id=v=>typeof v==='string'&&/^U[a-f0-9]{32}$/i.test(v),account=v=>typeof v==='string'&&/^\d{1,20}$/.test(v);
 const fail=(message,status=409)=>Object.assign(Error(message),{status});
@@ -12,6 +13,7 @@ export async function commonLine(app,input,{channelId,fetchImpl=fetch,now=Date.n
  const prior=queues.get(app)||Promise.resolve(),run=prior.then(()=>execute(app,input,{channelId,fetchImpl,now}));queues.set(app,run.catch(()=>{}));return run;
 }
 async function execute(app,v,{channelId,fetchImpl,now}){
+ if(v.action==='recovery-authorize')return authorizeRecovery(app,v,now);
  if(v.action==='health')return {ok:true,contract:COMMON_LINE_CONTRACT,existingBindingsPreserved:true,featureGrantsUnchanged:true};
  const bot=app.env.AMCORE_MEETING_BOT_USER_ID;if(!id(bot)||!/^\d+$/.test(channelId||''))throw fail('共用帳號入口尚未設定完成。',503);
  let lineUserId=v.lineUserId;
@@ -33,6 +35,7 @@ async function execute(app,v,{channelId,fetchImpl,now}){
   // A stored mapping alone cannot prove a revoked gateway binding is live.
   await verifyLegacyIdentity(app,b);local.push({account:b.account,lineUserId:b.userId,identityId:b.bindingId});
  }
+ const recovery=await recoverCommonLine(app,v,{lineUserId,local,snapshot,token:v.token,now,contract:COMMON_LINE_CONTRACT});if(recovery)return recovery;
  const candidates=[...registry.items,...local,...native.items];
  const linked=candidates.filter(p=>p.lineUserId===lineUserId),accounts=[...new Set(linked.map(p=>p.account))];
  if(accounts.length>1)throw fail('LINE 與公司帳號有不同的既有對應，請聯絡管理者核對。');

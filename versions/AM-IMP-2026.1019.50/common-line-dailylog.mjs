@@ -1,7 +1,9 @@
+import {recoverNativeIdentity} from '../AM-IMP-2026.1027.80/common-line-recovery-dailylog.mjs';
 const native=v=>typeof v==='string'&&/^U[a-f0-9]{32}$/i.test(v);
 const read=async(db,key)=>{const r=await db.prepare("SELECT value FROM documents WHERE namespace='line-work-identities' AND key=?").bind(key).first();return r?JSON.parse(r.value):null;};
 export async function commonLineIdentity(env,v){
  if(!native(v.botUserId)||v.action!=='inventory'&&!native(v.lineUserId)||v.account!=null&&!/^\d{1,20}$/.test(v.account))throw Error('Invalid identity source');
+ if(v.action==='recover'){if(!v.account)throw Error('Invalid recovery account');return recoverNativeIdentity(env.DB,v);}
  if(v.action==='inventory'){const rows=await env.DB.prepare("SELECT value FROM documents WHERE namespace='line-work-identities'").all(),items=[];for(const row of rows.results||[]){const p=JSON.parse(row.value);if(p.botUserId!==v.botUserId||items.some(x=>x.lineUserId===p.lineUserId&&x.account===p.account))continue;const a=await read(env.DB,'line:'+v.botUserId+':'+p.lineUserId),b=await read(env.DB,'account:'+v.botUserId+':'+p.account);if(a?.account===p.account&&b?.lineUserId===p.lineUserId&&p.confirmedAt)items.push({lineUserId:p.lineUserId,account:p.account,identityId:p.identityId});}return {ok:true,items};}
  const db=env.DB,lineKey='line:'+v.botUserId+':'+v.lineUserId;
  const rows=await db.prepare("SELECT key,value FROM documents WHERE namespace='line-work-identities' AND (json_extract(value,'$.lineUserId')=? OR json_extract(value,'$.account')=?)").bind(v.lineUserId,v.account||'').all();
