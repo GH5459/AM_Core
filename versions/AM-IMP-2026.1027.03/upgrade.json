@@ -1,0 +1,26 @@
+{
+  "id": "AM-IMP-2026.1027.03",
+  "name": "會議開啟與刪除左右並排",
+  "type": "Meeting UI",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/test-meeting-pending-delete-browser.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meeting hub"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Open and delete share one horizontal row on desktop and mobile",
+    "No horizontal overflow at 360,390,768,1440 pixels",
+    "Original delete and restore behavior preserved",
+    "Exact production version and signed-in list verified"
+  ]
+}
