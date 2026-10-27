@@ -38,4 +38,3 @@ const {chromium}=require(process.argv[2]||'playwright');
   assert.deepEqual(errors,[]);console.log('Chrome fast path: real file input, raw binary/hash, lost response retry, 1,024 recording fragments -> 2 requests, actual microphone/IndexedDB reload/upload and mobile widths passed.');
  }catch(e){for(const c of browser.contexts())for(const p of c.pages())console.error(await p.locator('body').innerText());throw e;}finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
-

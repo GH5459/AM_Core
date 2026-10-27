@@ -7,7 +7,8 @@ const {fixture:f}=await import('./test-meeting-hub.mjs');
 const {pg,platform,row,key,host,guest}=f;
 const pool={query:(...a)=>pg.query(...a),connect:async()=>({query:(...a)=>pg.query(...a),release(){}})};
 let generated,originalReads=0,pushes=0;const blocks=[];let createdPage;
-const service=createMeetingWorkspace({pool,botId:row.bot_id,platform:{...platform,pushLineMessage:async()=>pushes++,meetingTaskIdentity:async()=>null},archive:{original:async()=>{originalReads++;throw Error('Text-only meeting must not read audio');}},env:{AMCORE_MEETINGS_LIFF_ID:'123-test',AMCORE_MEETING_MANAGEMENT_ORIGIN:platform.publicBaseUrl},context:async()=>({tenant:{}}),tenantFor:()=>({config:{meetings:{liffId:'123-test'}}}),getConversation:async()=>row,ensureDatabase:async()=>({dbId:'synthetic'}),request:async(path,method='GET',body)=>{
+const appPlatform={...platform,pushLineMessage:async()=>pushes++,meetingTaskIdentity:async()=>null};
+const service=createMeetingWorkspace({pool,botId:row.bot_id,platform:appPlatform,archive:{original:async()=>{originalReads++;throw Error('Text-only meeting must not read audio');}},env:{AMCORE_MEETINGS_LIFF_ID:'123-test',AMCORE_MEETING_MANAGEMENT_ORIGIN:platform.publicBaseUrl},context:async()=>({tenant:{}}),tenantFor:()=>({config:{meetings:{liffId:'123-test'}}}),getConversation:async()=>row,ensureDatabase:async()=>({dbId:'synthetic'}),request:async(path,method='GET',body)=>{
  if(path.includes('/query'))return {results:[]};
  if(path==='/pages'){createdPage=body;return {id:'synthetic-text-page'};}
  if(path.includes('/children')&&method==='GET')return {results:blocks,has_more:false};
@@ -22,6 +23,9 @@ async function call(id,area,input,token='host'){
 try{
  const created=await service.store.create(key,{source:{type:'group',groupId:row.source_id,userId:host},message:{id:'text-input-fixture',type:'text'},timestamp:Date.now()},'','合成主持人');const id=created.id;
  await pg.query("UPDATE central_archive.meeting_workspaces SET state='setup',fields=jsonb_set(fields,'{settings,topic}','\"合成逐字稿會議\"'::jsonb) WHERE id=$1",[id]);
+ appPlatform.loginContinuationActor=async()=>({id:host,name:'合成主持人'});
+ const continued=await call(id,'hub',{action:'plan-read'},'');assert.equal(continued.status,200,JSON.stringify(continued));assert.equal(continued.host,true);
+ appPlatform.loginContinuationActor=async()=>null;assert.equal((await call(id,'hub',{action:'plan-read'},'')).status,401);
  const hub=v=>call(id,'hub',v),work=v=>call(id,'api',v),text='[00:01] 同仁甲：請核對資料。\n[00:03] 同仁乙：明天回報。';
  const initial=await hub({action:'plan-read'});assert.equal(initial.status,200,JSON.stringify(initial));assert.equal(initial.plan??null,null,'Unscheduled meeting tools');
  const saved=await hub({action:'transcript-input',source:'transcript',text,version:0});assert.equal(saved.status,200,JSON.stringify(saved));assert.equal(saved.input.text,text);
@@ -40,6 +44,3 @@ try{
  await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=true WHERE id=$1',[id]);const shared=await call(id,'api',{action:'read'},'outsider');assert.equal(shared.status,200);assert.equal(shared.audioUrl,null);assert(!JSON.stringify(shared).includes('transcriptInput'));
  console.log('Transcript intake: versioned source evidence, host-only writes, stale/oversized/empty refusal, immutable generation snapshot, text-only publication/readback and no audio access passed.');
 }finally{await pg.close();}
-
-
-
