@@ -281,6 +281,9 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.40
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.70
       - run: node tools/test-meeting-audio-stream.mjs
+      - run: node tools/test-meeting-attention-completion.mjs
+      - run: node --check tools/test-meeting-attention-completion-worker.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.06
       - run: node tools/test-meeting-host-attention.mjs
       - run: node --check tools/test-meeting-host-attention-worker.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.05

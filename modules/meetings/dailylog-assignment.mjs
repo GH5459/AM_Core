@@ -1,6 +1,7 @@
 // Invoked only inside the existing authenticated task-service machine route.
 // The AM caller verifies current LINE membership and established work identity.
 export async function publishMeetingAssignments(value,env,{now=Date.now,directory,permission,makeService,publish,core}){
+ if(value.cleanupCompletion)return completeCleanupReminder(value,env,{now,directory,permission,publish,core});
  const fail=(message,status=400)=>Object.assign(Error(message),{code:message,status});
  if(!/^[a-f0-9]{64}$/.test(value.id||'')||!/^U[a-f0-9]{32}$/i.test(value.host?.userId||'')||!value.host.account||!value.host.bindingId||!Array.isArray(value.tasks)||value.tasks.length>60||!value.source||!/^https:\/\//.test(value.url||''))throw fail('INVALID_MEETING');
  if(value.revision!==undefined||value.deliverySequence!==undefined)return reviseMeetingAssignments(value,env,{now,directory,permission,makeService,publish,core});
@@ -30,6 +31,38 @@ export async function publishMeetingAssignments(value,env,{now=Date.now,director
  await env.DB.batch(batch);
  const saved=await env.DB.prepare('SELECT input_hash,result FROM meeting_task_receipts WHERE id=? AND tenant=?').bind(value.id,env.LEAF_TASK_TENANT).first();if(saved?.input_hash!==hash)throw fail('IDEMPOTENCY_CONFLICT',409);
  for(const t of made)publish(t);return {ok:true,...JSON.parse(saved.result)};
+}
+
+// This machine operation only closes the dedicated cleanup reminder. It cannot
+// close ordinary meeting decisions, reassigned work or collaborative tasks.
+async function completeCleanupReminder(value,env,{now,directory,permission,publish,core}){
+ const fail=(code,status=409)=>Object.assign(Error(code),{code,status}),digest=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(n=>n.toString(16).padStart(2,'0')).join('');
+ const c=value.cleanupCompletion;
+ if(!/^[a-f0-9]{64}$/.test(value.id||'')||!/^todo:[a-f0-9-]{36}$/.test(c.todoId||'')||!/^work-[a-f0-9-]{36}$/.test(c.taskId||'')||!['deleted','published'].includes(c.reason)||!Number.isSafeInteger(c.meetingRevision)||c.meetingRevision<1||!Number.isFinite(Date.parse(c.at))||!/^https:\/\//.test(value.url||'')||!/^U[a-f0-9]{32}$/i.test(c.actor?.userId||'')||!c.actor.bindingId||c.actor.tenantKey!==env.LEAF_TASK_TENANT||!value.host?.account||!/^[a-f0-9]{64}$/.test(c.workspaceId||''))throw fail('INVALID_CLEANUP_COMPLETION',400);
+ const operation=value.id+':cleanup-complete',hash=await digest(JSON.stringify(value)),db=env.DB;
+ const prior=await db.prepare('SELECT input_hash,result FROM meeting_task_receipts WHERE id=? AND tenant=?').bind(operation,env.LEAF_TASK_TENANT).first();
+ if(prior){if(prior.input_hash!==hash)throw fail('IDEMPOTENCY_CONFLICT');return {ok:true,...JSON.parse(prior.result)};}
+ const raw=await digest('meeting:'+value.id+':'+c.todoId),expected='work-'+[raw.slice(0,8),raw.slice(8,12),raw.slice(12,16),raw.slice(16,20),raw.slice(20,32)].join('-');if(c.taskId!==expected)throw fail('CLEANUP_SOURCE_MISMATCH',403);
+ const saved=await db.prepare('SELECT value,revision FROM work_items WHERE id=?').bind(c.taskId).first();if(!saved)throw fail('CLEANUP_TASK_NOT_FOUND',404);
+ const old=JSON.parse(saved.value),s=old.meetingSource;
+ if(s?.workspaceId!==value.id||s.todoId!==c.todoId||s.url!==value.url||s.source?.kind!=='meeting-cleanup-request'||s.source.originalWorkspaceId!==c.workspaceId||old.requester?.account!==value.host.account)throw fail('CLEANUP_SOURCE_MISMATCH',403);
+ if(old.lead?.account!==c.actor.account||(old.collaborators||[]).length)throw fail('CLEANUP_TASK_CHANGED',403);
+ const roster=await directory(),people=new Map(roster.people.map(p=>[p.account,p])),actor=people.get(c.actor.account);if(!actor||!permission(c.actor.account))throw fail('ACCESS_DISABLED',403);
+ const note=(c.reason==='deleted'?'主持人已刪除此會議':'會議已正式發布完成')+'，依會議狀態自動完成處理提醒。來源：'+value.url+'；會議版本：'+c.meetingRevision+'；處理時間：'+c.at;
+ let next=structuredClone(old),outcome=old.status==='done'?'already-done':old.status==='cancelled'?'already-cancelled':'completed';
+ if(outcome==='completed'){
+  if(!core?.createTaskService)throw fail('CLEANUP_COMPLETION_NOT_READY',503);
+  const service=core.createTaskService({now,canUse:async a=>people.has(a)&&permission(a),employees:async()=>roster.people,read:async()=>structuredClone(next),list:async()=>[],save:async(task,version)=>{if(version!==next.version)return false;next=structuredClone(task);return true;}});
+  const op=await digest(operation),operationId='op-'+[op.slice(0,8),op.slice(8,12),op.slice(12,16),op.slice(16,20),op.slice(20,32)].join('-');
+  await service.update({...actor,id:actor.id||actor.userId||'uof:'+actor.account},c.taskId,{kind:'status',status:'done',version:old.version,operationId,text:note},env.PUBLIC_ORIGIN);
+  next.finalResult=old.finalResult||note;next.meetingCleanupResolution={...c,automatic:true};
+ }
+ await roster.assertCurrent?.();if(!permission(c.actor.account))throw fail('ACCESS_CHANGED',403);
+ const result={taskId:c.taskId,outcome,status:next.status},nonce=crypto.randomUUID();
+ const batch=[db.prepare('INSERT INTO meeting_task_receipts(id,tenant,input_hash,result,nonce) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM work_items WHERE id=? AND revision=?) ON CONFLICT(id) DO NOTHING').bind(operation,env.LEAF_TASK_TENANT,hash,JSON.stringify(result),nonce,c.taskId,saved.revision)];
+ if(outcome==='completed')batch.push(db.prepare('UPDATE work_items SET value=?,revision=? WHERE id=? AND revision=? AND EXISTS(SELECT 1 FROM meeting_task_receipts WHERE id=? AND nonce=?)').bind(JSON.stringify(next),next.version,c.taskId,saved.revision,operation,nonce));
+ await db.batch(batch);const receipt=await db.prepare('SELECT input_hash,result FROM meeting_task_receipts WHERE id=? AND tenant=?').bind(operation,env.LEAF_TASK_TENANT).first();if(!receipt)throw fail('TASK_CHANGED_RETRY');if(receipt.input_hash!==hash)throw fail('IDEMPOTENCY_CONFLICT');
+ if(outcome==='completed')publish(next);return {ok:true,...JSON.parse(receipt.result)};
 }
 
 async function reviseMeetingAssignments(value,env,{now,directory,permission,publish,core}){

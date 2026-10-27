@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.1027.06",
+  "name": "主持人會議提醒自動完成",
+  "type": "Meeting task synchronization",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [
+    "Original AM meeting_host_attention additive completion columns",
+    "Original DailyLog meeting_task_receipts and work_items (existing)"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/install-meeting-host-attention.mjs",
+    "tools/build-meeting-task-dispatch-worker.cjs",
+    "tools/test-meeting-attention-completion.mjs",
+    "tools/test-meeting-attention-completion-worker.cjs"
+  ],
+  "installTargets": [
+    "Original AM Platform meetings",
+    "Original DailyLog meeting task receiver"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Only dedicated cleanup reminders completed on host deletion or successful publication",
+    "Original task model and evidence retained",
+    "Original host identity and source verified",
+    "Atomic completion plus receipt; safe replay and no manual reopen overwrite",
+    "Exact two-site AM and full DailyLog production verification"
+  ]
+}
