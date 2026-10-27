@@ -195,7 +195,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   const match=url.pathname.match(/^\/meetings\/review\/work\/([a-f0-9]{64})(?:\/(api|audio|glossary|hub))?$/)||(primary?[primary[0],primary[1],primary[2]?'glossary':undefined]:null);if(!match)return false;
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');
   try{
-   const r=await store.get(match[1]);if(!r)throw failure(404,'找不到這場會議。');const row=await conversation(r);
+   const r=await store.get(match[1]);if(!r)throw failure(404,'找不到這場會議。');if(r.receipt?.deletion?.active)throw failure(410,'這場會議已刪除，主持人可從「我的會議 → 最近刪除」恢復。');const row=await conversation(r);
    const loginUrl=loginPage(row,r.id);if(match[2]==='glossary')loginUrl.pathname+='/glossary';
    if((!match[2]||match[2]==='glossary')&&req.method==='GET'){
     if((req.headers.host||url.host)!==loginUrl.host){res.statusCode=302;res.setHeader('Location',loginUrl.href);res.end();return true;}
