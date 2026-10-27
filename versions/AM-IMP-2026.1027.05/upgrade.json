@@ -3,7 +3,7 @@
   "name": "未完成會議請主持人處理待辦",
   "type": "Meeting workflow",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [
     "central_archive.meeting_host_attention (project-local only)"
   ],

@@ -3,6 +3,7 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
+| AM-IMP-2026.1027.05 | Original AM host cleanup task requests | Deployed | PR468 CI40445864592/206 steps; AM 4b305da both origins/exact client, Render41.5s Live. Signed-in5 original nonhost meetings have horizontal open/notify controls;29 meetings/130 todos preserved,new requests0. Original task Worker/D1 replay and four widths pass; no real task/LINE test writes or other service release. |
 | AM-IMP-2026.1027.03 | Original AM meeting list | Deployed | PR464 full CI40442967813/201 steps, matching trees; AM a165a08 both origins/exact client and CSS, Render39.1s Live. Signed-in3 button pairs aligned/equal height; original8 pending IDs retained, four widths pass, no business writes or other service release. |
 | AM-IMP-2026.1027.02 | Original AM pending meeting list | Deployed | PR462 full CI40441510501/201 steps; tested/merged tree equal. AM f671857 both origins/exact clients; Render49.2s Live. Original signed-in8 pending IDs retained,3 host delete buttons and empty trash verified. 29 meetings/130 todos preserved; no real delete/restore or DailyLog/UOF/Rich Menu release. |
 | AM-IMP-2026.1027.01 | Original AM meeting input tools | Deployed | PR460 full CI40437758932/198 steps; reviewed/merged trees equal. AM c0c8670 both origins and exact embedded client; Render41.4s Live. Signed-in external page agenda/recording/upload/transcript controls verified, original18 settings and29 meetings/130 todos preserved; no real business writes or DailyLog/UOF/Rich Menu release. |
