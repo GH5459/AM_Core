@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createUrgency,URGENCY_POLICY} from '../versions/AM-IMP-2026.1027.03/urgency.mjs';
+import {createUrgency,URGENCY_POLICY} from '../versions/AM-IMP-2026.1027.04/urgency.mjs';
 const u=createUrgency(),now=Date.parse('2026-10-27T16:00:00+08:00');
 const item=(level,age)=>({urgentLevel:level,nodeStartedAt:new Date(now-age*3600000).toISOString()});
 test('24 / 48 / 72 exact hours; no calendar-day rounding',()=>{
