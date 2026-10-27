@@ -145,4 +145,8 @@ CREATE TABLE IF NOT EXISTS central_archive.meeting_host_attention (
  delivered_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS meeting_host_attention_pending ON central_archive.meeting_host_attention(bot_id,next_attempt_at) WHERE state IN ('pending','waiting');
+ALTER TABLE central_archive.meeting_host_attention ADD COLUMN IF NOT EXISTS completion_payload jsonb;
+ALTER TABLE central_archive.meeting_host_attention ADD COLUMN IF NOT EXISTS completion_result jsonb;
+ALTER TABLE central_archive.meeting_host_attention ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+ALTER TABLE central_archive.meeting_host_attention ADD COLUMN IF NOT EXISTS completion_next_at timestamptz NOT NULL DEFAULT now();
 -- END meeting-host-attention-v1
