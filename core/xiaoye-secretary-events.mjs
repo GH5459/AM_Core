@@ -1,5 +1,5 @@
 // Only explicit business events create work. No timer scans the issue list.
-import {recoveryDetails,recoveryCard,recoveryNextStep} from './xiaoye-recovery.mjs';
+import {recoveryDetails,recoveryCard,recoveryNextStep,automaticRecoveryNextStep} from './xiaoye-recovery.mjs';
 export const XIAOYE_EVENT_CONTRACT = 'xiaoye-event-push-v1';
 const respond = (value, status = 200) => Response.json(value, {status, headers:{'Cache-Control':'no-store'}});
 const eventKey = id => 'event:' + id;
@@ -80,6 +80,7 @@ export class XiaoyeEvents {
     const row = await this.env.DB.prepare("SELECT value FROM documents WHERE namespace='xiaoye-secretary' AND key='config'").first();
     const c = row && JSON.parse(row.value);
     if (!c) return;
+    const automatic=c.autoResolutionEnabled===true,effectiveNextStep=automatic?automaticRecoveryNextStep:nextStep;
     const id = 'event-blocked:' + e.id, url = new URL('/xiaoye?issue='+encodeURIComponent(e.taskId), this.env.PUBLIC_ORIGIN).href;
     if(await this.env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-notifications' AND key=?").bind(id).first())return;
     const rowTask=await this.env.DB.prepare('SELECT value,revision FROM work_items WHERE id=?').bind(e.taskId).first(),t=rowTask&&JSON.parse(rowTask.value),s=t?.secretary;
@@ -87,11 +88,11 @@ export class XiaoyeEvents {
     const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),n=>n.toString(16).padStart(2,'0')).join('');
     const at=new Date().toISOString(),extra=[];
     if(s.stage!=='blocked'){
-      s.stage='blocked';s.blocker=String(reason).slice(0,1500);s.recovery=recoveryDetails(reason,nextStep,await digest(id));s.lease=null;s.leaseUntil=0;t.status='blocked';t.version++;t.updatedAt=at;t.history=[...(t.history||[]),{id,kind:'xiaoye_event_failed',actor:{account:'ai-xiaoye',name:'葉小蝸'},at,text:s.recovery.reason+'\n下一步：'+s.recovery.nextStep,mentions:[],targets:[]}];
+      s.stage='blocked';s.blocker=String(reason).slice(0,1500);s.recovery=recoveryDetails(reason,effectiveNextStep,await digest(id),automatic);s.lease=null;s.leaseUntil=0;t.status='blocked';t.version++;t.updatedAt=at;t.history=[...(t.history||[]),{id,kind:'xiaoye_event_failed',actor:{account:'ai-xiaoye',name:'葉小蝸'},at,text:s.recovery.reason+'\n下一步：'+s.recovery.nextStep,mentions:[],targets:[]}];
       extra.push(this.env.DB.prepare('INSERT INTO xiaoye_operations(id,guard,fingerprint,task_id) VALUES(?,CASE WHEN EXISTS(SELECT 1 FROM work_items WHERE id=? AND revision=?) THEN 1 ELSE 0 END,?,?)').bind(id,t.id,rowTask.revision,await digest(id),t.id),this.env.DB.prepare('UPDATE work_items SET value=?,revision=? WHERE id=? AND revision=?').bind(JSON.stringify(t),t.version,t.id,rowTask.revision),this.env.DB.prepare('INSERT INTO work_notion_jobs(id,version) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version').bind(t.id,t.version));
     }
-    const message='葉小蝸處理受阻：'+t.title+'\n原因：'+(s.recovery?.reason||reason)+'\n下一步：'+(s.recovery?.nextStep||nextStep)+'\n'+url;
-    const n={id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,lineMessage:recoveryCard(this.env.PUBLIC_ORIGIN,t),sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
+    const message='葉小蝸處理受阻：'+t.title+'\n原因：'+(s.recovery?.reason||reason)+'\n下一步：'+(automatic?effectiveNextStep:s.recovery?.nextStep||nextStep)+'\n'+url;
+    const n={id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,lineMessage:recoveryCard(this.env.PUBLIC_ORIGIN,t,automatic),sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
     const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),entry={id,workId:e.taskId,title:t.title,action:'event_failed',text:message,at,stage:s.stage};
     await this.env.DB.batch([
       ...extra,
@@ -143,6 +144,11 @@ export class XiaoyeEvents {
     }
     if (!validId(v.id)) return respond({ok:false,error:'事件識別無效。'},400);
     let e = await this.ctx.storage.get(eventKey(v.id));
+    if (route === '/inspect') {
+      if (!e) return respond({ok:false,error:'找不到事件。'},404);
+      const leaseUntil=Number.isFinite(e.leaseUntil)?e.leaseUntil:0;
+      return respond({ok:true,event:{id:e.id,taskId:e.taskId,kind:e.kind,state:e.state,version:e.version,sourceVersion:e.sourceVersion,leasePresent:typeof e.lease==='string'&&!!e.lease,leaseUntil,leaseActive:e.state==='running'&&leaseUntil>Date.now()}});
+    }
     if (route === '/prepare') {
       if (!/^work-[a-f0-9-]{36}$/.test(v.taskId||'') || !Number.isSafeInteger(v.version) || !['analyze','execute','invalidate'].includes(v.kind)) return respond({ok:false},400);
       if (e && ['taskId','version','sourceVersion','kind'].some(k=>e[k]!==v[k])) return respond({ok:false},409);

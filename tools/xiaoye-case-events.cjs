@@ -30,6 +30,11 @@ async function runCaseEvent({client,config,checked,check,save,prompt,caseUrl,bin
   }
   if(!initialized)throw Error('案件聊天初始化尚未確認');
  }
+ if(typeof client.handoffToAppServer==='function'){
+  await check();
+  await client.handoffToAppServer({threadId:chat.threadId,workRoot:chat.workRoot||initial.workRoot});
+  save('chat-handoff.private.json',{threadId:chat.threadId,at:new Date(clock()).toISOString(),handoff:'desktop-archive-unarchive-app-server-resume'});
+ }
  let current=await check();
  if(current.task.id!==caseId)throw Error('案件已變更，停止接線');
  if(selectRoute(config,current).id!==projectId)throw Error('案件專案已變更，請先確認原聊天');

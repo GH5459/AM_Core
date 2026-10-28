@@ -1,8 +1,9 @@
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
+const {CodexAppServerClient}=require('./xiaoye-app-server-client.cjs');
 const unwrap=result=>{const item=result?.content?.find(c=>c.type==='text');if(!item)throw Error('Codex聊天工具未傳回確認');const value=JSON.parse(item.text);if(result?.isError)throw Object.assign(Error('Codex聊天工具拒絕操作'),{code:value?.error||'desktop_error'});return value;};
 function desktopPipe(names){const matches=names.filter(n=>/^codex-app-tools-[0-9a-f-]+$/i.test(n));if(matches.length!==1)throw Error('目前無法唯一確認Codex桌面連線');return '\\\\.\\pipe\\'+matches[0];}
 class DesktopMcp {
- constructor(context,{launch=spawn,pipeNames=()=>fs.readdirSync('\\\\.\\pipe\\')}={}){this.context=context;this.launch=launch;this.pipeNames=pipeNames;this.pending=new Map();this.sequence=0;this.buffer='';}
+ constructor(context,{launch=spawn,pipeNames=()=>fs.readdirSync('\\\\.\\pipe\\'),appServerContext=null,appServerFactory=options=>new CodexAppServerClient(options)}={}){this.context=context;this.launch=launch;this.pipeNames=pipeNames;this.appServerContext=appServerContext;this.appServerFactory=appServerFactory;this.pending=new Map();this.sequence=0;this.buffer='';}
  async connect(){
   const t=this.context.transport,env={...process.env,...t.env,...this.context.environment};
   if(process.platform==='win32')env.CODEX_APP_TOOLS_PIPE_PATH=desktopPipe(this.pipeNames());
@@ -15,6 +16,20 @@ class DesktopMcp {
    this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
    const listed=await this.request('tools/list',{});this.names=new Set((listed.tools||[]).map(t=>t.name));
    for(const name of ['send_message_to_thread','read_thread'])if(!this.names.has(name))throw Error('目前Codex桌面缺少聊天接續工具');
+   if(this.appServerContext){
+    const c=this.appServerContext;
+    if(!c.nodeExecutable||!c.runtimeToolsFile||!c.toolContextFile||!c.eventCheckFile||!c.operatorDirectory||!['analyze','execute'].includes(c.kind))throw Error('案件 App Server 接線資料不完整');
+    const overrides=[
+     'mcp_servers.xiaoye_runtime.command='+JSON.stringify(c.nodeExecutable),
+     'mcp_servers.xiaoye_runtime.args='+JSON.stringify([c.runtimeToolsFile,c.toolContextFile,c.eventCheckFile]),
+     'mcp_servers.xiaoye_runtime.enabled=true',
+     'mcp_servers.xiaoye_runtime.default_tools_approval_mode="approve"'
+    ];
+    this.appServer=this.appServerFactory({executable:c.codexExecutable||'codex',configOverrides:overrides});
+    await this.appServer.connect();
+    const profiles=await this.appServer.request('permissionProfile/list');
+    if(c.kind==='execute'&&!profiles.data?.some(p=>p.id===':danger-full-access'&&p.allowed))throw Error('案件完整執行權限目前不可用');
+   }
    return this;
   }catch(error){this.close();throw error;}
  }
@@ -30,10 +45,32 @@ class DesktopMcp {
    const v=await this.call('read_thread',{threadId:target.threadId,turnLimit:1,includeOutputs:false,maxOutputCharsPerItem:0});
    return {polls:[{thread:v.thread,latestTurn:v.turns?.[0],cursor:v.turns?.[0]?.id}]};
   }
-  if(!['send_message_to_thread','read_thread','create_thread','move_thread_to_project'].includes(name))throw Error('不是允許的專用聊天操作');
+  if(name==='send_message_to_thread'&&this.appServer){
+   if(args.hostId!=='local'||!args.threadId||!args.prompt)throw Error('案件聊天派送目標不完整');
+   const desktop=await this.call('read_thread',{threadId:args.threadId,hostId:'local',turnLimit:1,includeOutputs:false,maxOutputCharsPerItem:0});
+   if(desktop.thread?.id!==args.threadId||desktop.thread?.hostId!=='local'||!desktop.thread?.cwd)throw Error('無法確認原案件聊天及工作目錄');
+   await this.handoffToAppServer({threadId:args.threadId,workRoot:desktop.thread.cwd});
+   const c=this.appServerContext;
+   const policy={permissions:':danger-full-access'};
+   return this.appServer.startTurn({threadId:args.threadId,cwd:desktop.thread.cwd,prompt:args.prompt,...policy,approvalPolicy:'never'});
+  }
+  if(!['send_message_to_thread','read_thread','create_thread','move_thread_to_project','set_thread_archived'].includes(name))throw Error('不是允許的專用聊天操作');
   return unwrap(await this.request('tools/call',{name,arguments:args,_meta:{'openai/threadId':this.context.ownerThreadId}},90000));
  }
- close(){this.child?.stdin.end();const child=this.child;if(child){const timer=setTimeout(()=>child.kill(),1000);timer.unref();child.once('exit',()=>clearTimeout(timer));}this.rejectAll();}
+ async handoffToAppServer({threadId,workRoot}){
+  if(!this.appServer)throw Error('案件 App Server 尚未連線');
+  const desktop=await this.call('read_thread',{threadId,hostId:'local',turnLimit:1,includeOutputs:false,maxOutputCharsPerItem:0});
+  if(desktop.thread?.id!==threadId||desktop.thread?.hostId!=='local'||path.win32.normalize(desktop.thread.cwd||'').toLowerCase()!==path.win32.normalize(workRoot||'').toLowerCase())throw Error('案件聊天與原專案目錄不符');
+  const status=desktop.thread?.status?.type;
+  if(status==='active'||status==='running')throw Error('案件聊天仍在執行，暫停交接');
+  try{return await this.appServer.resume(threadId,workRoot);}catch(error){
+   if(!/already has an active writer/i.test(error.message))throw error;
+  }
+  await this.call('set_thread_archived',{threadId,hostId:'local',archived:true});
+  await this.call('set_thread_archived',{threadId,hostId:'local',archived:false});
+  return this.appServer.resume(threadId,workRoot);
+ }
+ close(){this.appServer?.close();this.child?.stdin.end();const child=this.child;if(child){const timer=setTimeout(()=>child.kill(),1000);timer.unref();child.once('exit',()=>clearTimeout(timer));}this.rejectAll();}
 }
 function selectRoute(config,checked){
  const task=checked.task,projectId=task?.primaryParentId;

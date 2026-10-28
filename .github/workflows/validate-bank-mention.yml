@@ -232,13 +232,17 @@ jobs:
       - run: node --test tools/test-xiaoye-inspection-ui.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.63
       - run: node --test tools/test-xiaoye-recovery.mjs
+      - run: node --test tools/test-xiaoye-conversation.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.65
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs
+      - run: node --test tools/test-xiaoye-event-recovery.cjs tools/test-xiaoye-failed-event-scan.cjs tools/test-xiaoye-recovery-bridge.cjs
       - run: node --test tools/test-xiaoye-runtime-reconnect.cjs
+      - run: node tools/test-xiaoye-repo-scope.cjs
       - run: node --check tools/xiaoye-visible-chats.cjs
+      - run: node --check tools/xiaoye-app-server-client.cjs
       - run: node --test tools/test-xiaoye-visible-chats.cjs
       - run: node --test tools/test-xiaoye-case-chat-registry.cjs tools/test-xiaoye-case-events.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.14

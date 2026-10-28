@@ -1,9 +1,11 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 const runtimeTools=require('./xiaoye-runtime-tools.cjs');
+const {reconcileInterruptedEvent,nextFailure}=require('./xiaoye-event-recovery.cjs');
+const {failedEventCandidates}=require('./xiaoye-failed-event-scan.cjs');
 class EventBridge {
-  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory}={}) {
+  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory,verifyCaseExecutor}={}) {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(config.codexExecutable,args,options));this.fetcher=fetcher;this.clock=clock;
-    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;
+    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -19,19 +21,67 @@ class EventBridge {
     }
   }
   status(state,extra={}) {this.save('bridge-status.private.json',{state,pid:process.pid,at:new Date(this.clock()).toISOString(),childrenStarted:this.childrenStarted,...extra});}
+  failedRetryBudget(active,inspected,rel){
+    const key=crypto.createHash('sha256').update(active.taskId).digest('hex');
+    const relative='case-recovery/'+key+'.private.json',p=path.join(this.folder,relative);
+    const previous=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):null;
+    const source=path.join(this.folder,rel,'tools-preflight.private.json');
+    const code=fs.existsSync(source)?JSON.parse(fs.readFileSync(source)).code||'unclassified':'unclassified';
+    const next=nextFailure(previous,{eventId:active.id,signature:inspected.event.kind+':'+code,now:this.clock()});
+    this.save(relative,next);
+    return next.automaticRetryAllowed;
+  }
   async recover() {
     const file=path.join(this.folder,'bridge-active.private.json');if(!fs.existsSync(file))return;
     const active=JSON.parse(fs.readFileSync(file));
     if(active.phase==='finished')return;
-    // A process crash must not automatically repeat work whose side effects are unknown.
-    try{await this.call('event-fail',{id:active.id,lease:active.lease,operationId:active.failureOperation},'event-runs/'+active.id+'/recovery-fail.input.private.json');}catch{}
-    this.save('bridge-active.private.json',{...active,phase:'finished',recoveredWithoutRerun:true});
+    const rel='event-runs/'+active.id,read=name=>{const p=path.join(this.folder,rel,name);return fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):null;};
+    if(!active.taskId||!Number.isSafeInteger(active.sourceVersion)){
+      const acquired=read('acquire.response.private.json')?.job;
+      if(acquired?.id===active.id&&acquired.lease===active.lease){active.taskId=acquired.taskId;active.sourceVersion=acquired.sourceVersion;}
+    }
+    if(!active.taskId||!Number.isSafeInteger(active.sourceVersion)){
+      this.status('reconciliation-required',{eventId:active.id,decision:'missing-exact-identity'});return;
+    }
+    const completeIntent=read('event-complete.input.private.json'),failIntent=read('event-fail.input.private.json')||read('failure.input.private.json'),intent=completeIntent||failIntent;
+    const evidence={finalization:intent?.operationId?{action:completeIntent?'complete':'fail',operationId:intent.operationId}:null,chatDispatchInput:!!read('chat-dispatch.input.private.json'),executorReady:typeof this.verifyCaseExecutor==='function'?this.verifyCaseExecutor:false};
+    evidence.failureBudgetAvailable=(a,inspected)=>this.failedRetryBudget(a,inspected,rel);
+    const result=await reconcileInterruptedEvent({active,evidence,
+      inspectEvent:async(taskId,eventId)=>this.call('event-inspect',{id:taskId,eventId}),
+      verifyLease:async a=>{try{const r=await this.call('event-check',{id:a.id,lease:a.lease});return r.job?.id===a.id&&r.job?.lease===a.lease;}catch(e){if([403,409].includes(e.status))return false;throw e;}},
+      finalizeEvent:async(action,input)=>this.call(action==='complete'?'event-complete':'event-fail',input,rel+'/recovery-'+action+'.input.private.json'),
+      autoResume:async input=>this.call('auto-resume',input,rel+'/auto-resume.input.private.json')});
+    this.save(rel+'/recovery.private.json',{decision:result.decision,terminal:result.terminal,at:new Date(this.clock()).toISOString()});
+    if(result.terminal){this.save('bridge-active.private.json',{...active,phase:'finished',recoveryDecision:result.decision});return;}
+    if(result.decision==='resume-same-event') {this.recoveringSameEventId=active.id;this.pending.add(active.id);return;}
+    this.status('reconciliation-required',{eventId:active.id,decision:result.decision});
+  }
+  async recoverFailedEvents(){
+    if(this.failedRecoveryRunning||this.running||this.pending.size||!this.verifyCaseExecutor)return;
+    this.failedRecoveryRunning=true;
+    try{
+      for(const active of failedEventCandidates(this.folder)){
+        if(this.running||this.pending.size||this.stopped)break;
+        const rel='event-runs/'+active.id;
+        const inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
+        if(inspected.autoResumeEligible!==true){
+          if(inspected.event?.state!=='failed'||inspected.task?.sourceVersion!==active.sourceVersion||inspected.task?.stage!=='blocked')
+            this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'case-changed'});
+          continue;
+        }
+        const result=await reconcileInterruptedEvent({active,inspectEvent:async()=>inspected,
+          evidence:{executorReady:this.verifyCaseExecutor,failureBudgetAvailable:(a,v)=>this.failedRetryBudget(a,v,rel)},
+          autoResume:async input=>this.call('auto-resume',input,rel+'/auto-resume.input.private.json')});
+        this.save(rel+'/auto-resume.decision.private.json',{decision:result.decision,at:new Date(this.clock()).toISOString()});
+        if(result.decision==='auto-resumed')this.save(rel+'/auto-resume.response.private.json',result.result);
+      }
+    }finally{this.failedRecoveryRunning=false;}
   }
   connect() {
     if(this.stopped)return;
     const url=new URL(this.prefix+'events/ws',this.worker.vars.PUBLIC_ORIGIN);url.protocol=url.protocol==='https:'?'wss:':'ws:';
     const ws=this.ws=new this.WebSocket(url,{headers:{Authorization:'Bearer '+this.credentials.key},handshakeTimeout:30000});
-    ws.on('open',()=>{this.retry=0;this.status('connected');ws.send('ready');this.pingTimer=setInterval(()=>{if(typeof ws.ping!=='function')return;this.pongTimeout=setTimeout(()=>ws.terminate(),15000);ws.ping();},45000);});
+    ws.on('open',()=>{this.retry=0;this.status('connected');ws.send('ready');if(this.pending.size)this.drain().catch(()=>this.status('reconciliation-required'));else this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));this.pingTimer=setInterval(()=>{if(typeof ws.ping!=='function')return;this.pongTimeout=setTimeout(()=>ws.terminate(),15000);ws.ping();},45000);});
     ws.on('pong',()=>clearTimeout(this.pongTimeout));
     ws.on('message',data=>{let v;try{v=JSON.parse(String(data));}catch{return;}
       if(v.type==='work'&&/^[a-f0-9]{64}$/.test(v.id)&&this.running?.id!==v.id&&!fs.existsSync(path.join(this.folder,'event-runs',v.id,'started.private.json'))){this.pending.add(v.id);this.drain().catch(()=>this.status('blocked'));}
@@ -43,7 +93,8 @@ class EventBridge {
   async drain() {
     if(this.running||this.stopped)return;
     const id=this.pending.values().next().value;if(!id)return;this.pending.delete(id);
-    if(fs.existsSync(path.join(this.folder,'event-runs',id,'started.private.json'))){if(this.pending.size)queueMicrotask(()=>this.drain().catch(()=>this.status('blocked')));return;}
+    if(fs.existsSync(path.join(this.folder,'event-runs',id,'started.private.json'))&&this.recoveringSameEventId!==id){if(this.pending.size)queueMicrotask(()=>this.drain().catch(()=>this.status('blocked')));return;}
+    if(this.recoveringSameEventId===id)this.recoveringSameEventId=null;
     this.running={id};this.toolWarning=null;this.toolContext=null;
     const rel='event-runs/'+id,operationFile=path.join(this.folder,rel+'/acquire.input.private.json');
     let input;
@@ -60,7 +111,7 @@ class EventBridge {
       }
       const checkFile=this.save(rel+'/check.input.private.json',checkInput);
       const initialChecked=await this.call('event-check',checkInput);
-      const active={id:job.id,lease:job.lease,phase:'checking-tools',failureOperation:'event-failure-'+crypto.randomUUID()};
+      const active={id:job.id,lease:job.lease,taskId:job.taskId,sourceVersion:job.sourceVersion,phase:'checking-tools',failureOperation:'event-failure-'+crypto.randomUUID()};
       this.save('bridge-active.private.json',active);
       let preflightRoute;
       if(this.config.toolContextFile){
@@ -81,14 +132,15 @@ class EventBridge {
           // Analysis in the designated case chat remains read-only. A failed
           // preflight never grants permission to change code or retry work.
           if(job.kind==='analyze'&&this.config.visibleChatsFile){this.toolWarning=label;}
-          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'確認上述工具後，沿原案件重新查核；先核對已有動作，再依目前設定接續處理。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
+          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'工具恢復後系統會自動核對原案件及已有動作，再依目前設定接續；若需補充情況，會在原案件詢問回報人。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
         }
       }
       if(this.config.visibleChatsFile){
         const {DesktopMcp,runVisibleEvent}=require('./xiaoye-visible-chats.cjs');
         const routes=JSON.parse(fs.readFileSync(this.config.visibleChatsFile));
         const context=JSON.parse(fs.readFileSync(routes.desktopContextFile));
-        const client=await (this.visibleClientFactory?this.visibleClientFactory(context):new DesktopMcp(context)).connect();
+        const appServerContext={kind:job.kind,operatorDirectory:this.folder,nodeExecutable:this.config.nodeExecutable,codexExecutable:this.config.codexExecutable,runtimeToolsFile:this.config.runtimeToolsFile,toolContextFile:this.config.toolContextFile,eventCheckFile:checkFile};
+        const client=await (this.visibleClientFactory?this.visibleClientFactory(context,appServerContext):new DesktopMcp(context,{appServerContext})).connect();
         try {
           const checked=await this.call('event-check',checkInput);
           if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
@@ -138,6 +190,7 @@ class EventBridge {
       this.running=null;this.status(this.ws?.readyState===1?'connected':'disconnected');
       if(this.ws?.readyState===1)this.ws.send('ready');
       if(this.pending.size)queueMicrotask(()=>this.drain().catch(()=>this.status('blocked')));
+      else if(this.ws?.readyState===1)this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));
     }
   }
   stop() {this.stopped=true;clearTimeout(this.reconnect);clearInterval(this.pingTimer);clearTimeout(this.pongTimeout);this.ws?.close();this.running?.child?.kill();this.status('stopped');}
@@ -147,7 +200,8 @@ if(require.main===module){
  const config=JSON.parse(fs.readFileSync(path.resolve(process.argv[2]))),lock=path.join(config.operatorDirectory,'bridge.lock.private.json');
  if(fs.existsSync(lock)){const previous=JSON.parse(fs.readFileSync(lock));try{process.kill(previous.pid,0);process.exit(0);}catch{fs.unlinkSync(lock);}}
  fs.writeFileSync(lock,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}),{flag:'wx'});
- const bridge=new EventBridge(config);
+ const {createCaseExecutorVerifier}=require('./xiaoye-app-server-client.cjs');
+ const bridge=new EventBridge(config,{verifyCaseExecutor:createCaseExecutorVerifier(config)});
  process.on('exit',()=>{try{if(JSON.parse(fs.readFileSync(lock)).pid===process.pid)fs.unlinkSync(lock);}catch{}});
  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{bridge.stop();process.exit(0);});
  bridge.recover().then(()=>bridge.connect()).catch(()=>{bridge.status('blocked');process.exitCode=1;});
