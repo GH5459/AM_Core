@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {patchPrivateClient}=require('../versions/AM-IMP-2026.1028.98/build-private.cjs');
+const {patchJournal,patchIndex,patchCalendar}=require('../versions/AM-IMP-2026.1028.98/build-web.cjs');
+const timer="setInterval(()=>{if(context.expiresAt<Date.now()+120000&&!contextRefreshPending){contextRefreshPending=true;postParent('dailylog-vault-context-refresh');}if(authorizationBlocked||document.hidden||Date.now()-lastRemoteRead<60000)return;lastRemoteRead=Date.now();if(key)refresh().catch(()=>{});else if(!pending&&!setup)request().then(remote=>{if(remote.revision!==record.revision){record=remote;ackEnvelope=remote.envelope;cache().then(publish).catch(()=>{});}}).catch(()=>{});},60000);";
+const original=[timer,"window.addEventListener('online',()=>{if(key){if(pending)flush();else refresh();}});","const readLatest=()=>{if(key&&!document.hidden)refresh().catch(()=>{});};\n  document.addEventListener('visibilitychange',readLatest);window.addEventListener('focus',readLatest);",'publish();if(pending)schedule();else await refresh();return;','if(error.status===409)await refresh(true);','const remote=await request();'].join('\n');
+const vault=patchPrivateClient(original);
+assert(!vault.includes('lastRemoteRead<60000'));assert(!vault.includes("addEventListener('focus',readLatest)"));
+assert(vault.includes('if(key&&pending)flush()'));assert(vault.includes('if(error.status===409)await refresh(true)'));assert(vault.includes('const remote=await request()'));assert(vault.includes('dailylog-vault-context-refresh'));
+assert.throws(()=>patchPrivateClient(original.replace(timer,'')),/differs/);
+const journal=patchJournal('original journal');assert(journal.includes('dailylogApplyWorkspace'));
+const index=patchIndex("$('#personalWorkspace').innerHTML=`<div class=\"personal-toolbar\">test`;\n if($('#habitMonth'))");assert(index.includes('window.dailylogApplyWorkspace('));
+const calendar=["async function loadCalendarEvents(force=false){await Promise.all([loadPersonalCalendarEvents(force),...unitCalendars().map(unit=>loadUnitCalendarEvents(force,unit.id))]);}","connected?calendarEventsHtml(state.loadedKey===key?state.events:[]):","calendarState.error&&!prefs.demo?calendarErrorHtml():calendarEventsHtml(events,mobile,prefs.demo).replace","$('#calendarEventDialog').close();calendarState.loadedKey='';const refresh=loadCalendarEvents(true);render();await refresh;toast("].join('\n');
+const revised=patchCalendar(calendar);assert(revised.includes('dailylogAutoCalendarAttempted'));assert(revised.includes('按「更新行程」'));assert(!revised.includes('const refresh=loadCalendarEvents(true)'));
+console.log('Stable upper panel, explicit calendar reads, and private conflict recovery checks passed.');

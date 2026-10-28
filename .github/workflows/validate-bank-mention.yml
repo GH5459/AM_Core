@@ -304,6 +304,8 @@ jobs:
       - run: node --test tools/test-meeting-calendar-speed.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.08
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.07
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.98
+      - run: node tools/test-dailylog-stable-upper.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.06
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.04
       - run: node tools/test-dailylog-meeting-service.mjs
