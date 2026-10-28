@@ -59,11 +59,21 @@ class EventBridge {
         await this.call('event-fail',{...checkInput,operationId:'repeat-stopped-'+job.id},rel+'/repeat-stop.input.private.json');return;
       }
       const checkFile=this.save(rel+'/check.input.private.json',checkInput);
-      await this.call('event-check',checkInput);
+      const initialChecked=await this.call('event-check',checkInput);
       const active={id:job.id,lease:job.lease,phase:'checking-tools',failureOperation:'event-failure-'+crypto.randomUUID()};
       this.save('bridge-active.private.json',active);
+      let preflightRoute;
       if(this.config.toolContextFile){
-        try{this.toolContext=JSON.parse(fs.readFileSync(this.config.toolContextFile));const health=await this.checkTools(this.toolContext);this.save(rel+'/tools-preflight.private.json',health);}
+        try{
+          this.toolContext=JSON.parse(fs.readFileSync(this.config.toolContextFile));
+          let workRoot;
+          if(this.config.visibleChatsFile){
+            const routes=JSON.parse(fs.readFileSync(this.config.visibleChatsFile));
+            preflightRoute=require('./xiaoye-visible-chats.cjs').selectRoute(routes,initialChecked);
+            workRoot=preflightRoute.workRoot;
+          }
+          const health=await this.checkTools(this.toolContext,{workRoot});this.save(rel+'/tools-preflight.private.json',health);
+        }
         catch(e){
           const labels={git_unavailable:'Git工具無法使用',github_unavailable:'GitHub連線或授權無法使用',desktop_unavailable:'Codex桌面連線無法使用',pr_unavailable:'聊天附加PR工具無法使用',ci_unavailable:'自動測試查核工具無法使用',owner_chat_unavailable:'無法核對原聊天'};
           const label=labels[e.code]||'背景工具檢查未通過';
@@ -81,6 +91,7 @@ class EventBridge {
         const client=await (this.visibleClientFactory?this.visibleClientFactory(context):new DesktopMcp(context)).connect();
         try {
           const checked=await this.call('event-check',checkInput);
+          if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
           const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認本版本人核准且claim取得有效lease的execute才可修改，所有副作用前再次event-check及check；失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};

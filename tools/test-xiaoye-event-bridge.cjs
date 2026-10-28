@@ -33,7 +33,7 @@ test('visible analysis continues when CI is unavailable and reports the specific
  const routes={desktopContextFile:path.join(f.dir,'desktop.json'),routes:keys.map(key=>({key,serviceProjectId:'p-'+key,threadId:'t-'+key,hostId:'local',workRoot:f.dir}))};
  fs.writeFileSync(routes.desktopContextFile,'{}');f.bridge.config.visibleChatsFile=path.join(f.dir,'routes.json');fs.writeFileSync(f.bridge.config.visibleChatsFile,JSON.stringify(routes));
  f.bridge.config.toolContextFile=path.join(f.dir,'tools.json');fs.writeFileSync(f.bridge.config.toolContextFile,'{}');
- f.bridge.checkTools=async()=>{throw Object.assign(Error('offline'),{code:'ci_unavailable'});};
+ f.bridge.checkTools=async(_context,options)=>{assert.equal(options.workRoot,f.dir);throw Object.assign(Error('offline'),{code:'ci_unavailable'});};
  f.bridge.visibleClientFactory=()=>({async connect(){return this;},async call(name,input){calls.push({name,input});if(name==='wait_threads')return {polls:[{thread:{id:'t-dailylog',status:{type:'idle'}},latestTurn:{id:++waits===1?'old':'new',status:'completed'}}]};if(name==='read_thread')return {thread:{id:'t-dailylog',hostId:'local',cwd:f.dir}};if(name==='send_message_to_thread')return {threadId:'t-dailylog'};throw Error('unexpected');},close(){}});
  f.bridge.pending.add(id);await f.bridge.drain();
  const send=calls.find(c=>c.name==='send_message_to_thread');assert.match(send.input.prompt,/自動測試查核工具無法使用/);assert.match(send.input.prompt,/不准改程式或業務資料/);assert(actions.includes('event-complete'));assert(!actions.includes('event-fail'));f.bridge.stop();
@@ -43,4 +43,13 @@ test('execute remains stopped with the specific unavailable tool',async()=>{
  const calls=[];const f=fixture(async(url,opts)=>{const action=new URL(url).pathname.split('/').at(-1);calls.push({action,input:JSON.parse(opts.body)});return reply(action==='event-acquire'?{job:{id,lease,kind:'execute'}}:action==='event-fail'?{state:'failed'}:{job:{id,lease,kind:'execute'}});});
  f.bridge.config.toolContextFile=path.join(f.dir,'tools.json');fs.writeFileSync(f.bridge.config.toolContextFile,'{}');f.bridge.checkTools=async()=>{throw Object.assign(Error('offline'),{code:'ci_unavailable'});};
  f.bridge.pending.add(id);await f.bridge.drain();assert.match(calls.find(c=>c.action==='event-fail').input.reason,/自動測試查核工具/);f.bridge.stop();
+});
+
+test('project changes after tool checks stop dispatch instead of using the wrong project',async()=>{
+ const keys=['am','dailylog','uof','meeting','hozo'];let checks=0,sends=0;const job={id,lease,kind:'execute',taskId:'case'};
+ const f=fixture(async url=>{const action=new URL(url).pathname.split('/').at(-1);if(action==='event-acquire')return reply({job});if(action==='event-check')return reply({job,task:{id:'case',primaryParentId:++checks===1?'p-dailylog':'p-meeting',secretary:{}},projects:keys.map(key=>({key,id:'p-'+key}))});return reply({state:'failed'});});
+ const routes={desktopContextFile:path.join(f.dir,'desktop.json'),routes:keys.map(key=>({key,id:'project-'+key,serviceProjectId:'p-'+key,threadId:'t-'+key,hostId:'local',workRoot:path.join(f.dir,key)}))};
+ fs.writeFileSync(routes.desktopContextFile,'{}');f.bridge.config.visibleChatsFile=path.join(f.dir,'routes.json');fs.writeFileSync(f.bridge.config.visibleChatsFile,JSON.stringify(routes));f.bridge.config.toolContextFile=path.join(f.dir,'tools.json');fs.writeFileSync(f.bridge.config.toolContextFile,'{}');f.bridge.checkTools=async(_c,opts)=>{assert.equal(opts.workRoot,path.join(f.dir,'dailylog'));return {ok:true};};
+ f.bridge.visibleClientFactory=()=>({async connect(){return this;},async call(){sends++;},close(){}});
+ f.bridge.pending.add(id);await f.bridge.drain();assert.equal(sends,0);assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'finished');f.bridge.stop();
 });

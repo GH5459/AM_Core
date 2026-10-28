@@ -14,9 +14,12 @@ async function clients(context){let a,r;try{context=currentContext(context);a=aw
 async function guard(context,eventFile){if(!eventFile)throw Error('附加PR前缺少案件執行資格。');const event=JSON.parse(fs.readFileSync(eventFile)),folder=context.operatorDirectory,cfg=JSON.parse(fs.readFileSync(folder+'/wrangler.json')),credential=JSON.parse(fs.readFileSync(folder+'/runner.private.json'));const call=async(action,v)=>{const r=await fetch(new URL('/api/integrations/leaf-snail/tasks/secretary/runner/'+action,cfg.vars.PUBLIC_ORIGIN),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+credential.key,'Content-Type':'application/json'},body:JSON.stringify({tenantKey:cfg.vars.LEAF_TASK_TENANT,...v}),signal:AbortSignal.timeout(30000)});const j=await r.json();if(!r.ok||!j.ok)throw Error('案件核准或執行資格已失效。');return j;};const current=await call('event-check',event);if(current.job?.kind!=='execute'||current.task?.secretary?.stage!=='executing')throw Error('只有本人已核准且已領取的案件可附加PR。');await call('check',{id:current.task.id,lease:current.task.secretary.lease});}
 function validate(name,args){if(name==='attach_artifact'&&(!/^https:\/\/github\.com\/GH5459\/AM_Core\/pull\/[1-9][0-9]*$/.test(args.url||'')||args.artifact_type!=='pull_request'))throw Error('目前背景PR工具僅允許原AM_Core儲存庫。');if(name==='pull_requests_checks'&&(args.pullRequest?.hostname!=='github.com'||args.pullRequest?.owner!=='GH5459'||args.pullRequest?.repository!=='AM_Core'))throw Error('CI查核僅允許原AM_Core儲存庫。');if(!['attach_artifact','list_artifacts','pull_requests_checks'].includes(name))throw Error('此工具未開放。');}
 function toolError(code,message,cause){return Object.assign(Error(message),{code,cause});}
-async function preflight(context){let c;try{
- for(const [file,args,code,message] of [[context.gitExecutable,['--version'],'git_unavailable','Git工具無法使用。'],[context.ghExecutable,['repo','view','GH5459/AM_Core','--json','nameWithOwner'],'github_unavailable','GitHub連線或授權無法使用。']]){
-  const r=cp.spawnSync(file,args,{encoding:'utf8',windowsHide:true,timeout:20000,env:{...process.env,PATH:[path.dirname(context.gitExecutable),process.env.PATH||''].join(path.delimiter)}});if(r.status!==0)throw toolError(code,message);
+async function preflight(context,{workRoot}={}){let c;try{
+ const checks=[[context.gitExecutable,['--version'],'git_unavailable','Git工具無法使用。']];
+ if(workRoot)checks.push([context.gitExecutable,['-C',workRoot,'rev-parse','--show-toplevel'],'git_unavailable','案件專案的Git資料夾無法讀取。']);
+ checks.push([context.ghExecutable,workRoot?['repo','view','--json','nameWithOwner']:['repo','view','GH5459/AM_Core','--json','nameWithOwner'],'github_unavailable','案件專案的GitHub連線或授權無法使用。']);
+ for(const [file,args,code,message] of checks){
+  const r=cp.spawnSync(file,args,{cwd:workRoot||undefined,encoding:'utf8',windowsHide:true,timeout:20000,env:{...process.env,PATH:[path.dirname(context.gitExecutable),process.env.PATH||''].join(path.delimiter)}});if(r.status!==0)throw toolError(code,message);
  }
  try{c=await clients(context);}catch(first){
   // Only reconnect the read-only tool discovery; never retry a dispatched action.
