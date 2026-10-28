@@ -51,7 +51,7 @@ for(const origin of ['https://meeting.example.test','https://management.example.
 assert.equal((await call('/meetings/review/hub/api',{action:'list'},'','https://other.example')).status,403);
 platform.loginContinuationActor=async()=>null;assert.equal((await call('/meetings/review/hub/api',{action:'list'},'')).status,401);
 platform.syncMeetingCalendar=originalCalendar;
-const list=await hub({action:'list'});assert(list.items.some(x=>x.id===id));assert(list.items.some(x=>x.id===imported.id));assert(!JSON.stringify(list).includes('僅為議程'));assert.equal((await call('/meetings/review/hub/api',{action:'list'},'host','https://other.example')).status,403);
+const list=await hub({action:'list'});assert(list.items.some(x=>x.id===id));assert.deepEqual(list.items.find(x=>x.id===imported.id).calendarSource,{calendarId:'fixture-calendar',eventId:'instance-one'});assert(!JSON.stringify(list).includes('fixture@example.test'));assert(!JSON.stringify(list).includes('僅為議程'));const guestList=await call('/meetings/review/hub/api',{action:'list'},'guest');assert.equal(guestList.status,200);assert(!JSON.stringify(guestList).includes('instance-one'),'Another viewer never receives the host personal Calendar reference');assert.equal((await call('/meetings/review/hub/api',{action:'list'},'host','https://other.example')).status,403);
 if(!process.env.MEETING_HUB_PREVIEW){globalThis.fetch=priorFetch;await pg.close();}console.log('Meeting hub: no-audio creation, operation replay/conflict, explicit participants/revocation, versioned preparation, separate recording and generation, resumable chunk integrity, one original Drive file, Calendar per-person reschedule/removal and private list minimization passed.');
 
 export const fixture={pg,service,platform,row,key,host,guest};
