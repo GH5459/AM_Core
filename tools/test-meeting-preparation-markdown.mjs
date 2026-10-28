@@ -19,6 +19,6 @@ window.render('一般文字\n第二行\n\n第三段',target);assert.equal(target
 window.render('',target);assert(target.textContent.includes('尚無會前資料'));
 const html=workspaceHtml({id:'synthetic'});const page=new JSDOM(html,{runScripts:'outside-only'});
 // Validate serialized scripts as shipped, including pinned parser and initializer.
-for(const script of page.window.document.querySelectorAll('script:not([src])'))new Function(script.textContent);
+for(const script of page.window.document.querySelectorAll('script:not([src]):not([type="application/json"])'))new Function(script.textContent);
 assert(html.includes('window.renderPreparationMarkdown='));assert(html.includes('#preparationPreview'));
 console.log('PASS: Markdown structure, nested lists, tables, task checks, plain text, unsafe markup, no external images, serialized page scripts.');
