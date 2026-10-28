@@ -6,16 +6,16 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),source=readFileSync(new URL('../versions/AM-IMP-2026.1028.06/hub-entry.js',import.meta.url),'utf8'),build=require('../versions/AM-IMP-2026.1028.06/build.cjs');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(api){
- const dom=new JSDOM('<section id="newPanel" hidden><h2>預排會議</h2><form id="form"><select id="source"><option value=""></option><option value="private">個人</option></select><input id="topic"><input id="start"><input id="end"><input id="location"><input id="calendar" type="checkbox"><button id="create">建立</button></form></section>');
+ const dom=new JSDOM('<button id="new">新增</button><section id="newPanel" hidden><h2>預排會議</h2><form id="form"><select id="source"><option value=""></option><option value="private">個人</option></select><input id="topic"><input id="start"><input id="end"><input id="location"><input id="calendar" type="checkbox"><button id="create">建立</button></form></section>');
  const w=dom.window,$=selector=>w.document.querySelector(selector),setup=async()=>{w.dailylogMeetingSources=[{kind:'user',key:'private'}];};
  const install=new Function('window','document','$','api','setup','calendarMode','crypto',`let calendarRef='',operationId='';${source};return ()=>calendarRef;`);const getRef=install(w,w.document,$,api,setup,()=>{},crypto);return {w,$,getRef};
 }
 test('the form appears immediately and stays visible while calendar verification waits',async()=>{
  let finish;const gate=new Promise(resolve=>{finish=resolve;}),events=[];const f=fixture(async v=>{events.push(v.action);return gate;});
  f.w.dailylogCalendarEntry({id:'event-1',date:'2026-10-29',topic:'示例會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00'});
- assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'示例會議');assert.equal(f.$('#create').disabled,true);assert.equal(f.$('#source').disabled,true);assert.equal(f.$('#form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true})),false);assert.deepEqual(events,['calendar-week']);
+ assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'示例會議');assert.equal(f.$('#create').disabled,true);assert.equal(f.$('#source').disabled,true);assert.equal(f.$('#new').disabled,true);assert.equal(f.$('#form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true})),false);assert.deepEqual(events,['calendar-week']);
  finish({items:[{id:'event-1',topic:'已核對會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00',calendarRef:'signed-ref'}]});await tick();
- assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'已核對會議');assert.equal(f.$('#create').disabled,false);assert.equal(f.$('#source').value,'private');assert.equal(f.getRef(),'signed-ref');assert.deepEqual(events,['calendar-week']);f.w.close();
+ assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'已核對會議');assert.equal(f.$('#create').disabled,false);assert.equal(f.$('#new').disabled,false);assert.equal(f.$('#source').value,'private');assert.equal(f.getRef(),'signed-ref');assert.deepEqual(events,['calendar-week']);f.w.close();
 });
 test('missing or unavailable calendar event leaves the form open and provides a safe retry',async()=>{
  let calls=0;const f=fixture(async()=>{calls++;return calls===1?{items:[]}:{items:[{id:'e',topic:'活動',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00',calendarRef:'signed'}]};});
