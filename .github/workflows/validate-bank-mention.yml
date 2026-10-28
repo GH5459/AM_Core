@@ -243,6 +243,7 @@ jobs:
       - run: node --test tools/test-xiaoye-case-chat-registry.cjs tools/test-xiaoye-case-events.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.14
       - run: node --check tools/xiaoye-runtime-tools.cjs
+      - run: node --test tools/test-xiaoye-runner-retry.cjs
       - run: node --check tools/test-xiaoye-auto-worker.cjs
       - run: node --check tools/test-xiaoye-auto-end-to-end.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.17
