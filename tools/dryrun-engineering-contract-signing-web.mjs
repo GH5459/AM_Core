@@ -309,6 +309,13 @@ const jsonHeaders = { 'content-type': 'application/json' };
   await vm.runInContext('initialize()', context);
   assert.equal(opened, undefined, 'missing token must not open a contract');
   assert.match(lastMessage, /簽署連結不完整/);
+  assert.match(lastMessage, /診斷代碼 A/);
+
+  location.search = '?code=fixture';
+  await vm.runInContext('initialize()', context);
+  assert.equal(opened, undefined, 'missing token after LINE return must not open a contract');
+  assert.match(lastMessage, /診斷代碼 B/);
+  assert.doesNotMatch(lastMessage, /fixture/);
 }
 
 // GET serves a no-store, nonce-protected page. HEAD exposes the same headers
