@@ -1,0 +1,62 @@
+{
+  "package": "AM-IMP-2026.1028.06",
+  "status": "Installed / Deployed",
+  "at": "2026-10-28T05:26:13.086Z",
+  "source": "fe30647aaaaf3c088dfde958376e115ffcb9fa11",
+  "pullRequest": 493,
+  "ci": {
+    "run": 40637184495,
+    "steps": 226,
+    "allPassed": true
+  },
+  "dailylog": {
+    "previous": "7b47f1e5-5c64-4795-b0b6-5d8a2dec7ac4",
+    "version": "6d7dac10-d02b-4856-8117-d93f5462964f",
+    "percentage": 100,
+    "modules": 89,
+    "changed": [
+      "worker.mjs"
+    ],
+    "unchanged": 88,
+    "settingsAssetsSecretsBindingsSchedulesAndMetricsPreserved": true
+  },
+  "preservation": {
+    "originalTasks": 464,
+    "currentTasks": 465,
+    "missingTasks": 0,
+    "concurrentTaskChanges": 2,
+    "taskRevisionsNondecreasing": true,
+    "meetings": 35,
+    "meetingBusinessRowChanges": 0,
+    "identitySettings": 40,
+    "identitySettingsChanges": 0,
+    "attachments": 64,
+    "chunks": 110,
+    "restoredOldSnapshots": false
+  },
+  "feature": {
+    "calendarFormImmediatelyVisible": true,
+    "backgroundVerification": true,
+    "explicitSubmission": true,
+    "oldCalendarDedup": true,
+    "safeRetry": true,
+    "lateResponsesIgnored": true,
+    "ambiguousSourceRequiresChoice": true,
+    "existingCompactMeetingPreserved": true
+  },
+  "tests": {
+    "realWorkerD1": true,
+    "originalPostgresMeetingService": true,
+    "widths": [
+      320,
+      390,
+      768,
+      1280
+    ],
+    "delayedMeetingAndCalendar": true,
+    "creationAndRetrySynthetic": true,
+    "attachmentRegressionChecks": 10,
+    "realUserPhoneAcceptance": false
+  },
+  "productionBusinessTestWrites": false
+}
