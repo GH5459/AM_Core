@@ -111,7 +111,7 @@ class EventBridge {
       this.save(rel+'/completion.private.json',result);
       this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
     } catch(e) {
-      const rejected=[401,403,409].includes(e.status),reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
+      const rejected=[401,403,409].includes(e.status),confirmation=e.code==='confirmation_required',reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):confirmation?'案件聊天搬到所屬專案時，需要先確認資料夾存取權限。':'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':confirmation?'請在 Codex 側欄將原案件聊天移到所屬專案並完成確認，再沿原案件重新查核；原聊天和案件紀錄保留。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
       this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,action:e.action||null,reason:rejected?reason:null,message:'Event stopped; original state and evidence retained.'});
       const activePath=path.join(this.folder,'bridge-active.private.json');
       if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason,nextStep}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
