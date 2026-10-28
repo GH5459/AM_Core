@@ -2,6 +2,7 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1028.14/**'
       - 'versions/AM-IMP-2026.1028.13/**'
       - 'tools/test-meeting-entry-performance.mjs'
       - 'versions/AM-IMP-2026.1027.82/**'
@@ -239,6 +240,7 @@ jobs:
       - run: node --check tools/xiaoye-visible-chats.cjs
       - run: node --test tools/test-xiaoye-visible-chats.cjs
       - run: node --test tools/test-xiaoye-case-chat-registry.cjs tools/test-xiaoye-case-events.cjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.14
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.60
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.50
       - run: npm run check
