@@ -72,6 +72,8 @@ Use this table to control whether each shared improvement should stay as-is, be 
 
 ## AM Platform／DailyLog 正式發布
 
+2026-10-28：AM-IMP-2026.1027.90 已 Installed／Deployed，取代下段候選狀態。PR483最新ec7b0506完整CI40612509087／217步、合併d3c06c2d；AM兩origin／Render Live，DailyLog90ea7f81完整89模組精確回讀，原資料與最新附件改善保持。
+
 AM-IMP-2026.1027.90 工作日誌會議分頁為 Ready（本機候選），尚未正式發布；不要將此候選列為 Deployed。詳 `docs/upgrades/dailylog-meetings-tab-20261027.md`。
 
 | Version | Status | Scope | Verified | Notes |

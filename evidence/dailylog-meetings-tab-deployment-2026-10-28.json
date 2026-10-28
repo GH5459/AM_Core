@@ -1,0 +1,15 @@
+{
+ "date":"2026-10-28",
+ "package":"AM-IMP-2026.1027.90",
+ "status":"Deployed",
+ "pullRequest":"https://github.com/GH5459/AM_Core/pull/483",
+ "testedSource":"ec7b0506e377ebb2b3437b551e10b1220d70db7d",
+ "mergeCommit":"d3c06c2db2aed4cc6493548afa6c20dd1fb6d75d",
+ "ci":{"run":40612509087,"steps":217,"passed":true,"testedAndMergedTreesEqual":true},
+ "am":{"bothOriginsVerified":true,"exactHubAndWorkspaceClient":true,"invalidSignatureRejected":true,"renderLiveSeconds":41.2},
+ "dailylog":{"previousVersion":"f64335f2-6388-4edb-a389-16c9a92ce62a","version":"90ea7f81-f323-49d5-841e-90ea42876cdd","trafficPercent":100,"modules":89,"unchangedOriginalModules":87,"latestAttachmentSavePreserved":true,"assetsSettingsSecretsBindingsSchedulesPreserved":true,"exactModuleReadback":true},
+ "preservation":{"originalTasks":452,"changedOriginalTasks":0,"identitySettings":40,"changedIdentitySettings":0,"originalAttachments":64,"originalChunks":110,"meetings":32,"meetingTables":23,"changedMeetingBusinessRows":0,"naturalOriginalRetryUpdates":14,"retryFields":["next_attempt_at","updated_at","result.lastFailure"],"oldSnapshotsRestored":false},
+ "verification":{"completeWorkerD1":true,"originalPostgresMeetingFlow":true,"oneClickPrivateSourceFiling":true,"tabSwitchKeepsUnsavedDraft":true,"fourTabsSameRow":true,"latestAttachmentSaveRetryAndLostResponse":true,"widths":[320,360,390,430,768,1280],"anonymousBoundaries":true},
+ "boundaries":{"realUserLoginPerformed":false,"realBusinessTestWrites":false,"googleCalendarTestWrites":false,"lineMessagesSent":false,"identityOrPermissionChanges":false,"uofRedeployed":false,"heartbeatChanged":false,"realUserMobileAcceptanceClaimed":false},
+ "privateEvidence":"C:/Users/seven/.codex/private/dailylog-meetings-tab-20261027/release-20261028/"
+}
