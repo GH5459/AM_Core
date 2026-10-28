@@ -3,6 +3,7 @@ window.dailylogCalendarEntry=function(entry){
  form.addEventListener('submit',event=>{if(!verified){event.preventDefault();event.stopImmediatePropagation();}},true);
  panel.hidden=false;button.disabled=true;button.textContent='建立會議工作頁（不新增日曆行程）';
  const notice=document.createElement('p');notice.setAttribute('role','status');const retry=document.createElement('button');retry.type='button';retry.textContent='重新核對行程';retry.hidden=true;panel.querySelector('h2').after(notice,retry);
+ const originalNew=newButton.onclick;newButton.onclick=function(event){notice.remove();retry.remove();verified=true;originalNew?.call(this,event);};
  const local=value=>{const parsed=Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(value||'')?value+'T00:00:00+08:00':value);return Number.isFinite(parsed)?new Date(parsed+8*3600000).toISOString().slice(0,16):'';};
  function fill(event){$('#topic').value=event.topic||'';$('#start').value=local(event.start);$('#end').value=local(event.end);$('#location').value=event.location||'';}
  fill(entry);$('#calendar').checked=false;

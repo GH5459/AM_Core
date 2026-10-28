@@ -15,7 +15,7 @@ test('the form appears immediately and stays visible while calendar verification
  f.w.dailylogCalendarEntry({id:'event-1',date:'2026-10-29',topic:'示例會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00'});
  assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'示例會議');assert.equal(f.$('#create').disabled,true);assert.equal(f.$('#source').disabled,true);assert.equal(f.$('#new').disabled,true);assert.equal(f.$('#form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true})),false);assert.deepEqual(events,['calendar-week']);
  finish({items:[{id:'event-1',topic:'已核對會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00',calendarRef:'signed-ref'}]});await tick();
- assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'已核對會議');assert.equal(f.$('#create').disabled,false);assert.equal(f.$('#new').disabled,false);assert.equal(f.$('#source').value,'private');assert.equal(f.getRef(),'signed-ref');assert.deepEqual(events,['calendar-week']);f.w.close();
+ assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'已核對會議');assert.equal(f.$('#create').disabled,false);assert.equal(f.$('#new').disabled,false);assert.equal(f.$('#source').value,'private');assert.equal(f.getRef(),'signed-ref');assert.deepEqual(events,['calendar-week']);f.$('#new').click();assert.equal(f.$('[role=status]'),null);f.w.close();
 });
 test('missing or unavailable calendar event leaves the form open and provides a safe retry',async()=>{
  let calls=0;const f=fixture(async()=>{calls++;return calls===1?{items:[]}:{items:[{id:'e',topic:'活動',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00',calendarRef:'signed'}]};});
