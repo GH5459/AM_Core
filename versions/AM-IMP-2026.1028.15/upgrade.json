@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1028.15",
+  "name": "Contract signing LIFF initialization",
+  "type": "AM Platform / contracts / signing authentication",
+  "portable": true,
+  "status": "Proposed",
+  "createdAt": "2026-10-28",
+  "dependsOn": ["AM-IMP-2026.0902.10"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": ["Retain direct fragments without changing the URL before LIFF initialization", "Read restored fragments after LIFF initialization"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-signing-web.mjs", "tools/dryrun-engineering-contract-signing.mjs", "tools/dryrun-engineering-contract-runtime.mjs", "tools/dryrun-engineering-contract-security-gates.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false, "guard": "Keep signing tokens out of query strings, logs, response bodies and external redirects."},
+  "definitionOfDone": ["LIFF-restored fragments and direct fragments survive simulated initialization", "Existing signer and group checks remain in force", "Affected Android device opens the original invitation without submitting a signature"],
+  "files": ["modules/construction/contract-signing-web.js", "tools/dryrun-engineering-contract-signing-web.mjs"]
+}

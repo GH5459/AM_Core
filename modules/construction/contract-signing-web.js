@@ -423,11 +423,17 @@ function openInExternalBrowser(){
   show('目前已在外部瀏覽器中。','ok');
 }
 async function initialize() {
+  if(!LIFF_ID){ show('LIFF 尚未設定，請聯繫工程 AM 管理員。','error'); return; }
+  // Keep a directly opened fragment across an SDK-triggered navigation, but
+  // leave the URL untouched until LIFF has completed its initialization.
+  const initialToken=new URLSearchParams(location.hash.replace(/^#/, '')).get('token') || '';
+  if(initialToken){sessionStorage.setItem(TOKEN_STORAGE_KEY,initialToken);sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);}
+  show('正在驗證 LINE 身分…');
+  // LIFF may still be restoring the URL (including its fragment) from
+  // liff.state. Do not inspect or rewrite it before initialization finishes.
+  await liff.init({liffId:LIFF_ID});
   state.token=readFragmentToken();
   if(!state.token){ show('簽署連結不完整，請回到工程 LINE 群組重新開啟。','error'); return; }
-  if(!LIFF_ID){ show('LIFF 尚未設定，請聯繫工程 AM 管理員。','error'); return; }
-  show('正在驗證 LINE 身分…');
-  await liff.init({liffId:LIFF_ID});
   if(!liff.isLoggedIn()) {
     if(sessionStorage.getItem(LOGIN_ATTEMPT_KEY)==='1') {
       byId('contract-state').textContent='LINE 登入沒有完成，系統已停止自動重新登入。請關閉此頁，再從原工程 LINE 群組的合約訊息重新開啟。';
