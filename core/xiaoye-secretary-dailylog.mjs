@@ -4,7 +4,7 @@ import {proposalCard,proposalText,validPlanSummary} from './xiaoye-proposal-card
 import {eventCall,eventStub,prepareXiaoyeEvent} from './xiaoye-secretary-events.mjs';
 import {ownerRequest,verifyLineApproval,ownerDraftActive,noOwnerDraftSql} from './xiaoye-owner-actions.mjs';
 import {inspectionRunner,inspectionFetch} from './xiaoye-inspection.mjs';
-import {resultCard,resultText,completionExplanation} from './xiaoye-result-card.mjs';
+import {resultCard,resultText,completionExplanation,questionCard} from './xiaoye-result-card.mjs';
 import {resultRequest} from './xiaoye-result-actions.mjs';
 import {restartAnalysis,recoveryDetails,recoveryCard,recoveryNextStep} from './xiaoye-recovery.mjs';
 export const XIAOYE_CONTRACT='xiaoye-secretary-pilot-v1';
@@ -22,7 +22,7 @@ async function body(request,max=16*1024*1024){const reader=request.body?.getRead
 const docsInsert=(db,ns,key,value)=>db.prepare('INSERT INTO documents(namespace,key,value,revision) VALUES(?,?,?,1) ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value,revision=documents.revision+1').bind(ns,key,JSON.stringify(value));
 async function settings(env){const c=(await record(env.DB,configNs,'config'))?.value;if(!c?.enabled||c.contract!==XIAOYE_CONTRACT)throw Object.assign(fail('葉小蝸試行服務尚未開啟。',503),{code:'SECRETARY_DISABLED'});const a=(await record(env.DB,'service-accounts',AI))?.value;if(!a?.active||a.type!=='ai'||a.id!==c.account.id)throw Object.assign(fail('葉小蝸帳號已暫停。',503),{code:'SECRETARY_DISABLED'});return c;}
 function visible(t,account,c){return t?.secretary&&[c.ownerAccount,...t.secretary.reporters.map(p=>p.account)].includes(account);}
-function view(t,account,c){if(!visible(t,account,c))throw fail('找不到可查看的問題。',404);const copy=structuredClone(t);copy.secretary.reporters=copy.secretary.reporters.map(({source,...p})=>p);if(copy.secretary.approval){delete copy.secretary.approval.sessionHash;delete copy.secretary.approval.source;delete copy.secretary.approval.eventOperation;}if(copy.secretary.ownerFeedback)copy.secretary.ownerFeedback=copy.secretary.ownerFeedback.map(({lineSources,...entry})=>entry);if(copy.secretary.approvalHistory)copy.secretary.approvalHistory=copy.secretary.approvalHistory.map(({sessionHash,source,eventOperation,...entry})=>entry);delete copy.secretary.lease;delete copy.secretary.leaseUntil;delete copy.secretary.executionEvent;return copy;}
+function view(t,account,c){if(!visible(t,account,c))throw fail('找不到可查看的問題。',404);const copy=structuredClone(t);copy.secretary.reporters=copy.secretary.reporters.map(({source,...p})=>p);if(account!==c.ownerAccount)delete copy.secretary.caseChat;if(copy.secretary.approval){delete copy.secretary.approval.sessionHash;delete copy.secretary.approval.source;delete copy.secretary.approval.eventOperation;}if(copy.secretary.ownerFeedback)copy.secretary.ownerFeedback=copy.secretary.ownerFeedback.map(({lineSources,...entry})=>entry);if(copy.secretary.approvalHistory)copy.secretary.approvalHistory=copy.secretary.approvalHistory.map(({sessionHash,source,eventOperation,...entry})=>entry);delete copy.secretary.lease;delete copy.secretary.leaseUntil;delete copy.secretary.executionEvent;return copy;}
 async function membership(env,c,projectId){if(!c.projects.some(p=>p.id===projectId))throw fail('請選擇試行專案。',400);const p=(await load(env.DB,projectId))?.task;if(!p||p.deletedAt||p.mergedInto||p.status==='cancelled'||!p.collaborators?.some(x=>x.account===AI))throw fail('專案或葉小蝸的參與資格已變更。');return p;}
 async function currentPerson(env,base,input){
  const request=new Request(env.PUBLIC_ORIGIN+'/api/integrations/leaf-snail/tasks/meeting-person',{method:'POST',headers:{Authorization:'Bearer '+env.LEAF_TASK_SERVICE_KEY,'Content-Type':'application/json'},body:JSON.stringify({tenantKey:env.LEAF_TASK_TENANT,account:input.account})});
@@ -61,6 +61,7 @@ async function transaction(env,old,next,op,input,actor,note,extra=[],guard='1',g
 function notification(env,t,account,kind,message,source=null,lineMessage=null){const s=t.secretary;const key=t.id+':'+kind+':'+s.sourceVersion+':'+(s.proposal?.hash||'')+':'+account;return docsInsert(env.DB,'xiaoye-notifications',key,{id:key,taskId:t.id,account,kind,message,...lineMessage?{lineMessage}:{},sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:source?.userId||null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()});}
 const entryVersion=s=>s.ownerFeedback?.at(-1)?.proposalVersion||s.proposalSequence||1;
 function retireProposal(s){if(s.approval){s.approvalHistory=[...(s.approvalHistory||[]),{...s.approval,retiredAt:new Date().toISOString()}];}if(s.proposal){s.proposalSequence=Math.max(s.proposalSequence||0,s.proposal.version);s.proposalHistory=[...(s.proposalHistory||[]),{...s.proposal,retiredAt:new Date().toISOString()}];}s.proposal=null;s.approval=null;s.lease=null;s.leaseUntil=0;s.recovery=null;s.recoveryRequested=false;}
+function retireResult(s){if(s.result){s.resultHistory=[...(s.resultHistory||[]),{...s.result,retiredAt:new Date().toISOString()}];s.result=null;}}
 const link=(env,id)=>externalBrowserUrl(new URL('/xiaoye?issue='+encodeURIComponent(id),env.PUBLIC_ORIGIN).href);
 function newIssue(env,c,actor,source,id,description,at){return {id,title:description.slice(0,100)||'待補充問題說明',description:description||'同仁已開啟問題回報，待補充說明或截圖。',requester:actor,lead:{account:AI,name:c.account.name,team:'AI 秘書'},collaborators:[],sharedWith:[],createdBy:{account:AI,name:c.account.name,team:'AI 秘書'},source:'dailylog',sourceDate:day(Date.now()),startDate:day(Date.now()),initialStartDate:day(Date.now()),dueDate:null,dueAt:null,createdAt:at,status:'pending',origin:'assigned',execution:'individual',notionAccounts:[...new Set([actor.account,c.ownerAccount])],level:1,kind:'task',workSchema:2,workSource:'assigned',priority:'normal',department:actor.team||'',departmentId:'',primaryParentId:null,relatedProjectIds:[],dependencyIds:[],finalResult:'',acceptance:'經核准完成處理後，由原回報人確認問題已解決。',helpRequest:'',projectFields:{},secretary:{stage:'clarifying',category:'unclassified',sourceVersion:0,reporters:[{...actor,source:{...source}}],sources:[],proposal:null,approval:null}};}
 async function reportSummary(env,c,actor){
@@ -136,6 +137,8 @@ async function intake(env,c,base,v){
  if(v.start&&!description&&!v.image)return {ok:true,handled:true,needsDescription:true};
  let t=old?structuredClone(old.task):newIssue(env,c,actor,source,id,description,at);
  if(old&&description)t.description=(t.description+'\n\n補充：'+description).slice(0,24000);
+ if(old)retireResult(t.secretary);
+ if(old&&(t.secretary.proposal||t.secretary.approval))retireProposal(t.secretary);
  t.secretary={...t.secretary,stage:'clarifying',waitingForReporter:false,sourceWithdrawn:v.resumeTaskId?!!t.secretary.sourceWithdrawn:false,sourceVersion:t.secretary.sourceVersion+1,proposal:null,approval:null,lease:null,leaseUntil:0};t.status='pending';t.secretary.sources.push({...source,text:description});
  if(t.secretary.sources.length>300)throw fail('此問題的補充已達上限，請由管理者接續。');
  if(t.title==='待補充問題說明'&&description)t.title=description.slice(0,100);
@@ -194,17 +197,44 @@ async function runner(env,c,base,authority,action,v,preview){
  const old=await load(env.DB,v.id);if(!old?.task.secretary)throw fail('找不到問題。',404);const t=structuredClone(old.task),s=t.secretary,actor={account:AI,name:c.account.name,team:'AI 秘書'};
  if(action==='attachments')return {ok:true,attachments:(await env.DB.prepare("SELECT id,name,mime,size,digest FROM task_attachments WHERE scope='normal' AND target_id=? AND removed_at IS NULL ORDER BY created_at LIMIT 20").bind(t.id).all()).results};
  const image=action.match(/^attachment\/(att-[a-f0-9-]{36})$/);if(image){const file=await env.DB.prepare("SELECT id,mime,size FROM task_attachments WHERE scope='normal' AND target_id=? AND id=? AND removed_at IS NULL").bind(t.id,image[1]).first();if(!file||!['image/png','image/jpeg','image/webp'].includes(file.mime)||file.size>10*1024*1024)throw fail('找不到可查看的問題截圖。',404);const chunks=(await env.DB.prepare('SELECT content FROM task_attachment_chunks WHERE attachment_id=? ORDER BY part').bind(file.id).all()).results,bytes=new Uint8Array(file.size);let offset=0;for(const part of chunks){const b=new Uint8Array(part.content);bytes.set(b,offset);offset+=b.length;}if(offset!==file.size)throw fail('截圖尚未完整保存。',503);return new Response(bytes,{headers:{'Content-Type':file.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
- if(['propose','clarify','finish','fail'].includes(action)){const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};}
- if(env.XIAOYE_EVENTS&&['propose','clarify','claim','check','finish','fail'].includes(action)){
+ if(['propose','clarify','answer','finish','fail'].includes(action)){const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};}
+ if(action==='bind-chat'){
+  const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};
+  if(!env.XIAOYE_EVENTS||v.version!==t.version||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.threadId||'')||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.projectId||'')||v.hostId!=='local')throw fail('案件聊天資料或版本無效。',400);
+  const event=await eventCall(env,'check',{id:v.eventId,lease:v.eventLease});
+  if(!event.ok)throw fail('事件已變更或失效，請停止處理。',403);
+  const checked=(await event.json()).job;
+  if(checked.taskId!==t.id||checked.sourceVersion!==s.sourceVersion)throw fail('事件與案件不符。',403);
+  if(s.caseChat&&s.caseChat.threadId!==v.threadId)throw fail('案件已有指定聊天，不能建立另一個。');
+  if(s.stage==='awaiting_confirmation'&&s.result){const prior=s.findingResultReceipt;s.findingResultReceipt={fromVersion:prior?.throughVersion===t.version?prior.fromVersion:t.version,throughVersion:t.version+1};}
+  s.caseChat={threadId:v.threadId,projectId:v.projectId,hostId:'local'};
+  const caseUrl=link(env,t.id),links=Array.isArray(t.resultLinks)?t.resultLinks:[];
+  if(!links.some(item=>(typeof item==='string'?item:item?.url)===caseUrl)){
+   if(links.length>=20)throw fail('任務連結已滿，請先保留空間再連結案件聊天。');
+   t.resultLinks=[...links,{label:'案件處理詳情',url:caseUrl}];
+  }
+  return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已連結此案件的 Codex 聊天。')};
+ }
+ if(env.XIAOYE_EVENTS&&['propose','clarify','answer','claim','check','finish','fail'].includes(action)){
   const execution=s.executionEvent||{},id=v.eventId||execution.id,lease=v.eventLease||execution.lease;
   const r=await eventCall(env,'check',{id,lease});if(!r.ok)throw fail('事件已變更或失效，請停止處理。',403);const e=(await r.json()).job;
-  if(e.taskId!==t.id||e.sourceVersion!==s.sourceVersion||(['claim','check','finish','fail'].includes(action)&&e.kind!=='execute')||(['propose','clarify'].includes(action)&&e.kind!=='analyze'))throw fail('事件與案件或核准範圍不符。',403);
+  if(e.taskId!==t.id||e.sourceVersion!==s.sourceVersion||(['claim','check','finish','fail'].includes(action)&&e.kind!=='execute')||(['propose','clarify','answer'].includes(action)&&e.kind!=='analyze'))throw fail('事件與案件或核准範圍不符。',403);
   if(action==='claim')s.executionEvent={id,lease};
  }
  if(action==='clarify'){
   if(v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter)throw fail('此問題已有更新或正在等待同仁補充。');const question=text(v.question,2000);s.waitingForReporter=true;s.question=question;
-  const extra=s.reporters.map(p=>notification(env,t,p.account,'question','葉小蝸想釐清：'+t.title+'\n'+question+'\n請從原問題頁補充，會接續同一張卡：\n'+link(env,t.id),p.source));
+  const extra=s.reporters.map(p=>notification(env,t,p.account,'question','葉小蝸想釐清：'+t.title+'\n'+question+'\n請按「回覆這個問題」後直接傳文字或照片。',p.source,questionCard({...t,version:t.version+1},question)));
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'向原回報人釐清：'+question,extra)};
+ }
+ if(action==='answer'){
+  if(!env.XIAOYE_EVENTS||v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter||s.sourceWithdrawn)throw fail('此問題已有更新或等待同仁補充。');
+  await membership(env,c,v.projectId);
+  if(!Array.isArray(v.evidence)||!v.evidence.length||v.evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>2000))throw fail('請附上這次說明的查核依據。',400);
+  if(v.title!==undefined)t.title=text(v.title,100);
+  const result=text(v.result,12000);s.category='help';t.primaryParentId=v.projectId;
+  s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:false,kind:'guidance',at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
+  const extras=s.reporters.map(p=>notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
+  return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已提供查核後的操作說明，等待原回報人確認。',extras)};
  }
  if(action==='propose'){
   if(v.version!==t.version)throw fail('問題已有補充，請重新檢查。');if(s.sourceWithdrawn)throw fail('原來源已撤回，請等待同仁重新補充。');if(s.waitingForReporter)throw fail('正在等待原同仁補充，請先保留問題。');if(['executing','awaiting_confirmation','closed','duplicate'].includes(s.stage))throw fail('請先停止或重新開啟原工作。');
@@ -341,7 +371,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx,
    const detail=text(v.detail||(images.length?(reopening?'仍有問題，補充圖片':'補充圖片'):''),4000),at=new Date().toISOString();
    const source={type:'web',account:a.account,eventId:v.operationId,at,text:detail,attachmentIds:[]};
    for(const [index,image]of images.entries()){const id='att-'+uuidFrom(await digest(t.id+':'+v.operationId+':'+index));source.attachmentIds.push(id);extras.push(env.DB.prepare('INSERT INTO task_attachments(id,scope,target_id,name,mime,size,digest,actor,actor_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id,'normal',t.id,image.name,image.mime,image.bytes.length,await digest(image.bytes),actor.account,actor.name,at));for(let p=0,n=0;p<image.bytes.length;p+=262144,n++)extras.push(env.DB.prepare('INSERT INTO task_attachment_chunks(attachment_id,part,content) VALUES(?,?,?)').bind(id,n,image.bytes.slice(p,p+262144).buffer));}
-   t.description+='\n\n'+(reopening?'仍有問題：':'同仁補充：')+detail;s.sources.push(source);s.sourceVersion++;s.sourceWithdrawn=false;retireProposal(s);s.waitingForReporter=false;s.stage='clarifying';s.blocker='';t.status='pending';t.completedAt=null;
+   t.description+='\n\n'+(reopening?'仍有問題：':'同仁補充：')+detail;s.sources.push(source);s.sourceVersion++;s.sourceWithdrawn=false;retireResult(s);retireProposal(s);s.waitingForReporter=false;s.stage='clarifying';s.blocker='';t.status='pending';t.completedAt=null;
   }
   await a.verify();const saved=await transaction(env,old,t,v.operationId,{...v,action},actor,action==='resume'?'本人要求沿原卡重新查核；原執行資格停止，新方案仍須本人核准。':action==='feedback'?'收到主管對第 '+entryVersion(s)+' 版的建議，舊核准失效，等待整理新版。':action==='approve'?'本人已核准目前方案。':action==='pause'?'本人暫緩處理。':action==='confirm'?'原回報人確認問題已解決。':action==='supplement'?'收到原回報人的補充，接續原卡釐清。':'原回報人表示仍有問題，重新釐清。',extras,action==='approve'?noOwnerDraftSql:'1',action==='approve'?[t.id,Date.now()]:[]);
   return json({ok:true,task:view(saved,a.account,c)});

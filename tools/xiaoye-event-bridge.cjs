@@ -75,7 +75,16 @@ class EventBridge {
           const checked=await this.call('event-check',checkInput);
           const prompt=fs.readFileSync(this.config.promptFile,'utf8')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認本版本人核准且claim取得有效lease的execute才可修改，所有副作用前再次event-check及check；失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
-          await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:(file,v)=>this.save(rel+'/'+file,v),check:async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);}});
+          const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
+          const saveEvent=(file,v)=>this.save(rel+'/'+file,v);
+          if(routes.caseChatsDirectory){
+            const {runCaseEvent}=require('./xiaoye-case-events.cjs');
+            const caseUrl=new URL('/xiaoye',this.worker.vars.PUBLIC_ORIGIN);caseUrl.searchParams.set('issue',checked.task.id);
+            await runCaseEvent({client,config:routes,checked,prompt,caseUrl:caseUrl.href,clock:this.clock,save:saveEvent,check:eventCheck,bind:async({checked:latest,threadId,projectId,moved})=>{
+              const input={id:latest.task.id,version:latest.task.version,operationId:'bind-chat-'+job.id+(moved?'-move':''),eventId:job.id,eventLease:job.lease,threadId,projectId,hostId:'local'};
+              return this.call('bind-chat',input,rel+(moved?'/bind-chat-move.input.private.json':'/bind-chat.input.private.json'));
+            }});
+          }else await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:saveEvent,check:eventCheck});
           const result=await this.call('event-complete',{...checkInput,operationId:'event-complete-'+job.id},rel+'/event-complete.input.private.json');
           this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
         } finally {client.close();}
@@ -102,7 +111,7 @@ class EventBridge {
       this.save(rel+'/completion.private.json',result);
       this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
     } catch(e) {
-      const rejected=[401,403,409].includes(e.status),reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
+      const rejected=[401,403,409].includes(e.status),confirmation=e.code==='confirmation_required',reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):confirmation?'案件聊天搬到所屬專案時，需要先確認資料夾存取權限。':'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':confirmation?'請在 Codex 側欄將原案件聊天移到所屬專案並完成確認，再沿原案件重新查核；原聊天和案件紀錄保留。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
       this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,action:e.action||null,reason:rejected?reason:null,message:'Event stopped; original state and evidence retained.'});
       const activePath=path.join(this.folder,'bridge-active.private.json');
       if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason,nextStep}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}

@@ -1,18 +1,22 @@
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
-const unwrap=result=>{if(result?.isError)throw Error('Codex聊天工具拒絕操作');const item=result?.content?.find(c=>c.type==='text');if(!item)throw Error('Codex聊天工具未傳回確認');return JSON.parse(item.text);};
+const unwrap=result=>{const item=result?.content?.find(c=>c.type==='text');if(!item)throw Error('Codex聊天工具未傳回確認');const value=JSON.parse(item.text);if(result?.isError)throw Object.assign(Error('Codex聊天工具拒絕操作'),{code:value?.error||'desktop_error'});return value;};
+function desktopPipe(names){const matches=names.filter(n=>/^codex-app-tools-[0-9a-f-]+$/i.test(n));if(matches.length!==1)throw Error('目前無法唯一確認Codex桌面連線');return '\\\\.\\pipe\\'+matches[0];}
 class DesktopMcp {
- constructor(context,{launch=spawn}={}){this.context=context;this.launch=launch;this.pending=new Map();this.sequence=0;this.buffer='';}
+ constructor(context,{launch=spawn,pipeNames=()=>fs.readdirSync('\\\\.\\pipe\\')}={}){this.context=context;this.launch=launch;this.pipeNames=pipeNames;this.pending=new Map();this.sequence=0;this.buffer='';}
  async connect(){
   const t=this.context.transport,env={...process.env,...t.env,...this.context.environment};
+  if(process.platform==='win32')env.CODEX_APP_TOOLS_PIPE_PATH=desktopPipe(this.pipeNames());
   this.child=this.launch(t.command,t.args,{cwd:t.cwd,env,windowsHide:true,stdio:['pipe','pipe','pipe']});
   this.child.stderr.on('data',()=>{});
   this.child.on('error',()=>this.rejectAll());this.child.on('exit',()=>this.rejectAll());
   this.child.stdout.on('data',b=>{this.buffer+=b;if(this.buffer.length>8*1024*1024){this.rejectAll();this.close();return;}let n;while((n=this.buffer.indexOf('\n'))>=0){const line=this.buffer.slice(0,n);this.buffer=this.buffer.slice(n+1);let v;try{v=JSON.parse(line);}catch{continue;}const pending=this.pending.get(v.id);if(!pending)continue;this.pending.delete(v.id);clearTimeout(pending.timer);v.error?pending.reject(Object.assign(Error('Codex桌面連線拒絕要求'),{mcpError:v.error,method:pending.method})):pending.resolve(v.result);}});
-  await this.request('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'xiaoye-visible-event-router',version:'1.0'}});
-  this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
-  const listed=await this.request('tools/list',{});this.names=new Set((listed.tools||[]).map(t=>t.name));
-  for(const name of ['send_message_to_thread','read_thread'])if(!this.names.has(name))throw Error('目前Codex桌面缺少聊天接續工具');
-  return this;
+  try{
+   await this.request('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'xiaoye-visible-event-router',version:'1.0'}});
+   this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
+   const listed=await this.request('tools/list',{});this.names=new Set((listed.tools||[]).map(t=>t.name));
+   for(const name of ['send_message_to_thread','read_thread'])if(!this.names.has(name))throw Error('目前Codex桌面缺少聊天接續工具');
+   return this;
+  }catch(error){this.close();throw error;}
  }
  rejectAll(){for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('Codex桌面連線中斷，原事件不可自動重送'));}this.pending.clear();}
  request(method,params,timeoutMs=30000){return new Promise((resolve,reject)=>{const id=++this.sequence;const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('Codex聊天工具回應未確認，原事件不可自動重送'));},timeoutMs);this.pending.set(id,{resolve,reject,timer,method});this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');});}
@@ -26,7 +30,7 @@ class DesktopMcp {
    const v=await this.call('read_thread',{threadId:target.threadId,turnLimit:1,includeOutputs:false,maxOutputCharsPerItem:0});
    return {polls:[{thread:v.thread,latestTurn:v.turns?.[0],cursor:v.turns?.[0]?.id}]};
   }
-  if(!['send_message_to_thread','read_thread'].includes(name))throw Error('不是允許的專用聊天操作');
+  if(!['send_message_to_thread','read_thread','create_thread','move_thread_to_project'].includes(name))throw Error('不是允許的專用聊天操作');
   return unwrap(await this.request('tools/call',{name,arguments:args,_meta:{'openai/threadId':this.context.ownerThreadId}},90000));
  }
  close(){this.child?.stdin.end();const child=this.child;if(child){const timer=setTimeout(()=>child.kill(),1000);timer.unref();child.once('exit',()=>clearTimeout(timer));}this.rejectAll();}
@@ -60,4 +64,4 @@ async function runVisibleEvent({client,config,checked,check,save,prompt,clock=Da
  }
  throw Error('本次聊天結果尚未確認，停止事件且不重送');
 }
-module.exports={DesktopMcp,selectRoute,runVisibleEvent,unwrap};
+module.exports={DesktopMcp,selectRoute,runVisibleEvent,unwrap,desktopPipe};

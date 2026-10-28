@@ -57,7 +57,7 @@ export class XiaoyeEvents {
   runningValid(e, t) {
     const s = t?.secretary;
     if (!s || s.sourceWithdrawn || s.sourceVersion !== e.sourceVersion || ['paused','closed'].includes(s.stage)) return false;
-    if (e.kind === 'analyze') return ['clarifying','awaiting_approval'].includes(s.stage);
+    if (e.kind === 'analyze') return ['clarifying','awaiting_approval','awaiting_confirmation'].includes(s.stage);
     return ['approved','executing','awaiting_confirmation','blocked'].includes(s.stage) && s.approval?.hash === e.approvalHash;
   }
   async save(e) {
@@ -172,7 +172,7 @@ export class XiaoyeEvents {
       const t = await this.task(e.taskId);
       if (!this.runningValid(e,t)) { e.state='superseded'; await this.save(e); this.send({type:'invalidate',id:e.id}); await this.pump(); return respond({ok:false,error:'案件已有新版本，請停止。'},409); }
       if (route === '/check') return respond({ok:true,job:e});
-      const completed = e.kind === 'analyze' ? t.secretary.stage==='awaiting_approval'||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
+      const completed = e.kind === 'analyze' ? ['awaiting_approval','awaiting_confirmation'].includes(t.secretary.stage)||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
       e.state = route === '/complete' && completed ? 'done' : 'failed'; e.finishedAt=Date.now(); e.completionOperation=v.operationId;
       if (e.state === 'failed') await this.notice(e,typeof v.reason==='string'?v.reason.slice(0,1500):'自動處理未取得完整完成證據，已停止；需先查核已有動作。',typeof v.nextStep==='string'?v.nextStep.slice(0,500):recoveryNextStep);
       await this.save(e);
