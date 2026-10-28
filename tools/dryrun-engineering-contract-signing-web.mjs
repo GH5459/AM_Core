@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
+import vm from 'node:vm';
 import { ContractSigningError } from '../modules/construction/contract-signing.js';
 import {
   CONTRACT_SIGNING_OPEN_PATH,
@@ -239,7 +240,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
   const preserveCallbackIndex = html.indexOf("history.replaceState(null, '', location.pathname+location.search)");
   const liffInitIndex = html.indexOf('await liff.init({liffId:LIFF_ID})');
   const cleanupCallbackIndex = html.indexOf("if(location.search) history.replaceState(null, '', location.pathname)");
-  assert.ok(preserveCallbackIndex >= 0 && preserveCallbackIndex < liffInitIndex);
+  assert.ok(liffInitIndex >= 0 && liffInitIndex < html.indexOf('state.token=readFragmentToken()'));
+  assert.ok(preserveCallbackIndex >= 0);
   assert.ok(liffInitIndex >= 0 && liffInitIndex < cleanupCallbackIndex);
   assert.match(html, new RegExp(CONTRACT_SIGNING_OPEN_PATH.replaceAll('/', '\\/')));
   assert.match(html, new RegExp(CONTRACT_SIGNING_SUBMIT_PATH.replaceAll('/', '\\/')));
@@ -252,6 +254,61 @@ const jsonHeaders = { 'content-type': 'application/json' };
   const inlineEnd = html.indexOf('</script>', inlineStart);
   assert.ok(inlineStart > 0 && inlineEnd > inlineStart);
   assert.doesNotThrow(() => new Function(html.slice(inlineStart, inlineEnd)));
+}
+
+// LIFF can restore the fragment only after initialization. Exercise the
+// generated page against a simulated primary-to-secondary redirect.
+{
+  const html = renderContractSigningPage({ liffId: '2000000000-engineering', nonce: 'fixed-nonce' });
+  const readToken = html.slice(html.indexOf('function readFragmentToken()'), html.indexOf('function reviewStorageKey()'));
+  const initialize = html.slice(html.indexOf('async function initialize()'), html.indexOf("byId('external-browser').addEventListener"));
+  const stored = new Map();
+  const state = { token: '', signing: null };
+  const location = { origin: 'https://engineering-am.example.test', pathname: '/contract-sign', search: '?liff.state=restoring', hash: '' };
+  let initialized = false;
+  let opened;
+  const context = vm.createContext({
+    URLSearchParams, state, location,
+    LIFF_ID: 'test-liff', TOKEN_STORAGE_KEY: 'token', LOGIN_ATTEMPT_KEY: 'attempt',
+    sessionStorage: { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value), removeItem: (key) => stored.delete(key) },
+    history: { replaceState: () => assert.equal(initialized, true, 'URL must not be changed before LIFF initialization') },
+    liff: {
+      async init() { assert.equal(location.hash, ''); initialized = true; location.hash = '#token=fixture-token'; location.search = ''; },
+      isLoggedIn: () => true, getAccessToken: () => 'fixture-credential', isInClient: () => true,
+    },
+    show: () => {}, byId: () => ({}), renderContractAttachments: () => {}, restoreReviewAcknowledgement: () => {},
+    api: async (_path, input) => { opened = input; return { signing: { accessMode: 'group_member_read_only' } }; },
+  });
+  await vm.runInContext(`${readToken}\n${initialize}\ninitialize()`, context);
+  assert.equal(opened.token, 'fixture-token');
+  assert.equal(opened.liffCredential, 'fixture-credential');
+
+  // If LIFF navigates away while initializing a direct link, retain the
+  // fragment without rewriting the URL and restore it on the callback.
+  stored.clear();
+  location.hash = '#token=direct-fixture';
+  location.search = '';
+  initialized = false;
+  context.liff.init = async () => {
+    assert.equal(stored.get('token'), 'direct-fixture');
+    assert.equal(location.hash, '#token=direct-fixture');
+    throw new Error('simulated navigation');
+  };
+  await assert.rejects(vm.runInContext('initialize()', context), /simulated navigation/);
+  location.hash = '';
+  context.liff.init = async () => { initialized = true; };
+  opened = undefined;
+  await vm.runInContext('initialize()', context);
+  assert.equal(opened.token, 'direct-fixture');
+
+  stored.clear();
+  location.hash = '';
+  opened = undefined;
+  let lastMessage = '';
+  context.show = (message) => { lastMessage = message; };
+  await vm.runInContext('initialize()', context);
+  assert.equal(opened, undefined, 'missing token must not open a contract');
+  assert.match(lastMessage, /簽署連結不完整/);
 }
 
 // GET serves a no-store, nonce-protected page. HEAD exposes the same headers
