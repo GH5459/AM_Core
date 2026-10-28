@@ -10,8 +10,9 @@ window.dailylogCalendarEntry=function(entry){
  const verify=async()=>{const current=++attempt;verified=false;source.disabled=true;button.disabled=true;newButton.disabled=true;retry.hidden=true;notice.textContent='正在核對原行程與會議來源，完成後即可建立。';try{
   const [calendar]=await Promise.all([api({action:'calendar-week',start:entry.date}),setup(()=>current===attempt)]);if(current!==attempt)return;const event=calendar.items.find(e=>e.id===entry.id);
   if(!event?.calendarRef)throw Error('行程已變更、取消或不在本人的日曆中，請重新讀取。');
-  calendarRef=event.calendarRef;fill(event);const personal=(window.dailylogMeetingSources||[]).filter(s=>s.kind==='user');if(personal.length===1)$('#source').value=personal[0].key;
-  if(!$('#source').value)throw Error('目前沒有可用的會議來源，請確認本人會議入口。');
+  calendarRef=event.calendarRef;fill(event);const sources=window.dailylogMeetingSources||[],personal=sources.filter(s=>s.kind==='user');
+  if(!sources.length)throw Error('目前沒有可用的會議來源，請確認本人會議入口。');
+  if(personal.length===1)source.value=personal[0].key;else{const prompt=document.createElement('option');prompt.value='';prompt.textContent='請選擇會議來源';source.prepend(prompt);source.value='';}
   verified=true;source.disabled=false;button.disabled=false;newButton.disabled=false;notice.textContent='已帶入原行程。確認來源後，按下方按鈕建立或開啟會議。';
  }catch(error){if(current!==attempt)return;calendarRef='';notice.textContent=error.message||'行程暫時無法核對，請重試。';retry.hidden=false;}};
  retry.onclick=()=>void verify();void verify();
