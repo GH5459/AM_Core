@@ -17,7 +17,7 @@ export async function eventCall(env, route, value = {}) {
 }
 export async function prepareXiaoyeEvent(env, task, operationId, action) {
   if (!env.XIAOYE_EVENTS) return null;
-  const kind = action === 'approve' ? 'execute' : ['intake','supplement','reopen','feedback','resume'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
+  const kind = action === 'approve' || action === 'propose' && task.secretary?.autoAuthorization ? 'execute' : ['intake','supplement','reopen','feedback','resume'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
   if (!kind) return null;
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(operationId)));
   const id = [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -52,13 +52,15 @@ export class XiaoyeEvents {
     const s = t?.secretary;
     if (!s || s.sourceWithdrawn || t.deletedAt || t.mergedInto || s.sourceVersion !== e.sourceVersion) return false;
     if (e.kind === 'analyze') return s.stage === 'clarifying' && !s.waitingForReporter && t.version === e.version;
-    return e.kind === 'execute' && s.stage === 'approved' && t.version === e.version && s.approval && s.proposal && s.approval.hash === s.proposal.hash && s.approval.sourceVersion === s.sourceVersion;
+    const authorization=s.approval||s.autoAuthorization;
+    const receipt=s.autoEventVersionReceipt,versionMatches=t.version===e.version||!!(s.autoAuthorization&&receipt&&receipt.hash===authorization?.hash&&receipt.fromVersion===e.version&&receipt.throughVersion===t.version);
+    return e.kind === 'execute' && s.stage === 'approved' && versionMatches && authorization && s.proposal && authorization.hash === s.proposal.hash && authorization.sourceVersion === s.sourceVersion;
   }
   runningValid(e, t) {
     const s = t?.secretary;
     if (!s || s.sourceWithdrawn || s.sourceVersion !== e.sourceVersion || ['paused','closed'].includes(s.stage)) return false;
-    if (e.kind === 'analyze') return ['clarifying','awaiting_approval','awaiting_confirmation'].includes(s.stage);
-    return ['approved','executing','awaiting_confirmation','blocked'].includes(s.stage) && s.approval?.hash === e.approvalHash;
+    if (e.kind === 'analyze') return ['clarifying','awaiting_approval','approved','awaiting_confirmation'].includes(s.stage);
+    return ['approved','executing','awaiting_confirmation','blocked'].includes(s.stage) && (s.approval?.hash||s.autoAuthorization?.hash) === e.approvalHash;
   }
   async save(e) {
     await this.ctx.storage.transaction(async storage=>{
@@ -163,7 +165,7 @@ export class XiaoyeEvents {
       if (e.state !== 'ready' || e.readyAt > Date.now() || (await this.entries()).some(x=>x.state==='running')) return respond({ok:true,job:null});
       const t = await this.task(e.taskId);
       if (!this.applicable(e,t)) return respond({ok:true,job:null});
-      e.state='running'; e.acquireOperation=v.operationId; e.lease=crypto.randomUUID(); e.leaseUntil=Date.now()+28*60000; e.approvalHash=t.secretary.approval?.hash||null;
+      e.state='running'; e.acquireOperation=v.operationId; e.lease=crypto.randomUUID(); e.leaseUntil=Date.now()+28*60000; e.approvalHash=t.secretary.approval?.hash||t.secretary.autoAuthorization?.hash||null;
       await this.save(e); await this.reschedule(); return respond({ok:true,job:e});
     }
     if (route === '/check' || route === '/complete' || route === '/fail') {
@@ -172,7 +174,7 @@ export class XiaoyeEvents {
       const t = await this.task(e.taskId);
       if (!this.runningValid(e,t)) { e.state='superseded'; await this.save(e); this.send({type:'invalidate',id:e.id}); await this.pump(); return respond({ok:false,error:'案件已有新版本，請停止。'},409); }
       if (route === '/check') return respond({ok:true,job:e});
-      const completed = e.kind === 'analyze' ? ['awaiting_approval','awaiting_confirmation'].includes(t.secretary.stage)||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
+      const completed = e.kind === 'analyze' ? ['awaiting_approval','approved','awaiting_confirmation'].includes(t.secretary.stage)||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
       e.state = route === '/complete' && completed ? 'done' : 'failed'; e.finishedAt=Date.now(); e.completionOperation=v.operationId;
       if (e.state === 'failed') await this.notice(e,typeof v.reason==='string'?v.reason.slice(0,1500):'自動處理未取得完整完成證據，已停止；需先查核已有動作。',typeof v.nextStep==='string'?v.nextStep.slice(0,500):recoveryNextStep);
       await this.save(e);
