@@ -2,7 +2,7 @@ import {CASE_EVIDENCE_CONTRACT,CASE_EVIDENCE_PATH,evidenceDigest,evidenceSignatu
 const fail=(message,status=403)=>Object.assign(Error(message),{status});
 const ns='xiaoye-meeting-evidence-grants';
 export const findingFields=['cause','impact','nextStep','progress'];
-// Only consecutive finding-only versions may keep an already sent result card.
+// Only consecutive finding-only or chat-link-only versions may keep an already sent result card.
 // Any other case update increments version without extending this exact range.
 export function sameResultVersion(task,version){
  if(!Number.isSafeInteger(version)||version<1)return false;
