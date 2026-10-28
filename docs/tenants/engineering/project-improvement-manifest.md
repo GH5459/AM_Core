@@ -1,5 +1,9 @@
 # Engineering AM — Project Improvement Manifest
 
+| Package | Status | Change | Verification | Notes |
+| --- | --- | --- | --- | --- |
+| AM-IMP-2026.1028.02 | Installed | Engineering short group binding | Core and real-handler tests; deployment pending | Bare command and native OA mention read current LINE group name; project association remains explicit. |
+
 Tenant key: `engineering`  
 Environment prefix: `ENG`  
 Runtime target: `AM_PLATFORM`

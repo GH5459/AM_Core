@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.1028.02",
+  "name": "Engineering source-group short binding command",
+  "type": "AM Platform / LINE onboarding",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-10-28",
+  "dependsOn": ["AM-IMP-2026.0907.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-core.mjs", "tools/test-engineering-simple-binding.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Use only webhook source group ID and Engineering binding store; retain cross-tenant and duplicate guards."
+  },
+  "definitionOfDone": [
+    "Exact short command works with or without native OA self-mention",
+    "LINE supplies the name; lookup failure cannot create a binding",
+    "Direct chats, foreign bindings and duplicate records remain blocked",
+    "Repeat binding preserves existing project, role, trade, capabilities and members",
+    "Legacy commands and reply/push fallback remain compatible"
+  ],
+  "files": ["core/group-onboarding.js", "server.js", "tools/dryrun-core.mjs", "tools/test-engineering-simple-binding.mjs"]
+}

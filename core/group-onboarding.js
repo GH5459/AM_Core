@@ -7,7 +7,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'engineering-group-onboarding-confirmation-2026-09-07';
+export const GROUP_ONBOARDING_BUILD = 'engineering-simple-group-binding-2026-10-28';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
@@ -78,6 +78,7 @@ function tenantConfigByAlias(value) {
 
 export function supportedGroupOnboardingExamples() {
   return [
+    '綁定工程群組',
     '綁定 工程 AM 群組：<群組名稱>',
     '綁定 Forest 群組：<群組名稱>',
     '綁定 Green Hotel AM 群組：<群組名稱>',
@@ -85,9 +86,38 @@ export function supportedGroupOnboardingExamples() {
   ];
 }
 
-export function parseGroupOnboardingCommand(value) {
-  const text = normalizeGroupOnboardingText(value);
+export function parseGroupOnboardingCommand(value, mention = null) {
+  let raw = String(value || '');
+  // Only LINE's native self-mention may address this OA. Do not strip a
+  // colleague's mention or trust a typed display name as a bot identity.
+  const mentions = mention?.mentionees;
+  if (Array.isArray(mentions) && mentions.length === 1) {
+    const m = mentions[0];
+    if (m?.type === 'user' && m.isSelf === true
+      && Number.isInteger(m.index) && Number.isInteger(m.length)
+      && m.index >= 0 && m.length > 0 && m.index + m.length <= raw.length
+      && !raw.slice(0, m.index).trim()) {
+      raw = raw.slice(m.index + m.length);
+    }
+  }
+  const text = normalizeGroupOnboardingText(raw);
   if (!text) return { isCommand: false };
+
+  // Read the actual name from LINE, using the source group ID as the binding
+  // key. Exact commands only: questions or additional instructions cannot bind.
+  if (/^(?:<\s*)?(?:綁定|绑定)\s*工程\s*(?:AM\s*)?(?:群組|群组)(?:\s*>)?$/i.test(text)
+    && text.startsWith('<') === text.endsWith('>')) {
+    const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === 'engineering');
+    return {
+      isCommand: true,
+      tenantKey: config.key,
+      tenantLabel: config.label,
+      groupName: '',
+      requiresLineGroupName: true,
+      postBindInstruction: config.postBindInstruction,
+      sourceCommand: text,
+    };
+  }
 
   if (text === LEGACY_HOZO20_BIND_COMMAND) {
     return {

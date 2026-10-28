@@ -384,6 +384,7 @@ jobs:
       - run: node tools/dryrun-engineering-convergence.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.01
       - run: node tools/dryrun-core.mjs
+      - run: node --test tools/test-engineering-simple-binding.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
       - run: node --test tools/test-calendar-recurrence.mjs tools/test-lunar-calendar.mjs
