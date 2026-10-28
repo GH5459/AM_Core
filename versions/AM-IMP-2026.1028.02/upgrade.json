@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1028.02",
+  "name": "Contract workspace readiness guidance",
+  "type": "AM Platform / Engineering",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-10-28",
+  "dependsOn": ["AM-IMP-2026.1028.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node tools/dryrun-contract-readiness-guidance.mjs", "node tools/dryrun-engineering-contract-workspace.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false, "guard": "Existing scoped server readiness endpoint; no new write authority."},
+  "definitionOfDone": ["Automatic actionable blockers in workspace", "Editor field navigation", "Blocked and unavailable readiness cannot send", "Verified production UI without sending a contract"],
+  "projectStatus": {"AM_PLATFORM:engineering": "Installed"},
+  "files": ["modules/construction/contracts.js", "tools/dryrun-contract-readiness-guidance.mjs"]
+}

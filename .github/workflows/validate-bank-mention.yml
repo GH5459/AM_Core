@@ -381,6 +381,8 @@ jobs:
       - run: node --test tools/test-xiaoye-case-evidence.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.68
       - run: node tools/test-engineering-reminders-disabled.mjs
+      - run: node tools/dryrun-contract-readiness-guidance.mjs
+      - run: node tools/dryrun-engineering-contract-workspace.mjs
       - run: node tools/dryrun-engineering-convergence.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.01
       - run: node tools/dryrun-core.mjs

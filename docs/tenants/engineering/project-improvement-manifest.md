@@ -102,3 +102,4 @@ recorded as `Deployed`.
 
 | AM-IMP-2026.1008.03 | Deployed | MIME-aware video/audio download filenames | 88 attachment/archive tests, server webhook, 19 core checks | Production main f8b9e7b, old-link MIME/extension and original byte equality verified. Existing valid links retain exact original bytes and receive correct extensions. |
 
+| AM-IMP-2026.1028.02 | Installed | Contract workspace readiness guidance | Automatic server blockers, revision navigation, send guard and stale-response tests | Production verification pending; no contract sent. |
