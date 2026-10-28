@@ -188,7 +188,7 @@ async function replyLine(event, text) {
 
 async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) {
   const text = event.message?.type === 'text' ? String(event.message.text || '') : '';
-  const command = parseGroupOnboardingCommand(text);
+  const command = parseGroupOnboardingCommand(text, event.message?.mention);
   if (!command.isCommand) return false;
 
   if (!groupId) {

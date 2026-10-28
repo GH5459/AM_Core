@@ -1,5 +1,13 @@
-# Contract workspace readiness guidance
+# 工程群組簡短綁定指令
 
-Status: Installed. Engineering workspace automatically displays the server's issuance blockers, the next action, and a carry-forward revision button. Missing legal fields in the revision have navigation buttons and visible outlines. Issuance stays disabled while checking, blocked or unavailable; the server readiness check runs again before an issue request.
+Status: Installed (local verification; production pending)
 
-No contract terms, frozen versions, signer assignments, permissions or LINE messages are changed by the guidance.
+群組內輸入「綁定工程群組」即可登記到工程 AM，不必輸入 AM 或重打群名。
+支援先用 LINE 原生功能 @小葉，以及 `<綁定工程群組>`。
+系統讀取 LINE 當下群名，以原始群組 ID 登記；加入機器人本身不觸發提問或綁定。
+
+既有長指令維持相容。跨租戶、重複紀錄及私訊限制保持有效。
+重複綁定不清除既有專案、工種、角色、功能或成員。
+
+新群仍須由管理者選擇工程專案，再在合約選取負責群組。
+不得由群名猜測專案、合約或簽署人；此指令不核准、凍結、簽發或簽署合約。
