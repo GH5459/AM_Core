@@ -295,6 +295,8 @@ jobs:
       - run: node tools/test-meeting-hub.mjs
       - run: node --test tools/test-dailylog-meetings.mjs
       - run: node --test tools/test-dailylog-native-meetings.mjs
+      - run: node --test tools/test-dailylog-meeting-compact.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.05
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.04
       - run: node tools/test-dailylog-meeting-service.mjs
       - run: node tools/test-meeting-preparation-markdown.mjs
