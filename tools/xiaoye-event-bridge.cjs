@@ -44,7 +44,7 @@ class EventBridge {
     if(this.running||this.stopped)return;
     const id=this.pending.values().next().value;if(!id)return;this.pending.delete(id);
     if(fs.existsSync(path.join(this.folder,'event-runs',id,'started.private.json'))){if(this.pending.size)queueMicrotask(()=>this.drain().catch(()=>this.status('blocked')));return;}
-    this.running={id};this.toolWarning=null;
+    this.running={id};this.toolWarning=null;this.toolContext=null;
     const rel='event-runs/'+id,operationFile=path.join(this.folder,rel+'/acquire.input.private.json');
     let input;
     if(fs.existsSync(operationFile))input=JSON.parse(fs.readFileSync(operationFile));
