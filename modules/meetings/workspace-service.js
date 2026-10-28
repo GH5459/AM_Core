@@ -11,6 +11,7 @@ import {canReadShared,readerData,audioTickets} from './workspace-access.js';
 import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
+import {embeddedRequest,dailylogActor} from './dailylog-embedded.js';
 import {meetingTaskDispatch} from './task-dispatch.js';
 import {meetingTaskProgress,TASK_PROGRESS_CONTRACT} from './task-progress.js';
 import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
@@ -52,8 +53,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function namedReader(r,userId){if(r.state!=='published'||!r.shared_people?.length||!platform.meetingShareIdentity)return false;for(const tenantKey of new Set(r.shared_people.map(p=>p.tenantKey))){const who=await platform.meetingShareIdentity(userId,tenantKey);if(who&&r.shared_people.some(p=>p.tenantKey===who.tenantKey&&p.account===who.account))return true;}return false;}
  async function assertRead(r,row,userId){if(r.receipt?.planInputHash&&!await platform.meetingShareIdentity?.(userId))throw failure(403,'目前沒有有效的會議使用資格。');try{await assertMember(row,userId);}catch(e){if(!await hub.participant(r,userId)&&!await namedReader(r,userId)&&!await publication.reader(r,userId))throw e;}}
  async function authenticate(req,row,r,allowReader=false,identityOnly=false){
+  const embedded=req[dailylogActor];
   const token=String(req.headers.authorization||'').match(/^Bearer ([^\s]+)$/)?.[1]||'';
-  const liff=identityOnly?env.AMCORE_MEETINGS_LIFF_ID:await liffFor(row);const continued=!token?await platform.loginContinuationActor?.(req):null;if(!liff||!token&&!continued||token.length>4096)throw failure(401,'請用 LINE 登入後再開啟。');
+  const liff=identityOnly?env.AMCORE_MEETINGS_LIFF_ID:await liffFor(row);const continued=embedded||(!token?await platform.loginContinuationActor?.(req):null);if(!embedded&&!liff||!token&&!continued||token.length>4096)throw failure(401,'請用 LINE 登入後再開啟。');
   try{
    let a; if(continued){if(!['GET','HEAD'].includes(req.method)&&![new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com').origin,new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com').origin].includes(req.headers.origin))throw failure(403,'請從原會議頁操作。');a={userId:continued.id,displayName:continued.name};}else{const v=await fetch('https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),{signal:AbortSignal.timeout(8000)}),j=await v.json();
    if(!v.ok||Number(j.expires_in)<=0||String(j.client_id)!==String(liff).split('-')[0])throw Error('invalid');
@@ -189,6 +191,12 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }finally{recovering=false;}}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
+  if(req.headers['x-meeting-signature']&&/^\/meetings\/review\//.test(url.pathname)){
+   try{const publicOrigin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
+    const forwarded=await embeddedRequest(req,url,{secret:env.AMCORE_MEETING_MANAGEMENT_SECRET,platform,origin:publicOrigin,pool});
+    if(!forwarded)throw failure(403,'會議接線未完成。');res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url);
+   }catch(e){sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議暫時無法讀取，請稍後重試。'});return true;}
+  }
   if(await caseEvidence(req,res,url))return true;
   if(await hub.handle(req,res,url))return true;
   const primary=url.pathname==='/meetings/review'&&req.method==='GET'?String(url.searchParams.get('liff.state')||'').match(/^\/work\/([a-f0-9]{64})(\/glossary)?(?:[?#].*)?$/):null;

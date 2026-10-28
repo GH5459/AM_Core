@@ -72,6 +72,8 @@ Use this table to control whether each shared improvement should stay as-is, be 
 
 ## AM Platform／DailyLog 正式發布
 
+AM-IMP-2026.1027.90 工作日誌會議分頁為 Ready（本機候選），尚未正式發布；不要將此候選列為 Deployed。詳 `docs/upgrades/dailylog-meetings-tab-20261027.md`。
+
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
 | AM-IMP-2026.1023.68 | Deployed | 單案原會議證據、實際日期診斷與同案白話結果 | PR450／451完整CI；AM 743212e2；DailyLog 77模組及最新79模組回讀 | 原6項／4既有任務／2待指派，無重複；原核准與結案保持；不重播或恢復heartbeat。 |

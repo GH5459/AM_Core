@@ -47,7 +47,9 @@ export function createLoginContinuationHttp({env=process.env,pool,authority,line
     broker,origins,
     async actor(req){const value=readCookie(req);if(!value)return null;const g=await broker.check(value,'meetings'),p=g.permission;if(!p?.userId||!p?.tenantKey)throw fail();return {id:p.userId,name:p.name||'公司同仁',account:g.account,tenantKey:p.tenantKey};},
     async handle(req,res,url){
-      if(req.method==='GET'&&req.headers.host&&['/meetings/review/hub','/login-continuation/start'].includes(url.pathname)&&new URL('https://'+req.headers.host).origin!==origin){redirect(res,origin+url.pathname+url.search);return true;}
+      // Signed machine requests are authenticated by the meeting gateway below;
+      // redirecting them to the browser origin would discard their proof.
+      if(req.method==='GET'&&req.headers.host&&['/meetings/review/hub','/login-continuation/start'].includes(url.pathname)&&!(url.pathname==='/meetings/review/hub'&&req.headers['x-meeting-signature'])&&new URL('https://'+req.headers.host).origin!==origin){redirect(res,origin+url.pathname+url.search);return true;}
       if(!url.pathname.startsWith('/login-continuation/'))return false;
       let phase='ROUTE';
       try {
