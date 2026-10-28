@@ -6,6 +6,7 @@ exports.patchClient=function(client){
  const init="initializeDailylogMeeting(scopedWindow,scopedDocument,scopedLocation,scopedFetch,setInterval,setTimeout,clearInterval,clearTimeout,boot,target.pathname==='/meetings/review/hub'?'hub':'work');";
  client=replaceOnce(client,init,init+"if(entry){if(typeof local.dailylogCalendarEntry!=='function')throw Error('會議建立功能尚未準備完成，請重新讀取。');local.dailylogCalendarEntry(entry);pendingCalendar.delete(path);}");
  const a=client.indexOf(' async function fileMeeting(button){'),b=client.indexOf('\n function init(){',a);assert(a>=0&&b>a);client=client.slice(0,a)+' '+fs.readFileSync(__dirname+'/calendar-entry.js','utf8').trimEnd()+client.slice(b);
+ client=replaceOnce(client,"async function setup(){const [s,o]=await Promise.all([api({action:'sources'}),api({action:'organization'})]);","async function setup(isCurrent=()=>true){const [s,o]=await Promise.all([api({action:'sources'}),api({action:'organization'})]);if(!isCurrent())return;");
  client=replaceOnce(client,'const org=o.organization;','const org=o.organization;window.dailylogMeetingSources=s.sources;');
  client=replaceOnce(client,' async function requestedCalendar(){', '\n '+fs.readFileSync(__dirname+'/hub-entry.js','utf8')+'\n async function requestedCalendar(){');
  return client;
