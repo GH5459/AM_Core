@@ -1,0 +1,32 @@
+const assert=require('node:assert/strict');
+function once(source,from,to){assert.equal(source.split(from).length,2,'Production source changed; inspect before applying');return source.replace(from,to);}
+exports.patchEntrySpeed=function(source){
+ source=once(source," if(url.searchParams.get('workTab')==='meetings')return new Response(null,{status:303,headers:{...headers,Location:target.pathname+target.search}});\n",'');
+ source=once(source," // Only the original authenticated renderer can produce this request-local",` if(url.searchParams.get('workTab')==='meetings')html=html.replace('</head>',\`<script>window.dailylogMeetingPriority=new Promise(resolve=>{let done=false;const finish=()=>{if(done)return;done=true;clearTimeout(timer);window.removeEventListener('dailylog:meeting-list-ready',finish);document.removeEventListener('pointerdown',finish,true);document.removeEventListener('keydown',finish,true);resolve();};const timer=setTimeout(finish,4500);window.addEventListener('dailylog:meeting-list-ready',finish,{once:true});document.addEventListener('pointerdown',finish,true);document.addEventListener('keydown',finish,true);});</script></head>\`);
+ // Only the original authenticated renderer can produce this request-local`);
+ return source+`\nexport async function meetingPriorityAssets(request,response){
+ if(new URL(request.url).pathname!=='/tasks.js'||!response.ok||request.method!=='GET')return response;
+ let text=await response.clone().text();const old=\"document.addEventListener('DOMContentLoaded',async()=>{await reload();const id=new URL(location.href).searchParams.get('task');\";
+ if(text.split(old).length!==2)return response;
+ text=text.replace(old,\"document.addEventListener('DOMContentLoaded',async()=>{if(window.dailylogMeetingPriority)await window.dailylogMeetingPriority;await reload();const id=new URL(location.href).searchParams.get('task');\");
+ const headers=new Headers(response.headers);for(const k of ['Content-Length','Content-Encoding','ETag'])headers.delete(k);return new Response(text,{status:response.status,headers});
+}\n`;
+};
+exports.patchClient=function(source){
+ source=once(source,"[...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId)","[...document.querySelectorAll('[data-progress-id]')].filter(el=>!window.dailylogMeetingEmbedded||!el.closest('details:not([open]),[hidden]')).map(el=>el.dataset.progressId)");
+ source=once(source,"$('#status').textContent='已讀取 '+items.length+' 場會議';","$('#status').textContent='已讀取 '+items.length+' 場會議';if(window.dailylogMeetingEmbedded)window.dispatchEvent(new Event('dailylog:meeting-list-ready'));");
+ source=once(source,"let sharedOffset=0,sharedItems=[],sharedBusy=false;","let sharedOffset=0,sharedItems=[],sharedBusy=false,sharedLoaded=false;");
+ source=once(source,"try{const r=await api({action:'list',scope:'shared',offset:sharedOffset});sharedItems=","try{const r=await api({action:'list',scope:'shared',offset:sharedOffset});sharedLoaded=true;sharedItems=");
+ source=once(source,"$('#refreshShared').onclick=()=>loadShared(true);$('#sharedMore').onclick=()=>loadShared();",`$('#refreshShared').onclick=()=>loadShared(true);$('#sharedMore').onclick=()=>loadShared();
+ if(window.dailylogMeetingEmbedded){for(const details of document.querySelectorAll('details'))details.addEventListener('toggle',()=>{if(details.open){if(details.id==='sharedSection'&&!sharedLoaded)void loadShared(true);void loadProgress();}});$('#sharedStatus').textContent='展開後讀取分享給我的會議。';}`);
+ source=once(source,"await Promise.all([load(true),loadCalendar(),loadShared(true)]);await requestedCalendar();return;","await Promise.all([load(true),loadCalendar(),window.dailylogMeetingEmbedded&&!$('#sharedSection').open?Promise.resolve():loadShared(true)]);await requestedCalendar();return;");
+ return source;
+};
+exports.patchWorker=function(source){
+ const defaults=[...source.matchAll(/\b([A-Za-z_$][\w$]*)\s+as\s+default\b/g)];assert.equal(defaults.length,1,'Cannot determine current outer Worker');const currentWorker=defaults[0][1];
+ source=once(source,"import {dailyEntryFetch,taskDeliveryJobs,taskRelations} from './entry-speed.mjs';","import {dailyEntryFetch,taskDeliveryJobs,taskRelations,meetingPriorityAssets} from './entry-speed.mjs';");
+ source=once(source,"await dailyEntryFetch(request,env,ctx,continuation_worker)||continuation_worker.fetch(request,env,ctx)",`await dailyEntryFetch(request,env,ctx,new URL(request.url).searchParams.get('workTab')==='meetings'?${currentWorker}:continuation_worker)||continuation_worker.fetch(request,env,ctx)`);
+ source=once(source,"return stableAssets(request,await meetingAssets(request,await task_save_attachments_worker.fetch(request,env,ctx)));","return meetingPriorityAssets(request,await stableAssets(request,await meetingAssets(request,await task_save_attachments_worker.fetch(request,env,ctx))));");
+ const route=source.indexOf("if(url.pathname==='/dailylog-meetings-client.js')");assert(route>0);const end=source.indexOf(",{headers:{'Content-Type':'text/javascript; charset=utf-8'",route);assert(end>route);const start=source.lastIndexOf('return new Response(',end);assert(start>route&&source.slice(route,start).includes('status:401'));const client=JSON.parse(source.slice(start+'return new Response('.length,end));return source.slice(0,start)+'return new Response('+JSON.stringify(exports.patchClient(client))+source.slice(end);
+};
+exports.patchGateway=function(source){return once(source,"const identity=matches[0];for(const key of ['line:'+identity.botUserId+':'+identity.lineUserId,'account:'+identity.botUserId+':'+session.user.account]){const row=await env.DB.prepare(\"SELECT value FROM documents WHERE namespace='line-work-identities' AND key=?\").bind(key).first(),v=row&&JSON.parse(row.value);if(!v||!v.confirmedAt||v.account!==session.user.account||v.lineUserId!==identity.lineUserId||v.identityId!==identity.identityId)throw denied('本人帳號對應需要重新確認。');}","const identity=matches[0],keys=['line:'+identity.botUserId+':'+identity.lineUserId,'account:'+identity.botUserId+':'+session.user.account];const checked=await env.DB.prepare(\"SELECT key,value FROM documents WHERE namespace='line-work-identities' AND key IN (?,?)\").bind(...keys).all(),byKey=new Map((checked.results||[]).map(row=>[row.key,row.value]));for(const key of keys){const value=byKey.get(key),v=value&&JSON.parse(value);if(!v||!v.confirmedAt||v.account!==session.user.account||v.lineUserId!==identity.lineUserId||v.identityId!==identity.identityId)throw denied('本人帳號對應需要重新確認。');}");};
