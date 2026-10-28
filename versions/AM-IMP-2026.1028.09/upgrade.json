@@ -1,0 +1,2 @@
+{"id":"AM-IMP-2026.1028.09","name":"取消新增按鈕移至右上角","type":"meeting interface","portable":true,"status":"Ready","requiresDatabases":[],"requiresEnv":["Existing DailyLog meeting cancellation"],"requiresScripts":["tools/test-dailylog-cancel-position.mjs"],"installTargets":["Original DailyLog"],"dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},"definitionOfDone":["Cancel button at upper right without overlapping title on narrow and wide screens","Existing cancel and meeting functionality preserved","Latest production and data preservation verified"]}
+
