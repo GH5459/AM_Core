@@ -13,7 +13,7 @@ function fixture(api){
 test('the form appears immediately and stays visible while calendar verification waits',async()=>{
  let finish;const gate=new Promise(resolve=>{finish=resolve;}),events=[];const f=fixture(async v=>{events.push(v.action);return gate;});
  f.w.dailylogCalendarEntry({id:'event-1',date:'2026-10-29',topic:'示例會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00'});
- assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'示例會議');assert.equal(f.$('#create').disabled,true);assert.deepEqual(events,['calendar-week']);
+ assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'示例會議');assert.equal(f.$('#create').disabled,true);assert.equal(f.$('#source').disabled,true);assert.equal(f.$('#form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true})),false);assert.deepEqual(events,['calendar-week']);
  finish({items:[{id:'event-1',topic:'已核對會議',start:'2026-10-29T09:00:00+08:00',end:'2026-10-29T10:00:00+08:00',calendarRef:'signed-ref'}]});await tick();
  assert.equal(f.$('#newPanel').hidden,false);assert.equal(f.$('#topic').value,'已核對會議');assert.equal(f.$('#create').disabled,false);assert.equal(f.$('#source').value,'private');assert.equal(f.getRef(),'signed-ref');assert.deepEqual(events,['calendar-week']);f.w.close();
 });
