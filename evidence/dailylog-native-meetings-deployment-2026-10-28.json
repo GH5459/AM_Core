@@ -1,0 +1,73 @@
+{
+  "package": "AM-IMP-2026.1028.04",
+  "status": "Installed / Deployed",
+  "at": "2026-10-28T03:03:29.981Z",
+  "source": "2d7f33d964ee6015297e92724844ab5d312e5565",
+  "pullRequest": 490,
+  "ci": {
+    "run": 40623626291,
+    "steps": 222,
+    "allPassed": true
+  },
+  "am": {
+    "commit": "600cbb1ac7d333f35279086607f469d2f3a23469",
+    "origins": 2,
+    "renderDeployment": "dep-dbgmaboae00c73cscjmg",
+    "liveSeconds": 53,
+    "validOriginalIdentities": 2,
+    "originalListReadsPassed": true,
+    "invalidSignatureRejected": true
+  },
+  "dailylog": {
+    "previous": "90ea7f81-f323-49d5-841e-90ea42876cdd",
+    "version": "ccb0f70c-82c4-4cc6-b294-746c4f08a111",
+    "percentage": 100,
+    "modules": 89,
+    "changed": [
+      "worker.mjs"
+    ],
+    "unchanged": 88,
+    "settingsAssetsSecretsBindingsSchedulesPreserved": true
+  },
+  "preservation": {
+    "tasks": 455,
+    "taskContentAndRevisionChanges": 0,
+    "meetings": 33,
+    "meetingBusinessRowChanges": 0,
+    "identitySettings": 40,
+    "identitySettingsChanges": 0,
+    "attachments": 64,
+    "chunks": 110
+  },
+  "feature": {
+    "nativeWithoutIframe": true,
+    "sharedDailylogSession": true,
+    "originalPermissions": true,
+    "originalDataStore": true,
+    "calendarFiling": true,
+    "draftAndRecordingContextPreserved": true,
+    "readableRetry": true
+  },
+  "tests": {
+    "realWorkerD1": true,
+    "originalPostgresMeetingService": true,
+    "widths": [
+      320,
+      390,
+      768,
+      1280
+    ],
+    "syntheticRecordingOnly": true,
+    "attachmentsRegressionChecks": 10,
+    "attachmentWidths": [
+      320,
+      360,
+      390,
+      430,
+      768,
+      1280
+    ],
+    "realUserPhoneAcceptance": false
+  },
+  "productionBusinessTestWrites": false
+}
