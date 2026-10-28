@@ -289,6 +289,35 @@ await check('工程 AM 綁定指令容忍 LINE 引號、不可見字元與全形
   assert.match(parseGroupOnboardingCommand('「綁定 工程 AM」').error, /格式不完整/);
 });
 
+await check('工程簡短綁定指令使用 LINE 群名，支援原生機器人 mention', () => {
+  for (const input of ['綁定工程群組', '綁定 工程 群組', '綁定工程AM群組',
+    '<綁定工程群組>', '＜綁定工程群組＞', '绑定工程群组', '\uFEFF綁定\u200B工程群組']) {
+    const command = parseGroupOnboardingCommand(input);
+    assert.equal(command.tenantKey, 'engineering', input);
+    assert.equal(command.groupName, '');
+    assert.equal(command.requiresLineGroupName, true);
+    const resolved = withResolvedGroupName(command, '測試工程群');
+    assert.equal(resolved.groupName, '測試工程群');
+    const properties = groupOnboardingProperties(resolved, 'gSimple');
+    assert.equal(properties['LINE 群組 ID'].rich_text[0].text.content, 'gSimple');
+    assert.equal(properties['群組名稱'].title[0].text.content, '測試工程群');
+    assert.throws(() => withResolvedGroupName(command, ''), /無法讀取/);
+  }
+  const input = '@小葉 綁定工程群組';
+  const self = { type: 'user', isSelf: true, index: 0, length: 3 };
+  assert.equal(parseGroupOnboardingCommand(input, { mentionees: [self] }).tenantKey, 'engineering');
+  for (const mention of [null, { mentionees: [{ ...self, isSelf: false }] },
+    { mentionees: [{ ...self, index: -1 }] }, { mentionees: [{ ...self, length: 999 }] },
+    { mentionees: [self, { ...self, isSelf: false }] }]) {
+    assert.equal(parseGroupOnboardingCommand(input, mention).isCommand, false);
+  }
+  for (const input of ['可以綁定工程群組嗎', '不要綁定工程群組', '綁定工程群組嗎？',
+    '綁定工程群組，並簽約', '綁定工程群組>', '<綁定工程群組']) {
+    assert.notEqual(parseGroupOnboardingCommand(input).tenantKey, 'engineering', input);
+  }
+  assert.ok(supportedGroupOnboardingExamples().includes('綁定工程群組'));
+});
+
 await check('群組綁定確認在 reply token 失敗時改用群組推播', async () => {
   const calls = [];
   const event = {
