@@ -1,5 +1,7 @@
 # Root OA runtime improvements
 
+2026-10-28：AM-IMP-2026.1027.90 已 Installed／Deployed。PR483／CI40612509087完整217步、合併d3c06c2d；AM兩站／Render Live41.2秒，DailyLog90ea7f81完整89模組、原87模組與最新附件改善及原設定保持。452原工作、40身分設定、64附件／110分塊與32會議業務資料保持。見[正式結果](upgrades/dailylog-meetings-tab-20261027.md)。
+
 2026-10-27：AM-IMP-2026.1027.90 工作日誌「會議」分頁與個人 Calendar 建檔為 Ready；原畫面隔離接線與防重、權限、分頁保留已驗證，未正式發布。見 [本機驗證](upgrades/dailylog-meetings-tab-20261027.md)。
 
 
