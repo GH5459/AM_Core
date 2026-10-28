@@ -81,7 +81,7 @@ class EventBridge {
           // Analysis in the designated case chat remains read-only. A failed
           // preflight never grants permission to change code or retry work.
           if(job.kind==='analyze'&&this.config.visibleChatsFile){this.toolWarning=label;}
-          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'確認上述工具後，沿原案件重新查核並提案；先核對已有動作，新版仍須本人核准。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
+          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'確認上述工具後，沿原案件重新查核；先核對已有動作，再依目前設定接續處理。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
         }
       }
       if(this.config.visibleChatsFile){
@@ -92,7 +92,7 @@ class EventBridge {
         try {
           const checked=await this.call('event-check',checkInput);
           if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
-          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認本版本人核准且claim取得有效lease的execute才可修改，所有副作用前再次event-check及check；失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
+          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
           const saveEvent=(file,v)=>this.save(rel+'/'+file,v);

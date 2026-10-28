@@ -4,6 +4,7 @@ const id='a'.repeat(64),lease='fixture-event-lease';
 function fixture(fetcher,launch){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'leaf-bridge-test-'));fs.writeFileSync(path.join(dir,'runner.private.json'),JSON.stringify({key:'isolated-only'}));fs.writeFileSync(path.join(dir,'wrangler.json'),JSON.stringify({vars:{PUBLIC_ORIGIN:'https://isolated.invalid',LEAF_TASK_TENANT:'fixture'}}));fs.writeFileSync(path.join(dir,'prompt.txt'),'只處理隔離事件。');class Socket extends EventEmitter{constructor(){super();this.readyState=1;queueMicrotask(()=>this.emit('open'));}send(){}close(){this.emit('close');}}const bridge=new EventBridge({operatorDirectory:dir,workRoot:dir,promptFile:path.join(dir,'prompt.txt'),codexExecutable:'isolated-codex'},{WebSocket:Socket,fetcher,launch});return {dir,bridge};}
 const reply=v=>Response.json({ok:true,...v});
 
+
 test('a project access confirmation stops the same case and explains the required sidebar action',async()=>{
  const caseId='work-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',calls=[];
  const projects=['am','dailylog','uof','meeting','hozo'].map(key=>({key,id:'p-'+key}));
