@@ -237,6 +237,7 @@ jobs:
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs
+      - run: node --test tools/test-xiaoye-runtime-reconnect.cjs
       - run: node --check tools/xiaoye-visible-chats.cjs
       - run: node --test tools/test-xiaoye-visible-chats.cjs
       - run: node --test tools/test-xiaoye-case-chat-registry.cjs tools/test-xiaoye-case-events.cjs
