@@ -300,6 +300,7 @@ jobs:
       - run: node --test tools/test-calendar-meeting-quick-open.mjs
       - run: node --test tools/test-dailylog-meeting-cancel.mjs
       - run: node --test tools/test-dailylog-cancel-position.mjs
+      - run: node tools/test-dailylog-work-time-events.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.09
       - run: node --test tools/test-meeting-calendar-speed.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.08
