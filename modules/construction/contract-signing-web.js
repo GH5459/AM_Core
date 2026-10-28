@@ -424,6 +424,8 @@ function openInExternalBrowser(){
 }
 async function initialize() {
   if(!LIFF_ID){ show('LIFF 尚未設定，請聯繫工程 AM 管理員。','error'); return; }
+  const entryParams=new URLSearchParams(location.search);
+  const returnedFromLine=entryParams.has('code')||entryParams.has('liff.state')||entryParams.has('liffClientId');
   // Keep a directly opened fragment across an SDK-triggered navigation, but
   // leave the URL untouched until LIFF has completed its initialization.
   const initialToken=new URLSearchParams(location.hash.replace(/^#/, '')).get('token') || '';
@@ -433,7 +435,7 @@ async function initialize() {
   // liff.state. Do not inspect or rewrite it before initialization finishes.
   await liff.init({liffId:LIFF_ID});
   state.token=readFragmentToken();
-  if(!state.token){ show('簽署連結不完整，請回到工程 LINE 群組重新開啟。','error'); return; }
+  if(!state.token){ show('簽署連結不完整，請回到工程 LINE 群組重新開啟。（診斷代碼 '+(returnedFromLine?'B':'A')+'）','error'); return; }
   if(!liff.isLoggedIn()) {
     if(sessionStorage.getItem(LOGIN_ATTEMPT_KEY)==='1') {
       byId('contract-state').textContent='LINE 登入沒有完成，系統已停止自動重新登入。請關閉此頁，再從原工程 LINE 群組的合約訊息重新開啟。';

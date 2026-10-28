@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1028.16",
+  "name": "Contract signing missing-link diagnostic",
+  "type": "AM Platform / contracts / signing authentication",
+  "portable": true,
+  "status": "Proposed",
+  "createdAt": "2026-10-28",
+  "dependsOn": ["AM-IMP-2026.1028.15"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": ["Show a coarse non-sensitive missing-link diagnostic code"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-signing-web.mjs", "tools/dryrun-engineering-contract-signing.mjs", "tools/dryrun-engineering-contract-runtime.mjs", "tools/dryrun-engineering-contract-security-gates.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false, "guard": "Never expose or record signing tokens, LINE credentials or callback values in the diagnostic."},
+  "definitionOfDone": ["Missing-token flows remain blocked", "Diagnostic codes reveal no token or callback values", "Affected device is able to report only the diagnostic code"],
+  "files": ["modules/construction/contract-signing-web.js", "tools/dryrun-engineering-contract-signing-web.mjs"]
+}
