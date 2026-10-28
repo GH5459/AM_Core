@@ -603,6 +603,7 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
   .stat span { font-size:11px; color:var(--dim); }
   .btn { background:var(--green); color:#fff; border:none; border-radius:8px; padding:7px 14px; font-size:13px; cursor:pointer; }
   .btn.ghost { background:#eef2f0; color:#22302a; }
+  #wf-issue:disabled { background:#e2e6e3; color:#657169; cursor:not-allowed; }
   .twrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
   table { border-collapse:collapse; background:var(--card); font-size:13px; width:100%; min-width:900px; }
   th,td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; white-space:nowrap; vertical-align:top; }
