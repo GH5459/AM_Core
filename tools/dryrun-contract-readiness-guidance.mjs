@@ -36,5 +36,10 @@ assert.equal(items.length,1,'drafts show actionable content blockers instead of 
 let requests=0;context.apiV2=async()=>{requests++;return {ready:false,blockers:[]};};context.alert=()=>{};
 vm.runInContext(script.match(/async function workflowIssue\(action\)\{[^\n]+/)[0],context);
 await context.workflowIssue('issue');assert.equal(requests,1,'blocked issuance only performs a read-only readiness check');
+context.apiV2=()=>{requests++;return new Promise(r=>{resolve=r;});};
+const issuance=context.workflowIssue('issue');
+context.WORKFLOW={contract:{id:'contract-c'},detail:{latestVersion:{id:'v3',versionNo:3,status:'frozen'}}};
+resolve({ready:true,blockers:[]});await issuance;
+assert.equal(requests,2,'switching contracts during preflight must never issue another contract');
 assert.match(script,/id="wf-issue" class="btn" disabled/);
 console.log('Contract readiness guidance passed: missing fields, editor navigation, send guard, errors and stale response isolation.');
