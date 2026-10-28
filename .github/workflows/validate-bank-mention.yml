@@ -303,6 +303,8 @@ jobs:
       - run: node tools/test-dailylog-work-time-events.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.09
       - run: node --test tools/test-meeting-calendar-speed.mjs
+      - run: node --test tools/test-rich-menu-dailylog-entry.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.11
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.08
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.07
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.98

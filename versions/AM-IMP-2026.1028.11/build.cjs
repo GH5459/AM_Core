@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');
+const once=(source,from,to)=>{assert.equal(source.split(from).length,2,'Current production source has changed; inspect before applying');return source.replace(from,to);};
+exports.patchClient=function(source){
+ const marker="if(typeof renderJournalWorkPanel!=='function')return;";
+ return once(source,marker,marker+`\n  const entryUrl=new URL(location.href);if(entryUrl.searchParams.getAll('workTab').length===1&&entryUrl.searchParams.get('workTab')==='meetings'&&!entryUrl.searchParams.has('task')&&!entryUrl.searchParams.has('issue')){personalView='journals';journalWorkTab='meetings';entryUrl.searchParams.delete('workTab');history.replaceState(history.state,'',entryUrl.pathname+entryUrl.search+entryUrl.hash);}`);
+};
+exports.patchWorker=function(source){const route=source.indexOf("if(url.pathname==='/dailylog-meetings-client.js')");assert(route>0);const end=source.indexOf(",{headers:{'Content-Type':'text/javascript; charset=utf-8'",route);assert(end>route);const start=source.lastIndexOf('return new Response(',end);assert(start>route&&source.slice(route,start).includes('status:401'));const client=JSON.parse(source.slice(start+'return new Response('.length,end));return source.slice(0,start)+'return new Response('+JSON.stringify(exports.patchClient(client))+source.slice(end);};
+exports.patchEntrySpeed=function(source){
+ source=once(source,"if(url.origin!==env.PUBLIC_ORIGIN||!origins.has(fallback.origin)||fallback.username||fallback.password||fallback.hash||fallback.pathname!=='/meetings/review/connect'||fallback.searchParams.get('app')!=='dailylog')throw Error();",`const tabs=url.searchParams.getAll('workTab'),wantsMeeting=tabs.length===1&&tabs[0]==='meetings';const journal=tabs.length===0&&fallback.searchParams.get('app')==='dailylog'&&!fallback.searchParams.has('workTab');const meeting=wantsMeeting&&fallback.searchParams.get('app')==='meetings'&&fallback.searchParams.getAll('workTab').length===1&&fallback.searchParams.get('workTab')==='meetings';if(url.origin!==env.PUBLIC_ORIGIN||!origins.has(fallback.origin)||fallback.username||fallback.password||fallback.hash||fallback.pathname!=='/meetings/review/connect'||!journal&&!meeting)throw Error();`);
+ source=once(source,"const target=new URL('/?openExternalBrowser=1',url),response=await base.fetch", "const target=new URL('/?openExternalBrowser=1',url);if(url.searchParams.get('workTab')==='meetings')target.searchParams.set('workTab','meetings');const response=await base.fetch");
+ // Render the destination through the complete outer Worker, which adds the
+ // native meeting client and other current features to the journal page.
+ source=once(source,"if(!response.ok||!response.headers.get('Content-Type')?.includes('text/html'))return response;", "if(!response.ok||!response.headers.get('Content-Type')?.includes('text/html'))return response;\n if(url.searchParams.get('workTab')==='meetings')return new Response(null,{status:303,headers:{...headers,Location:target.pathname+target.search}});");
+ source=once(source,"'<script>history.replaceState(history.state,\"\",\"/?openExternalBrowser=1\");</script>'", "'<script>history.replaceState(history.state,\"\",'+JSON.stringify(target.pathname+target.search).replaceAll('<','\\\\u003c')+');</script>'");
+ return source;
+};
