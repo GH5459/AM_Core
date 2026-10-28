@@ -12,8 +12,10 @@ test('a missing or ambiguous desktop never falls back to the old connection',()=
  for(const names of [[],['codex-app-tools-a1b2','codex-app-tools-c3d4']])
   assert.throws(()=>currentContext({pipePath:'stale'},{platform:'win32',pipeNames:()=>names}),/唯一確認/);
 });
-test('background PR and CI access remains restricted to AM_Core',()=>{
- assert.doesNotThrow(()=>validate('attach_artifact',{artifact_type:'pull_request',url:'https://github.com/GH5459/AM_Core/pull/503'}));
- assert.throws(()=>validate('attach_artifact',{artifact_type:'pull_request',url:'https://github.com/GH5459/DailyLog/pull/1'}));
- assert.throws(()=>validate('pull_requests_checks',{pullRequest:{hostname:'github.com',owner:'GH5459',repository:'DailyLog'}}));
+test('background PR attachment stays inside the case repository and CI reads configured repositories',()=>{
+ assert.doesNotThrow(()=>validate('attach_artifact',{artifact_type:'pull_request',url:'https://github.com/GH5459/AM_Core/pull/503'},'am'));
+ assert.doesNotThrow(()=>validate('attach_artifact',{artifact_type:'pull_request',url:'https://github.com/GH5459/DailyLog/pull/1'},'dailylog'));
+ assert.throws(()=>validate('attach_artifact',{artifact_type:'pull_request',url:'https://github.com/GH5459/DailyLog/pull/1'},'am'));
+ assert.doesNotThrow(()=>validate('pull_requests_checks',{pullRequest:{hostname:'github.com',owner:'GH5459',repository:'DailyLog'}}));
+ assert.throws(()=>validate('pull_requests_checks',{pullRequest:{hostname:'github.com',owner:'GH5459',repository:'Other'}}));
 });

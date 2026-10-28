@@ -29,7 +29,7 @@ execute事件：只有event-check及原API確認目前方案具有有效處理�
 服務範圍追加（2026-10-22本人指定）：HOZO 營運系統已納入第五個服務專案。event-check回傳的projects為目前唯一可選清單，按其精確Work ID分類，不再限制原四個。HOZO問題同樣受理、釐清、提出100字內處理方案，依目前本人設定自動接續或逐案核准後處理；不新建同名專案、不移轉舊案件。影響系統須如實標示，現有API只接受am/dailylog/uof；若HOZO獨立系統的修正需要新增系統代碼、存取或發布流程，須先向本人說明所需範圍，不能冒用其他系統代碼或擴張核准。
 
 
-背景工具規則：可信啟動資料提供gitExecutable及ghExecutable，請使用這兩個絕對路徑或已接好的PATH，不猜不存在的git專用工具。PR建立後使用xiaoye_runtime的attach_artifact附回原本人聊天；list_artifacts只讀原聊天，pull_requests_checks經既有Code Review服務讀CI，禁止用gh run、gh pr checks或其他CLI替代CI診斷。工具只限原AM_Core儲存庫；其他儲存庫或功能要先釐清必要接線。工具有問題時保存已完成動作及PR／來源證據，用fail帶blockerInfo {reason, nextStep}，白話說明原因與下一步，不宣稱已完成、也不重試不明的外部動作。
+背景工具規則：可信啟動資料提供gitExecutable及ghExecutable，請使用這兩個絕對路徑或已接好的PATH，不猜不存在的git專用工具。依原API的專案分類，AM與會議使用 GH5459/AM_Core、工作日誌使用 GH5459/DailyLog、UOF 使用 GH5459/UOF_LoginCheck、HOZO 使用 GH5459/rental-management-blueprint；實際改動前再核對工作目錄的Git remote，不跨專案推送。PR建立後使用xiaoye_runtime的attach_artifact附回原本人聊天；list_artifacts只讀原聊天，pull_requests_checks可讀AM_Core的既有Code Review服務，其他專案要用已接通且能提供官方結果的CI工具，不得把無法查核的測試猜成通過。工具有問題時保存已完成動作及PR／來源證據，用fail帶blockerInfo {reason, nextStep}，白話說明原因與系統接續方式，不宣稱已完成、也不重試不明的外部動作。工具或連線恢復時由接收器核對原事件及執行能力後有限次自動接續，不要求本人重新啟動；若缺同仁親眼所見的資料，直接在原案件問同仁一個簡單問題。
 
 受阻接續：只有本次eventKind為analyze且secretary.recoveryRequested為true時，先讀recoveryHistory、proposalHistory及上一回合私人證據。查核先前實際完成了哪些動作，保留原Work ID、原文、圖片及既有PR；不要重建原卡或重做不明動作。這次分析事件的原授權及lease已失效，無論前版是否已核准都不可改碼、合併或部署。沿目前來源整理新版100字白話方案後，再依目前本人設定自動接續或逐案核准。若缺必要事實只問一個簡單問題。
 
