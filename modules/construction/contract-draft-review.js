@@ -4,7 +4,8 @@ import { createContractArtifactService } from './contract-artifacts.js';
 import { resolveAuthoritativeContractGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
 import { renderDraftReviewHistoryAppendix } from './contract-pdf-renderer.js';
-import { captureContractLineArchive, publicLineArchive } from './contract-line-archive.js';
+import { captureContractLineArchive, publicLineArchive, captureSavedContractConversation } from './contract-line-archive.js';
+import { synchronizeContractGroup } from './contract-group-sync.js';
 import { isRenderInternalProxyPeer } from './contract-runtime.js';
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -567,6 +568,27 @@ export function createContractDraftReviewService(deps, options = {}) {
       mimeType: selected.mimeType, fileName: selected.name };
   }
 
+  async function syncContractGroup(context,input) {return synchronizeContractGroup(deps,context,input);}
+  async function archiveSavedConversation(context,input) {
+    await syncContractGroup(context,input);
+    const detail=await management.getContractDetail(context,{contractId:input.contractId});
+    if(detail.latestVersion?.id!==text(input.versionId))throw reviewError('LINE_ARCHIVE_STALE_VERSION','合約已有新版本，請重新開啟工作區。',409);
+    if(detail.versions.some(v=>['frozen','issued','superseded'].includes(v.status)))throw reviewError('LINE_ARCHIVE_FROZEN','已有凍結或簽發版本，請先由管理者確認新增歷史證據的版本。',409);
+    const group=await authorityResolver(deps,{groupBindingId:contractGroupId(detail.contract),projectId:detail.contract.projectId});
+    return captureSavedContractConversation(deps,{context,contract:detail.contract,
+      version:[...detail.versions].sort((a,b)=>a.versionNo-b.versionNo)[0],group,endedAt:new Date(clock()).toISOString()});
+  }
+  async function loadArchivedOriginal(context,input) {
+    const {contract}=await loadInternalVersion(context,input);
+    const row=await deps.contractStore.getLineConversationArchive(context.tenant,text(input.archiveId));
+    if(!row||text(row.contract_id)!==text(contract.id))throw reviewError('LINE_ARCHIVE_NOT_FOUND','找不到這份 LINE 對話封存。',404);
+    if(!/^\d+$/.test(String(input.originalId)))throw reviewError('LINE_ARCHIVE_ORIGINAL_NOT_FOUND','找不到附件原檔。',404);
+    const file=(row.source_manifest||[]).flatMap(m=>m.attachments||[])[Number(input.originalId)];
+    if(!file)throw reviewError('LINE_ARCHIVE_ORIGINAL_NOT_FOUND','找不到附件原檔。',404);
+    const buffer=await downloadVerifiedAttachment(deps,file);
+    return {buffer,mimeType:file.mimeType,fileName:file.name,sha256:file.sha256};
+  }
+
   async function loadByToken(tenant, token) {
     const raw = text(token);
     if (!/^[A-Za-z0-9_-]{32,180}$/.test(raw)) throw reviewError('DRAFT_REVIEW_TOKEN_INVALID', '草約審閱連結無效。', 404);
@@ -634,6 +656,7 @@ export function createContractDraftReviewService(deps, options = {}) {
   return Object.freeze({
     issueDraftReview, listForContract, previewInternal, loadInternalAttachment,
     listLineArchives, backfillLineArchives, createLineArchiveSupplement, loadInternalLineArchive,
+    syncContractGroup, archiveSavedConversation, loadArchivedOriginal,
     openReview, respond, loadDocument,
   });
 }

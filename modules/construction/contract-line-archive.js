@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { PDFDocument } from 'pdf-lib';
 
 import { createContractArtifactService } from './contract-artifacts.js';
 import { renderLineConversationArchive } from './contract-pdf-renderer.js';
@@ -21,7 +22,7 @@ function sha256(value) { return crypto.createHash('sha256').update(value).digest
 function driveFileId(url) { return text(url).match(/\/file\/d\/([A-Za-z0-9_-]+)/)?.[1] || ''; }
 function stageLabel(stage) {
   if (stage === 'final_issue') return '正式確認版送簽前';
-  if (stage === 'historical_supplement') return 'V1 前歷史補充封存';
+  if (stage === 'historical_supplement') return '歷史對話補充封存';
   return '草約送廠商確認前';
 }
 
@@ -149,7 +150,7 @@ function evidenceManifest(messages) {
   return messages.map((message) => ({
     pageId: message.pageId, messageId: message.messageId, sender: message.sender,
     time: message.time, messageType: message.messageType, content: message.content,
-    attachments: message.attachments.map(({ name, fileId, mimeType, sha256: hash }) => ({ name, fileId, mimeType, sha256: hash })),
+    attachments: message.attachments.map(({ name, fileId, sourceFileId, mimeType, sha256: hash }) => ({ name, fileId, ...(sourceFileId?{sourceFileId}:{}), mimeType, sha256: hash })),
   }));
 }
 
@@ -157,7 +158,9 @@ export function publicLineArchive(row) {
   return {
     id: row.id, versionId: row.version_id, versionNo: Number(row.version_no), stage: row.stage,
     stageLabel: stageLabel(row.stage), startedAfter: row.started_after, endedAt: row.ended_at,
+    firstMessageAt: row.source_manifest?.[0]?.time || null,
     messageCount: Number(row.message_count), firstMessageId: row.first_message_id,
+    originals: (row.source_manifest || []).flatMap(m => m.attachments || []).map((a,index) => ({id:String(index),name:a.name})),
     lastMessageId: row.last_message_id, fileName: row.file_name
       || (row.stage === 'historical_supplement'
         ? `V${row.version_no}-V1前歷史補充-LINE對話封存.pdf`
@@ -181,15 +184,22 @@ export async function captureContractLineArchive(deps, input, options = {}) {
   if (duplicate) return { ...publicLineArchive(duplicate), driveFileId: duplicate.pdf_drive_file_id };
   const previous = [...existing].filter((row) => Date.parse(row.ended_at) < Date.parse(cutoff)).at(-1);
   const startedAfter = input.startedAfter !== undefined ? input.startedAfter : (previous?.ended_at || null);
-  const pages = await queryAllMessages(deps, input.group.groupBindingId, startedAfter, cutoff);
-  const messages = await normalizedMessages(deps, pages);
+  const messages = options.messages || await normalizedMessages(deps,
+    await queryAllMessages(deps, input.group.groupBindingId, startedAfter, cutoff));
   const manifest = evidenceManifest(messages);
   const manifestSha256 = sha256(Buffer.from(canonical(manifest), 'utf8'));
-  const pdf = await renderLineConversationArchive({
+  let pdf = await renderLineConversationArchive({
     contractNumber: contract.contractNumber || contract.contract_number, title: contract.title,
     versionNo: version.versionNo || version.version_no, groupName: input.group.groupName,
     stageLabel: stageLabel(input.stage), startedAfter, endedAt: cutoff, messages,
   });
+  // Keep PDF attachments readable in the archive as well as preserving their original bytes.
+  const pdfFiles=messages.flatMap(m=>m.attachments).filter(a=>a.mimeType==='application/pdf'&&a.buffer);
+  if(pdfFiles.length){
+    const bundle=await PDFDocument.load(pdf);
+    for(const file of pdfFiles){const document=await PDFDocument.load(file.buffer);for(const page of await bundle.copyPages(document,document.getPageIndices()))bundle.addPage(page);}
+    pdf=Buffer.from(await bundle.save());
+  }
   const rendered = { buffer: pdf, sha256: sha256(pdf), byteSize: pdf.length };
   const fileName = `${contract.contractNumber || contract.id}-V${version.versionNo || version.version_no}-${input.stage === 'final_issue' ? 'FINAL' : 'DRAFT'}-LINE-對話封存.pdf`;
   const stored = await artifacts.storePdf({
@@ -210,3 +220,41 @@ export async function captureContractLineArchive(deps, input, options = {}) {
 }
 
 export const __test = { canonical, stageLabel, evidenceManifest, publicLineArchive, driveFileId, stickerAttachment };
+
+export async function captureSavedContractConversation(deps,input) {
+  if(typeof deps.loadCentralContractMessages!=='function')throw archiveError('CENTRAL_ARCHIVE_UNAVAILABLE','LINE 歷史對話收集服務尚未就緒。',503);
+  const messages=await deps.loadCentralContractMessages({tenantKey:input.context.tenant.key,
+    groupBindingId:input.group.groupBindingId,lineGroupId:input.group.lineGroupId,endedAt:input.endedAt});
+  if(!messages.length)throw archiveError('LINE_ARCHIVE_EMPTY','這個群組尚無已保存的對話。',409);
+  const identity=messages.map(m=>({...m,attachments:m.attachments.map(({name,sha256,fileId})=>({name,sha256,fileId}))}));
+  const archiveKey=`saved-conversation:${input.contract.id}:${sha256(Buffer.from(canonical(identity)))}`;
+  const existing=await deps.contractStore.listLineConversationArchives(input.context.tenant,input.contract.id);
+  const duplicate=existing.find(row=>row.archive_key===archiveKey);
+  if(duplicate)return publicLineArchive(duplicate);
+  const max=60*1024*1024; let total=0;
+  const hydrated=new Map();
+  // Copy originals to the contract's private archive; never change source sharing.
+  const folder=await deps.ensureDriveFolder('工程合約管理',deps.driveRootFolderId);
+  const project=await deps.ensureDriveFolder(String(input.contract.projectCode||input.contract.projectId),folder);
+  const contractFolder=await deps.ensureDriveFolder(String(input.contract.contractNumber||input.contract.id),project);
+  const target=await deps.ensureDriveFolder('LINE 對話原始附件',contractFolder);
+  if((await deps.auditDrivePrivate(target))?.private!==true)throw archiveError('LINE_ARCHIVE_NOT_PRIVATE','附件封存資料夾必須保持私有。',409);
+  for(const message of messages)for(let i=0;i<message.attachments.length;i++){
+    const a=message.attachments[i];
+    if(!a.fileId||!/^[a-f0-9]{64}$/i.test(a.sha256||''))throw archiveError('LINE_ARCHIVE_SOURCE_MISSING',`附件尚未完整保存：${a.name}`,409);
+    if(hydrated.has(a.fileId)){message.attachments[i]=hydrated.get(a.fileId);continue;}
+    if((await deps.auditDrivePrivate(a.fileId))?.private!==true)throw archiveError('LINE_ARCHIVE_NOT_PRIVATE','來源附件必須保持私有。',409);
+    const original=await deps.downloadFromDrive(a.fileId,max);
+    const buffer=original?.buffer;
+    if(!Buffer.isBuffer(buffer)||!buffer.length||sha256(buffer)!==a.sha256)throw archiveError('LINE_ARCHIVE_SOURCE_CHANGED',`附件檢查失敗：${a.name}`,409);
+    total+=buffer.length;if(total>max)throw archiveError('LINE_ARCHIVE_TOO_LARGE','附件超過 60 MB，請分批封存。',413);
+    const mimeType=original.mimeType||original.contentType||(/\.pdf$/i.test(a.name)?'application/pdf':'application/octet-stream');
+    const name=String(a.name).replace(/[\\/\x00-\x1f]/g,'_').slice(0,180);
+    const saved=await deps.uploadToDrive(buffer,`${a.sha256.slice(0,12)}-${name}`,mimeType,target);
+    if(!saved?.id||(await deps.auditDrivePrivate(saved.id))?.private!==true)throw archiveError('LINE_ARCHIVE_COPY_FAILED','附件原檔封存未完成。',503);
+    const item={...a,sourceFileId:a.fileId,fileId:saved.id,mimeType,buffer};
+    hydrated.set(a.fileId,item);message.attachments[i]=item;
+  }
+  return captureContractLineArchive(deps,{...input,stage:'historical_supplement',startedAfter:null,
+    archiveKey},{messages});
+}

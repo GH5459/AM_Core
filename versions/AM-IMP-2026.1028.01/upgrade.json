@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.1028.01",
+  "name": "Engineering contract group synchronization and saved conversation archives",
+  "type": "AM Platform / Engineering",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-10-28",
+  "dependsOn": [
+    "AM-IMP-2026.0916.03"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/dryrun-contract-saved-conversation.mjs",
+    "node tools/dryrun-engineering-contract-workspace.mjs",
+    "node tools/dryrun-engineering-contract-workflow-api.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Exact current engineering group binding, bot and source ID; server actor and project scope. Private copies with SHA-256."
+  },
+  "definitionOfDone": [
+    "Workspace synchronizes the authoritative Notion group relation without rewriting frozen contracts",
+    "Saved messages and attachments can be archived without LINE sends",
+    "Originals remain private and hash verified on read"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:engineering": "Installed"
+  },
+  "files": [
+    "core/central-archive/contract-source.js",
+    "core/central-archive/index.js",
+    "modules/construction/contract-group-sync.js",
+    "modules/construction/contract-line-archive.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "modules/construction/index.js",
+    "server.js",
+    "tools/dryrun-contract-saved-conversation.mjs"
+  ]
+}

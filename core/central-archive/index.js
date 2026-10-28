@@ -6,6 +6,7 @@ import {lineIoDatabaseConfig} from '../line-io/database.js';
 import {createQuotedArchiveAccess,quotedRecoveryRecord} from './quoted-access.js';
 import {createArchiveFileLookup} from './file-lookup.js';
 import {createArchiveTaskPhotos} from './task-photos.js';
+import {createContractConversationSource} from './contract-source.js';
 export const CENTRAL_ARCHIVE_CONTRACT='line-per-conversation-notion-drive-v1';
 export function archiveDatabaseConfig(env){
   const connectionString=env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_CENTRAL_ARCHIVE_LOCAL_DATABASE_URL;
@@ -189,6 +190,7 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     backlog:Boolean(state.states?.pending||state.states?.sending),needsSource:Boolean(state.states?.needs_source)});
   const findOriginal=createArchiveFileLookup({pool,botId:config.botId,canAccess:canRetrieveQuote,verifyRow:verifyOriginalRow});
   const {taskPhotos,taskPhoto}=createArchiveTaskPhotos({pool,botId:config.botId,canAccess:canRetrieveQuote,verifyRow:verifyOriginalRow});
-  return {capture,drain,original,findOriginal,taskPhotos,taskPhoto,canRetrieveQuote,recoverQuoted,taskSources,groupActors,health,store,notion,processJob,pool,config,
+  const contractMessages=createContractConversationSource({pool,botId:config.botId,notion,router,parentId:config.parentId});
+  return {capture,drain,original,findOriginal,taskPhotos,taskPhoto,canRetrieveQuote,recoverQuoted,taskSources,groupActors,contractMessages,health,store,notion,processJob,pool,config,
     close:async()=>{clearInterval(timer);if(draining)await draining;if(!injectedPool)await pool.end();}};
 }

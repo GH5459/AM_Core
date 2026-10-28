@@ -197,6 +197,12 @@ function routeFor(method, pathname) {
   if (method === 'GET' && match) {
     return { operation: 'getContractDetail', capability: 'view', contractId: decodeSegment(match[1]) };
   }
+  match=pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/sync-group$/);
+  if(method==='POST'&&match)return {operation:'syncContractGroup',capability:'manage',review:true,body:true,contractId:decodeSegment(match[1])};
+  match=pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/archive-saved-conversation$/);
+  if(method==='POST'&&match)return {operation:'archiveSavedConversation',capability:'manage',review:true,body:true,contractId:decodeSegment(match[1]),versionId:decodeSegment(match[2])};
+  match=pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives\/([^/]+)\/originals\/([^/]+)$/);
+  if(method==='GET'&&match)return {operation:'loadArchivedOriginal',capability:'view',review:true,binary:true,contractId:decodeSegment(match[1]),versionId:decodeSegment(match[2]),archiveId:decodeSegment(match[3]),originalId:decodeSegment(match[4])};
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions$/);
   if (method === 'POST' && match) {
     return { operation: 'createDraftVersion', capability: 'manage', body: true, contractId: decodeSegment(match[1]) };
@@ -413,6 +419,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.attachmentId) bindPathReference(input, 'attachmentId', route.attachmentId);
       if (route.drawingId) bindPathReference(input, 'drawingId', route.drawingId);
       if (route.archiveId) bindPathReference(input, 'archiveId', route.archiveId);
+      if (route.originalId !== undefined) bindPathReference(input, 'originalId', route.originalId);
       if (route.operation === 'createDraftVersion' && Object.prototype.hasOwnProperty.call(input, 'projectDrawingSelections')) {
         projectDrawingService ||= createContractProjectDrawingService(deps);
         const resolved = await projectDrawingService.resolveSelections(context, {
