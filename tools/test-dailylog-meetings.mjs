@@ -5,6 +5,11 @@ import {managementSignature} from '../modules/meetings/management-auth.js';
 import {embeddedRequest,dailylogActor} from '../modules/meetings/dailylog-embedded.js';
 import {meetingProxy,meetingAssets} from '../versions/AM-IMP-2026.1027.90/dailylog-meetings.mjs';
 import {createLoginContinuationHttp} from '../core/login-continuation-http.js';
+import {createRequire} from 'node:module';
+const {patchWorker}=createRequire(import.meta.url)('../versions/AM-IMP-2026.1027.90/build.cjs');
+test('latest outer worker, including concurrent improvements and scheduled handler, remains the delegate',()=>{
+ const input='const latest_attachments_worker={fetch(){},scheduled(){}}; export {latest_attachments_worker as default};';const output=patchWorker(input);assert(output.includes('...latest_attachments_worker'));assert(output.includes('meetingProxy(request,env,ctx,latest_attachments_worker)'));assert(output.includes('await latest_attachments_worker.fetch'));assert(!output.includes('google_renewal_worker'));assert.throws(()=>patchWorker(output));
+});
 const secret='synthetic-test-secret-only-'.repeat(3),line='U'+'1'.repeat(32),bot='U'+'b'.repeat(32),account='900001',origin='https://diary.test';
 const identity={account,botUserId:bot,lineUserId:line,confirmedAt:'2026-10-27T00:00:00Z',identityId:'test-identity'};
 function signed({path='/meetings/review/hub/api',bytes=Buffer.from('{"action":"list"}'),actor=account,person=line,change=false,nonce=crypto.randomUUID(),timestamp=String(Date.now())}={}){
