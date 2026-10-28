@@ -24,7 +24,7 @@ export function hubClient(BOOT){
  function paintProgress(el,label){el.replaceChildren();for(const [i,text] of label.split('　').entries()){if(i)el.append(document.createTextNode('　'));const span=document.createElement('span');span.style.whiteSpace='nowrap';span.style.display='inline-block';span.textContent=text;el.append(span);}}
  function updateProgress(){for(const el of document.querySelectorAll('[data-progress-id]')){const x=[...items,...sharedItems].find(x=>x.id===el.dataset.progressId);if(!x)continue;paintProgress(el,progressLabel(x));const p=progressById.get(x.id);el.title='📋 待辦總數；✅ 已完成；🔎 待確認；🔵 進行中；⛔ 卡住；⏰ 逾期；👤 未分派；⏳ 待同步'+(p?.checkedAt?'；更新：'+new Date(p.checkedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'');el.setAttribute('aria-label',el.title+'。'+el.textContent);}}
  async function loadProgress(){
-  if(!token)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
+  if(!token&&!window.dailylogMeetingEmbedded)return;if(progressBusy){progressAgain=true;return;}progressBusy=true;
   try{const ids=[...new Set([...document.querySelectorAll('[data-progress-id]')].map(el=>el.dataset.progressId))].filter(id=>!progressById.has(id));let next=0;
    await Promise.all(Array.from({length:Math.min(3,ids.length)},async()=>{while(next<ids.length){const id=ids[next++];try{const r=await api({action:'task-progress',id});progressById.set(id,r.progress);}catch{progressById.set(id,{available:false});}updateProgress();}}));
   }finally{progressBusy=false;if(progressAgain){progressAgain=false;void loadProgress();}}
