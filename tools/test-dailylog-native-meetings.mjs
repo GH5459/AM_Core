@@ -4,11 +4,12 @@ import {createRequire} from 'node:module';
 import {Script} from 'node:vm';
 import {hubHtml} from '../modules/meetings/hub-ui.js';
 import {workspaceHtml} from '../modules/meetings/workspace-ui.js';
+import {JSDOM} from 'jsdom';
 const require=createRequire(import.meta.url),build=require('../versions/AM-IMP-2026.1028.04/build.cjs');
 test('native boot data preserves content and cannot close its JSON script',()=>{
  const value={id:'a'.repeat(64),topic:'</script><script>alert(1)</script>',liffId:'fixture'};
  for(const html of [hubHtml(value),workspaceHtml(value)]){
-  const boot=html.match(/<script type="application\/json" id="dailylogMeetingBoot">([\s\S]*?)<\/script>/)?.[1];assert(boot);assert(!boot.includes('<'));assert.deepEqual(JSON.parse(boot),value);
+  const boot=new JSDOM(html).window.document.getElementById('dailylogMeetingBoot');assert(boot);assert.equal(boot.content.querySelectorAll('script').length,0);assert.deepEqual(JSON.parse(boot.content.textContent),value);
  }
 });
 test('native client is compiled trusted code with scoped DOM and one existing login',()=>{

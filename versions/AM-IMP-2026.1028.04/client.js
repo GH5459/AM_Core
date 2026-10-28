@@ -12,7 +12,7 @@
   const host=document.createElement('div');frame.append(host);const root=host.attachShadow({mode:'open'});views.set(path,{host,root});root.textContent='正在讀取會議…';
   try{
    const response=await fetch(path,{cache:'no-store'});if(!response.ok){const value=await response.json().catch(()=>({}));throw Error(value.error||'會議暫時無法讀取，請稍後重試。');}
-   const parsed=new DOMParser().parseFromString(await response.text(),'text/html'),bootNode=parsed.getElementById('dailylogMeetingBoot');if(!bootNode)throw Error('會議功能尚未更新完成，請稍後重試。');const boot=JSON.parse(bootNode.textContent);
+   const parsed=new DOMParser().parseFromString(await response.text(),'text/html'),bootNode=parsed.getElementById('dailylogMeetingBoot');if(!bootNode)throw Error('會議功能尚未更新完成，請稍後重試。');const boot=JSON.parse(bootNode.content.textContent);
    parsed.querySelectorAll('script').forEach(n=>n.remove());root.replaceChildren();const head=document.createElement('div'),body=document.createElement('div');body.dataset.meetingBody='';
    for(const s of parsed.querySelectorAll('style')){s.textContent=s.textContent.replace(/\bbody\b/g,'[data-meeting-body]').replace(/:root/g,':host');head.append(document.importNode(s,true));}body.append(...Array.from(parsed.body.childNodes,n=>document.importNode(n,true)));body.querySelectorAll('style').forEach(n=>n.remove());root.append(head,body);
    const realDocument=document,realWindow=window,local={dailylogMeetingEmbedded:true,loginContinuationSession:async()=>true,tryLoginContinuation:async()=>false};
