@@ -6,7 +6,7 @@ Runtime target: `AM_PLATFORM`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.1028.01 | Installed | Contract group synchronization and full saved conversation archive | Exact bound Engineering group; private copies and verified original downloads | Local source, PDF, workflow API, workspace, security and 18 Engineering convergence checks passed. Production verification pending. |
+| AM-IMP-2026.1028.01 | Deployed | Contract group synchronization and full saved conversation archive | Exact bound Engineering group; private copies and verified original downloads | PR #486 full CI passed; commit 0934ffe deployed Live as dep-dbgl6r942hec73dd6630. Authenticated group repair, history archive, PDF rendering, originals and combined contract verified. |
 | AM-IMP-2026.1010.01 | Deployed | Shared LINE JSON archive comparison | Root-runtime push/reply for user/group/room | PR #276 full CI and live main aedbf53 verified; no calendar enrollment or tenant permission change. |
 | AM-IMP-2026.1007.03 | Deployed | OA-owned per-conversation central LINE evidence archive; tenant business sources retained | Real PostgreSQL, source isolation, full text, Drive-only binaries, retry recovery and signed webhook checks | Production main f1f68d5 verified live on 2026-10-07 with capture enabled, verified legacy file references and bounded batches. Historical availability and completion are tracked in the target-local owner archive. |
 | AM-IMP-2026.1004.07 | Deployed | Retrieve archived LINE attachments | Exact quote or complete filename in the same conversation; verified Drive link | Main e92dc4c live; retrieval contract and tenant archive readiness verified; real LINE delivery remains user acceptance. |

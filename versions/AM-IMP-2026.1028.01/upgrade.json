@@ -3,7 +3,7 @@
   "name": "Engineering contract group synchronization and saved conversation archives",
   "type": "AM Platform / Engineering",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-10-28",
   "dependsOn": [
     "AM-IMP-2026.0916.03"
@@ -31,7 +31,7 @@
     "Originals remain private and hash verified on read"
   ],
   "projectStatus": {
-    "AM_PLATFORM:engineering": "Installed"
+    "AM_PLATFORM:engineering": "Deployed"
   },
   "files": [
     "core/central-archive/contract-source.js",
