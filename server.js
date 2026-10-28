@@ -39,7 +39,7 @@ const { tenants, line, router, dispatcher, portal, modules, platform, llm, logge
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
 const conversationMeetings=createConversationMeetings({env:process.env,archive:centralArchive,platform,router,tenants,meetingModule:modules.get('meetings'),logger});
 platform.centralArchive={original:centralArchive.original,findOriginal:centralArchive.findOriginal,taskPhotos:centralArchive.taskPhotos,taskPhoto:centralArchive.taskPhoto,canRetrieveQuote:centralArchive.canRetrieveQuote,
-  recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
+  recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health,contractMessages:centralArchive.contractMessages};
 const portalCommandEntry = createPortalCommandEntry({ line, logger });
 const workJournalEntry = createWorkJournalEntry({ line, logger,createAuthenticatedAction:(event,action)=>commonLineEntry.journalAction(action)||leafTasks.loginEntry(event,action) });
 const usageGuideEntry = createUsageGuideEntry({line,logger,botUserId:process.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});

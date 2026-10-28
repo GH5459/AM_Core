@@ -120,6 +120,7 @@ function fullDeps(tenant) {
     lineGet: platform.lineGet,
     verifyLiffIdentity: platform.verifyLiffIdentity,
     contractStore: platform.contractStore,
+    loadCentralContractMessages: platform.centralArchive?.contractMessages,
     uploadToDrive: platform.uploadToDrive,
     uploadDriveStream: platform.uploadDriveStream,
     downloadFromDrive: platform.downloadFromDrive,
