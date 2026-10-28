@@ -21,6 +21,9 @@ try{
  const hub=await call('/meetings/review/hub');assert.equal(hub.status,200);assert(hub.body.startsWith('<!doctype'));assert.equal(hub.headers['X-DailyLog-Meetings-Origin'],origin);
  const list=await call('/meetings/review/hub/api',{action:'list'});assert.equal(list.status,200,JSON.stringify(list));assert(list.items.length);
  const sources=await call('/meetings/review/hub/api',{action:'sources'});assert.equal(sources.status,200);assert(sources.sources.some(s=>s.key===f.key));
+ const originalIdentity=f.platform.meetingShareIdentity;let identityChecks=0;f.platform.meetingShareIdentity=async(...args)=>{identityChecks++;return originalIdentity(...args);};
+ const shared=await call('/meetings/review/hub/api',{action:'list',scope:'shared'});assert.equal(shared.status,200);assert.equal(identityChecks,1,'One freshly verified identity is reused only within this signed request');
+ const second=await call('/meetings/review/hub/api',{action:'list',scope:'shared'});assert.equal(second.status,200);assert.equal(identityChecks,2,'Each new request revalidates the original identity');f.platform.meetingShareIdentity=originalIdentity;
  const item=list.items.find(i=>i.canDelete)||list.items[0];assert.equal((await call('/meetings/review/work/'+item.id+'/hub',{action:'plan-read'})).status,200);
  assert.equal((await call('/meetings/review/hub/api',{action:'list'},f.host,'222')).status,403);
  assert.equal((await call('/meetings/review/work/'+item.id+'/hub',{action:'plan-read'},'U'+'f'.repeat(32),'111')).status,403);
