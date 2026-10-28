@@ -193,7 +193,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function handle(req,res,url){
   if(req.headers['x-meeting-signature']&&/^\/meetings\/review\//.test(url.pathname)){
    try{const publicOrigin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
-    const forwarded=await embeddedRequest(req,url,{secret:env.AMCORE_MEETING_MANAGEMENT_SECRET,platform,origin:publicOrigin,pool});
+    const forwarded=await embeddedRequest(req,url,{secret:env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY,platform,origin:publicOrigin,pool});
     if(!forwarded)throw failure(403,'會議接線未完成。');res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url);
    }catch(e){sendJson(res,e.status||503,{ok:false,error:e.status?e.message:'會議暫時無法讀取，請稍後重試。'});return true;}
   }
