@@ -255,6 +255,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.54
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
+      - run: node --test tools/test-xiaoye-controlled-action-journal.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-sandbox-controller.cjs tools/test-xiaoye-sandbox-broker-integration.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-recovery.cjs tools/test-xiaoye-failed-event-scan.cjs tools/test-xiaoye-recovery-bridge.cjs
       - run: node --test tools/test-xiaoye-render-publish-recovery.cjs
