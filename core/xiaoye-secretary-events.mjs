@@ -19,6 +19,7 @@ export async function prepareXiaoyeEvent(env, task, operationId, action) {
   if (!env.XIAOYE_EVENTS) return null;
   const kind = action === 'approve' || action === 'propose' && task.secretary?.autoAuthorization ? 'execute' : ['intake','supplement','reopen','feedback','resume'].includes(action) ? 'analyze' : ['withdraw','pause','confirm'].includes(action) ? 'invalidate' : null;
   if (!kind) return null;
+  if (kind !== 'invalidate' && task.secretary?.pendingUnknownExecution?.state === 'pending') return null;
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(operationId)));
   const id = [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
   const event = {id, taskId:task.id, version:task.version, sourceVersion:task.secretary.sourceVersion, kind, createdAt:Date.now()};
@@ -50,7 +51,7 @@ export class XiaoyeEvents {
   }
   applicable(e, t) {
     const s = t?.secretary;
-    if (!s || s.sourceWithdrawn || t.deletedAt || t.mergedInto || s.sourceVersion !== e.sourceVersion) return false;
+    if (!s || s.sourceWithdrawn || t.deletedAt || t.mergedInto || s.sourceVersion !== e.sourceVersion || s.pendingUnknownExecution?.state === 'pending') return false;
     if (e.kind === 'analyze') return s.stage === 'clarifying' && !s.waitingForReporter && t.version === e.version;
     const authorization=s.approval||s.autoAuthorization;
     const receipt=s.autoEventVersionReceipt,versionMatches=t.version===e.version||!!(s.autoAuthorization&&receipt&&receipt.hash===authorization?.hash&&receipt.fromVersion===e.version&&receipt.throughVersion===t.version);
@@ -58,7 +59,7 @@ export class XiaoyeEvents {
   }
   runningValid(e, t) {
     const s = t?.secretary;
-    if (!s || s.sourceWithdrawn || s.sourceVersion !== e.sourceVersion || ['paused','closed'].includes(s.stage)) return false;
+    if (!s || s.sourceWithdrawn || s.sourceVersion !== e.sourceVersion || ['paused','closed'].includes(s.stage) || s.pendingUnknownExecution?.state === 'pending') return false;
     if (e.kind === 'analyze') return ['clarifying','awaiting_approval','approved','awaiting_confirmation'].includes(s.stage);
     return ['approved','executing','awaiting_confirmation','blocked'].includes(s.stage) && (s.approval?.hash||s.autoAuthorization?.hash) === e.approvalHash;
   }
