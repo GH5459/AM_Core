@@ -84,3 +84,7 @@ for stop once it is reached. This adapter does not extend a running sandbox on
 renewal or provide the always-on recovery scheduler; provider latency, failed
 stop requests, supervisor downtime, and suspension/resume can extend actual
 execution or costs beyond these local bounds.
+In particular, a short initial authorization limits the provider lifetime to
+that short window; a job longer than 30 minutes has not been connected or
+verified through this adapter. The two-hour ceiling is not a promise that a
+single job can renew and continue for two hours.
