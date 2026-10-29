@@ -9,7 +9,7 @@ export function workspaceFirstClient(){
  for(const type of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener(type,userIntent,{capture:true,passive:true});
  function upperVisible(){const t=tabs();return t&&t.getBoundingClientRect().top>48;}
  function check(){
-  const tab=tabs(),add=document.getElementById('addTodayTask');if(!tab)return;
+  const tab=tabs(),add=document.getElementById('addTodayTask');if(!tab){if(ready)release();return;}
   if(!ready&&add&&!add.disabled){ready=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{
    const current=tabs();if(!current){ready=false;schedule();return;}
    if(!cancelled&&!positioned){positioned=true;current.style.scrollMarginTop='12px';current.scrollIntoView({block:'start',behavior:'instant'});}
