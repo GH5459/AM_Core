@@ -7,6 +7,53 @@ const botMessage=(f,text,others=[])=>{const e=f.message(text,[bot,...others]);e.
 const selfButton=(f,p,...args)=>{const e=f.button(p.id,p.revision,...args);e.postback.data=e.postback.data.replace('groupcal:','grouptask:');return e;};
 const draft={title:'整理招募進度',description:'整理本週招募進度',acceptance:'職缺人數清單',dueDate:'2026-10-23',dueAt:null,missing:[]};
 function model(f){const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.title?structuredClone(draft):original(input);}
+test('explicit direct self task creates without a button, preserves source and deduplicates replay',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點用品',description:'盤點三樓用品',executionDate:'2026-10-14',missing:[]}:original(input);
+ const e=botMessage(f,'@葉小蝸 任務 明天盤點三樓用品');Object.assign(e.message.mention.mentionees[0],{index:0,length:4});
+ await f.capture(e);await f.drain();assert.equal(f.selfSubmissions.length,1);assert.equal(f.selfSubmissions[0].d.executionDate,'2026-10-14');assert.equal(f.selfSubmissions[0].d.dueDate,'2026-10-16');assert.equal(f.selfSubmissions[0].c,undefined);assert.equal(f.selfSubmissions[0].e.message.text,e.message.text);
+ await f.capture(e);f.restart();await f.drain();assert.equal(f.selfSubmissions.length,1);
+}finally{await f.close();}});
+test('task command can start immediately after the mention without a separator',()=>{
+ const e={type:'message',source:{type:'group'},message:{type:'text',text:'@小葉任務明天盤點',mention:{mentionees:[{type:'user',userId:bot,isSelf:true,index:0,length:3}]}}};assert.deepEqual(quickCreateIntent(e,bot),{kind:'selftask',direct:true});
+});
+test('explicit group task creates one shared task and mentions the sender and recipients',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點用品',description:'共同盤點三樓用品',executionDate:'2026-10-14',missing:[]}:original(input);
+ const e=f.message('@甲 @乙 任務 明天盤點三樓用品',[other,'U'+'3'.repeat(32)]);Object.assign(e.message.mention.mentionees[0],{index:0,length:2});Object.assign(e.message.mention.mentionees[1],{index:3,length:2});
+ await f.capture(e);await f.drain();assert.equal(f.submissions.length,1);assert.equal(f.submissions[0].p.length,3);assert.equal(f.submissions[0].d.dueDate,'2026-10-16');const notice=f.pushes.find(x=>x.message?.type==='textV2')?.message;assert.equal(Object.keys(notice.substitution).length,3);assert.match(notice.text,/執行日期：2026-10-14/);
+ await f.capture(e);f.restart();await f.drain();assert.equal(f.submissions.length,1);
+}finally{await f.close();}});
+test('reply to original task notice changes the linked task only once',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate&&input.schema.properties.action?{action:'date',executionDate:'2026-10-15',title:'',description:'',question:''}:input.schema.properties.executionDate?{title:'盤點用品',description:'共同盤點三樓用品',executionDate:'2026-10-14',missing:[]}:original(input);
+ const e=f.message('@甲 任務 明天盤點用品',[other]);Object.assign(e.message.mention.mentionees[0],{index:0,length:2});await f.capture(e);await f.drain();const task=(await f.rows()).find(x=>x.directSelfTask);assert(task.noticeMessageId);
+ const reply=f.message('改到週四',[],other);reply.message.quotedMessageId=task.noticeMessageId;await f.capture(reply);await f.drain();assert.equal(f.updates.length,1);assert.equal(f.updates[0].change.dueDate,'2026-10-17');
+ await f.capture(reply);f.restart();await f.drain();assert.equal(f.updates.length,1);
+}finally{await f.close();}});
+test('reply to change content receives current task details before merging',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>{if(input.schema.properties.action){const source=JSON.parse(input.userContent);assert.equal(source.existing.description,'共同盤點三樓用品');return {action:'content',executionDate:'',title:'盤點用品及消防設備',description:'共同盤點三樓用品及消防設備',question:''};}return input.schema.properties.executionDate?{title:'盤點用品',description:'共同盤點三樓用品',executionDate:'2026-10-14',missing:[]}:original(input);};
+ const e=f.message('@甲 任務 明天盤點用品',[other]);Object.assign(e.message.mention.mentionees[0],{index:0,length:2});await f.capture(e);await f.drain();const task=(await f.rows()).find(x=>x.directSelfTask);
+ const reply=f.message('加上消防設備',[],owner);reply.message.quotedMessageId=task.noticeMessageId;await f.capture(reply);await f.drain();assert.equal(f.updates[0].change.description,'共同盤點三樓用品及消防設備');assert.equal(f.updates[0].expectedVersion,1);
+}finally{await f.close();}});
+test('twenty recipients and the sender are mentioned in separate messages and both notices can be replied to',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.action?{action:'cancel',executionDate:'',title:'',description:'',question:''}:input.schema.properties.executionDate?{title:'盤點 {A}',description:'共同盤點',executionDate:'2026-10-14',missing:[]}:original(input);
+ const users=Array.from({length:20},(_,i)=>'U'+(i+100).toString(16).padStart(32,'0'));for(const [i,id] of users.entries()){f.identities.set(id,{account:'colleague-'+i,bindingId:'binding-'+i});f.names.set(id,'同仁'+i);}
+ const labels=users.map((_,i)=>'@'+String(i).padStart(2,'0')),text=labels.join(' ')+' 任務 明天盤點',e=f.message(text,users);let offset=0;for(const [i,m] of e.message.mention.mentionees.entries()){m.index=offset;m.length=labels[i].length;offset+=labels[i].length+1;}
+ await f.capture(e);await f.drain();const task=(await f.rows()).find(x=>x.directSelfTask),push=f.pushes.find(x=>x.message?.type==='textV2');assert.equal(task.noticeMessageIds.length,2);assert.equal(Object.keys(push.message.substitution).length,20);assert.equal(Object.keys(push.options.additionalMessages[0].substitution).length,1);assert.match(push.message.text,/\{\{A\}\}/);
+ const reply=f.message('取消任務',[],owner);reply.message.quotedMessageId=task.noticeMessageIds[1];await f.capture(reply);await f.drain();assert.equal(f.updates.length,1);assert.equal(f.updates[0].change.action,'cancel');
+}finally{await f.close();}});
+test('if LINE does not return the first notice ID the replacement notice is recorded',async()=>{const f=await fixture();try{
+ const originalModel=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點',description:'盤點用品',executionDate:'2026-10-14',missing:[]}:originalModel(input);
+ const originalPush=f.options.platform.pushLineMessage;let first=true;f.options.platform.pushLineMessage=async(...args)=>{const result=await originalPush(...args);if(first){first=false;return {messageIds:[],replayed:true};}return result;};
+ const e=botMessage(f,'@葉小蝸 任務 明天盤點用品');Object.assign(e.message.mention.mentionees[0],{index:0,length:4});await f.capture(e);await f.drain();const task=(await f.rows())[0];assert.equal(f.selfSubmissions.length,1);assert.equal(f.pushes.length,2);assert.equal(task.noticeMessageIds.length,1);assert.match(f.pushes[1].message.text,/回覆本則訊息/);
+}finally{await f.close();}});
+test('explicit group task with an unbound recipient is not created',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點',description:'共同盤點',executionDate:'2026-10-14',missing:[]}:original(input);
+ f.identities.delete(other);const e=f.message('@甲 任務 明天盤點',[other]);Object.assign(e.message.mention.mentionees[0],{index:0,length:2});await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);
+}finally{await f.close();}});
+test('direct task asks for missing execution date and creates after a clear supplement',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;let called=0;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點',description:'盤點用品',executionDate:called++?'2026-10-14':'',missing:called===1?['請提供執行日期']:[]}:original(input);
+ const e=botMessage(f,'@葉小蝸 任務 盤點用品');Object.assign(e.message.mention.mentionees[0],{index:0,length:4});await f.capture(e);await f.drain();assert.equal(f.selfSubmissions.length,0);assert.match(JSON.stringify(f.pushes),/任務尚未建立/);
+ const extra=f.message('補充任務：明天',[]);await f.capture(extra);await f.drain();assert.equal(f.selfSubmissions.length,1);assert.equal(f.selfSubmissions[0].d.executionDate,'2026-10-14');
+}finally{await f.close();}});
 test('bot-only explicit self task needs original actor confirmation, survives restart, and cannot be clicked by others/groups',async()=>{const f=await fixture();try{
  model(f);const e=botMessage(f,'@葉小蝸 幫我建立任務：整理本週招募進度，10月23日前完成');assert.equal((await f.capture(e)).length,1);await f.drain();const p=(await f.rows())[0];assert.equal(p.mode,'selftask');assert.equal(p.phase,'confirmation');assert.equal(f.selfSubmissions.length,0);assert.match(JSON.stringify(f.pushes),/建立我的任務/);
  await f.capture(selfButton(f,p,other));await f.drain();assert.equal(f.selfSubmissions.length,0);

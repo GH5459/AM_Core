@@ -113,6 +113,13 @@ test('natural timed appointments reach extraction and a confirmation card before
     await f.service.capture([button('synthetic-natural-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
   }finally{await f.close();}
 });
+test('new personal activity expires ten minutes after the first complete preview and edits do not renew it',async()=>{const f=await fixture();try{
+ await f.bind();await f.service.capture([message('strict-timer-source','活動 10/8 14:00 台中')]);await f.service.drain();let draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.payload.requiredLocation,true);assert.ok(draft.payload.confirmationStartedAt);
+ const deadline=new Date(draft.expires_at).getTime(),started=Date.parse(draft.payload.confirmationStartedAt);assert.ok(deadline-started>=599000&&deadline-started<=601000);
+ f.setEvents([{...activity,location:'新會議室'}]);await f.service.capture([message('strict-timer-edit','補充活動：地點改為新會議室')]);await f.service.drain();draft=(await f.store.pending(tenant,U))[0];assert.equal(new Date(draft.expires_at).getTime(),deadline);assert.equal(Date.parse(draft.payload.confirmationStartedAt),started);
+ await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);await f.db.query("UPDATE leaf_calendar.requests SET expires_at=now()-interval '1 second' WHERE request_id=$1",[draft.request_id]);await f.db.query('COMMIT');
+ await f.service.capture([button('strict-timer-expired','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,0);
+}finally{await f.close();}});
 test('known timing permits vague or absent venue/title/content, including legacy venue blockers, only after owner confirmation',async()=>{
   const f=await fixture();try{
     await f.bind();const venue='測試車站附近的咖啡廳',question='地點未指定具體店家名稱或地址';
@@ -121,6 +128,7 @@ test('known timing permits vague or absent venue/title/content, including legacy
     let draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.status,'pending');assert.equal(draft.payload.missing.length,0);assert.equal(f.writes.length,0);
     assert.ok(draft.payload.confirmationNotes.includes(question));assert.ok(draft.payload.confirmationNotes.includes('店家營業時間尚未確認'));
     const legacy={...draft.payload,missing:[question],confirmationNotes:[],cardVersion:'text-supplement-v1'};
+    delete legacy.requiredLocation;delete legacy.confirmationStartedAt;
     await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
     await f.db.query("UPDATE leaf_calendar.requests SET payload=$2::jsonb,status='needs_details' WHERE request_id=$1",[draft.request_id,JSON.stringify(legacy)]);await f.db.query('COMMIT');
     assert.deepEqual(await f.store.refreshPreviews(tenant),{count:1,applied:false});
@@ -134,15 +142,14 @@ test('known timing permits vague or absent venue/title/content, including legacy
     await f.service.capture([button('current-venue-confirm','confirm',updated)]);await f.service.drain();assert.equal(f.writes.length,1);
     f.setEvents([{...activity,topic:'',location:'',content:''}]);const timeOnly=message('time-only-source','10/8 下午2點到3點半');assert.equal(await f.service.accepts(timeOnly),true);
     await f.service.capture([timeOnly]);await f.service.drain();
-    draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.status,'pending');assert.equal(draft.payload.event.topic,'活動');assert.equal(draft.payload.missing.length,0);assert.equal(f.writes.length,1);
-    await f.service.capture([button('time-only-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,2);
-    assert.equal(f.writes[1].topic,'活動');assert.equal(f.writes[1].location,'');assert.equal(f.writes[1].content,'');
+    draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.status,'needs_details');assert.equal(draft.payload.event.topic,'');assert.ok(draft.payload.missing.some(x=>x.includes('地點')));assert.equal(f.writes.length,1);
+    assert.deepEqual(preview(draft).contents.footer.contents.map(b=>b.action.label),['不參加']);await f.service.capture([button('time-only-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
   }finally{await f.close();}
 });
 test('single-draft operator recovery honors only an unchanged original owner click rejected for optional details',async()=>{
   const f=await fixture();try{
     await f.bind();await f.service.capture([message('prior-blocked-source','10/8 專案會議 14:00 台中')]);await f.service.drain();
-    let draft=(await f.store.pending(tenant,U))[0];const legacy={...draft.payload,missing:['地點未指定具體店名或地址'],cardVersion:'text-supplement-v1'};
+    let draft=(await f.store.pending(tenant,U))[0];const legacy={...draft.payload,missing:['地點未指定具體店名或地址'],cardVersion:'text-supplement-v1'};delete legacy.requiredLocation;delete legacy.confirmationStartedAt;
     await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
     await f.db.query("UPDATE leaf_calendar.requests SET payload=$2::jsonb,status='needs_details' WHERE request_id=$1",[draft.request_id,JSON.stringify(legacy)]);await f.db.query('COMMIT');
     assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id}),{count:0,applied:false});

@@ -148,6 +148,9 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
     [t,row.request_id,row.lease_token,changes.status || null,changes.result ? json(changes.result) : null,changes.errorCode || null,
       changes.prompted===true,changes.notified===true,changes.delay || 0])).rows.length > 0);
   }
+  async function startConfirmation(tenant,row){return tx(tenant,async(c,t)=>(await c.query(`UPDATE leaf_calendar.requests SET expires_at=CASE WHEN payload ? 'confirmationStartedAt' THEN expires_at ELSE now()+interval '10 minutes' END,
+    payload=CASE WHEN payload ? 'confirmationStartedAt' THEN payload ELSE jsonb_set(payload,'{confirmationStartedAt}',to_jsonb(now()::text),true) END
+    WHERE tenant_id=$1 AND request_id=$2 AND lease_token=$3 AND status='pending' AND expires_at>now() RETURNING request_id`,[t,row.request_id,row.lease_token])).rows.length===1);}
   async function storeDrafts(tenant, intake, drafts) {
     return tx(tenant, async (c,t) => {
       const held = await c.query('SELECT request_id FROM leaf_calendar.requests WHERE tenant_id=$1 AND request_id=$2 AND lease_token=$3 FOR UPDATE',[t,intake.request_id,intake.lease_token]);
@@ -155,7 +158,7 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       if (intake.payload.editId) {
         if (drafts.length !== 1) throw new Error('edit_requires_single_event');
         const draft = drafts[0];
-        const updated = await c.query(`UPDATE leaf_calendar.requests SET payload=$5::jsonb,status=$6,revision=revision+1,prompted_revision=0,
+        const updated = await c.query(`UPDATE leaf_calendar.requests SET payload=$5::jsonb || CASE WHEN payload ? 'confirmationStartedAt' THEN jsonb_build_object('confirmationStartedAt',payload->'confirmationStartedAt') ELSE '{}'::jsonb END,status=$6,revision=revision+1,prompted_revision=0,
           source_evidence=jsonb_set(source_evidence,'{updates}',COALESCE(source_evidence->'updates','[]'::jsonb)||jsonb_build_array($7::jsonb),true),updated_at=now()
           WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3 AND revision=$4 AND status IN ('pending','needs_details')
           AND expires_at>now() AND lease_token IS NULL RETURNING request_id`,
@@ -202,6 +205,6 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,refreshPreviews,retryBlockedConfirmation,lease,settle,storeDrafts,control,
+  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,refreshPreviews,retryBlockedConfirmation,lease,settle,startConfirmation,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }

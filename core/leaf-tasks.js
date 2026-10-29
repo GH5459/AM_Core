@@ -48,13 +48,33 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const result=await call(t,c,'intake',{id,eventId:String(event.webhookEventId||event.message.id),messageId:String(event.message.id),groupId:event.source.groupId,
    sender:clean(participants[0]),mentions:mentions.map(clean),...(groupJudgment?.policy===TASK_SPEED_POLICY?{groupJudgment:{policy:TASK_SPEED_POLICY,assignments:checkedAssignments(groupJudgment.assignments,mentions.length)}}:{}),text:event.message.text,timestamp:event.timestamp,...(event.message.quotedMessageId?{quotedMessageId:String(event.message.quotedMessageId)}:{})});return result;
  }
- async function submitSelfTask(t,event,prior,draft,confirmation,revision){
+ async function submitSelfTask(t,event,prior,draft,confirmation,revision,{direct=false}={}){
   const c=await config(t),who=await identity(event.source.userId,t,event.source.groupId,{readOnly:true},c);
-  if(!who||who.account!==prior.account||who.bindingId!==prior.bindingId||confirmation.userId!==event.source.userId)throw Error('group_identity_changed');
-  const result=await call(t,c,'self-create',{contract:'line-group-bot-quick-create-v1',id:hash('self:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),
+  if(!who||who.account!==prior.account||who.bindingId!==prior.bindingId||(!direct&&confirmation?.userId!==event.source.userId))throw Error('group_identity_changed');
+  if(direct){const health=await call(t,c,'health');if(health.directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');const current=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!current||current.account!==who.account||current.bindingId!==who.bindingId)throw taskIneligible();}
+  const result=await call(t,c,'self-create',{contract:direct?'line-group-bot-direct-create-v2':'line-group-bot-quick-create-v1',id:hash('self:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),
    botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},
-   source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,confirmation,revision});
-  return {...result,message:taskEditNotice(c.base,result.taskIds,'已建立自己的任務，可從今天的工作任務查看。')};
+   source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,...direct?{}:{confirmation},revision});
+  if(direct&&(result.contract!=='line-group-bot-direct-create-v2'||!Array.isArray(result.taskIds)||result.taskIds.length!==1||!/^work-[a-f0-9-]{36}$/i.test(result.taskIds[0]||'')))throw Error('invalid_direct_task_receipt');
+  return {...result,link:new URL('/?task='+encodeURIComponent(result.taskIds[0]),c.base).href,message:taskEditNotice(c.base,result.taskIds,'已建立自己的任務，可從今天的工作任務查看。')};
+ }
+ async function submitDirectGroupTask(t,event,participants,draft,revision){
+  const c=await config(t);if(!c||!participants.length||participants[0].userId!==event.source.userId)throw Error('task_sender_required');
+  if((await call(t,c,'health')).directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');
+  const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')&&m.userId!==env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).map(m=>m.userId))];
+  const recipients=ids.map(id=>participants.find(p=>p.userId===id));if(!recipients.length||recipients.some(p=>!p))throw Error('task_recipient_required');
+  for(const prior of [participants[0],...recipients]){const current=await taskIdentity(prior.userId,t,event.source.groupId,c);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)throw taskIneligible();}
+  const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
+  const result=await call(t,c,'self-create',{contract:'line-group-bot-direct-assignment-v2',id:hash('direct-group:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:clean(participants[0]),recipients:recipients.map(clean),source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,revision});
+  if(result.contract!=='line-group-bot-direct-assignment-v2'||!Array.isArray(result.taskIds)||result.taskIds.length!==1||!/^work-[a-f0-9-]{36}$/i.test(result.taskIds[0]||''))throw Error('invalid_direct_task_receipt');
+  return {...result,link:new URL('/?task='+encodeURIComponent(result.taskIds[0]),c.base).href};
+ }
+ async function readDirectTask(t,event,taskId){const c=await config(t);if(!c)throw Error('task_service_not_configured');if((await call(t,c,'health')).directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();return call(t,c,'direct-read',{taskId,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},source:{groupId:event.source.groupId}});}
+ async function updateDirectTask(t,event,taskId,change,expectedVersion){
+  const c=await config(t);if(!c)throw Error('task_service_not_configured');
+  const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();
+  const eventId=String(event.webhookEventId||event.message.id),raw=hash('line-task-reply:'+event.source.groupId+':'+eventId+':'+taskId),operationId='op-'+[raw.slice(0,8),raw.slice(8,12),raw.slice(12,16),raw.slice(16,20),raw.slice(20,32)].join('-');
+  return call(t,c,'direct-update',{taskId,operationId,expectedVersion,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},source:{groupId:event.source.groupId,eventId,timestamp:event.timestamp},change});
  }
  // Tasks use confirmed work identities, independently of a group's project routing.
  // Never register the group under another business tenant or grant personal access.
@@ -269,7 +289,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   if(input.action==='feature'&&input.target==='meetings'&&value?.allowed){const who=await meetingShareIdentity(value.userId);if(!who||who.account!==input.account)return {allowed:false};value={...value,tenantKey:who.tenantKey,name:who.name};}
   return value;
  }
- const api={continuationAuthority,secretaryCall,secretaryEvidenceCheck,commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
+ const api={continuationAuthority,secretaryCall,secretaryEvidenceCheck,commonLink,personalCompletionReport,completionReport,capture,drain,drainPhotos,wake,configureService,configurePhotos,checkPhotos,handlePhoto,checkJudgment,checkLogin,checkQuickCreate,checkTaskEligibility,inspectSource,inspectGroup,loginEntry,groupServices,submitGroupTask,submitSelfTask,submitDirectGroupTask,readDirectTask,updateDirectTask,meetingIdentity,meetingDirectory,translationExperience,checkMultilingual,meetingShareIdentity,meetingOrganization,meetingShareRecipient,publishMeetingTasks,readMeetingTaskProgress,
   resolveTaskGroupIdentity:taskIdentity,resolveGroupIdentity:(userId,t,groupId)=>identity(userId,t,groupId,{readOnly:true}),adminAuthorized:v=>!!secret&&equal(v,taskAdminKey(secret)),health:()=>({contract:LEAF_TASK_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,completionReportPolicy:COMPLETION_REPORT_POLICY,personalCompletionPolicy:PERSONAL_COMPLETION_POLICY,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,photoRecoverySeconds:60,photoContract:PHOTO_CONTRACT,editContract:TASK_EDIT_CONTRACT,photoScope:'configured-groups-only',groupScope:'all-oa-groups',workIdentity:'first-work-login-or-existing-confirmed-identity',configuredTenants:[...configured]}),close:()=>store.close?.()};
  api.secretary=createXiaoyeSecretary({tasks:api,line,env,logger});return api;
 }
