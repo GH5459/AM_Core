@@ -5,7 +5,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const CALENDAR_CARD_VERSION='lunar-all-day-v4';
 function preserveAgenda(event,source){
- if(!/agenda|議程|议程|行程/iu.test(source))return event;
+ if(!/agenda|議程|议程|行程|會議流程|会议流程|會前準備|会前准备/iu.test(source))return event;
  const original=String(source).trim(),content=String(event.content||'').trim();
  const combined=content.includes(original)?content:[content,'原始議程／行程：\n'+original].filter(Boolean).join('\n\n');
  if(combined.length>12000)throw new Error('calendar_agenda_too_long');
@@ -98,7 +98,7 @@ export async function extractEvents({text,at,llm,existing,groupInvitation=false}
     schema:{type:'object',required:['events'],properties:{events:{type:'array',maxItems:5,items:{type:'object',properties:{
       allDay:{type:'boolean'},topic:{type:'string'},date:{type:'string'},time:{type:'string'},location:{type:'string'},content:{type:'string'},
       endDate:{type:'string'},endTime:{type:'string'},durationMinutes:{type:'integer'},recurrence:{type:'object',required:['frequency'],properties:{frequency:{type:'string',enum:['DAILY','WEEKLY','MONTHLY','YEARLY']},interval:{type:'integer'},weekdays:{type:'array',items:{type:'string',enum:['SU','MO','TU','WE','TH','FR','SA']}},until:{type:'string'},count:{type:'integer'}}},confirmationNotes:{type:'array',items:{type:'string'}},needsClarification:{type:'array',items:{type:'string'}}}}}}},
-    profile:'cheap',maxTokens:3200,timeoutMs:15000,budgetMs:20000,
+    profile:'cheap',maxTokens:3200,timeoutMs:30000,budgetMs:45000,
   });
   if(!Array.isArray(result.events)||result.events.length>5)throw new Error('invalid_extraction');
   return result.events.map(event=>{

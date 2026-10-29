@@ -1,0 +1,14 @@
+{
+  "id": "AM-IMP-2026.1029.52",
+  "name": "LINE 活動與會議整理回覆",
+  "type": "LINE / Calendar",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-29",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresDatabases": ["existing tenant-local LINE archive"],
+  "requiresEnv": ["existing LINE and Calendar service settings"],
+  "requiresScripts": ["node --experimental-vm-modules --test tools/test-leaf-groups.mjs tools/test-leaf-calendar.mjs tools/test-line-activity-agenda.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["explicit activity and meeting commands have the same confirmation workflow", "extraction failures are visible without creating events", "existing data and access are preserved", "production version is verified"]
+}
