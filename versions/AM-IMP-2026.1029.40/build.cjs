@@ -1,0 +1,2 @@
+const assert=require('node:assert/strict');
+exports.patchWorker=function(s){const defaults=[...s.matchAll(/\b([A-Za-z_$][\w$]*)\s+as\s+default\b/g)];assert.equal(defaults.length,1);assert(!s.includes('workspace_first_worker'));const previous=defaults[0][1];return "import {workspaceFirstAssets} from './workspace-first.mjs';\n"+s.replace(previous+' as default','workspace_first_worker as default')+`\nconst workspace_first_worker={...${previous},async fetch(request,env,ctx){return workspaceFirstAssets(request,await ${previous}.fetch(request,env,ctx));}};\n`;};

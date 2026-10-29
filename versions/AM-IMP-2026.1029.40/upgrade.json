@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.1029.40",
+  "name": "日誌工作區先呈現與背景上方讀取",
+  "type": "frontend entry usability",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing DailyLog"
+  ],
+  "requiresScripts": [
+    "tools/test-dailylog-workspace-first.mjs"
+  ],
+  "installTargets": [
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Work controls available before upper initialization",
+    "Position only once and respect user scroll",
+    "Preserve viewport when upper content grows",
+    "Preserve authentication, permissions and deep links",
+    "Full current Worker checks and before/after observation"
+  ]
+}

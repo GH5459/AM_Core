@@ -3,6 +3,8 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1029.40/**'
+      - 'tools/test-dailylog-workspace-first.mjs'
       - 'versions/AM-IMP-2026.1029.30/**'
       - 'core/line-task-dates.mjs'
       - 'core/line-task-reply-worker.mjs'
@@ -331,6 +333,8 @@ jobs:
       - run: node --test tools/test-meeting-calendar-speed.mjs
       - run: node --test tools/test-rich-menu-dailylog-entry.mjs
       - run: node --test tools/test-future-navigation.mjs
+      - run: node --test tools/test-dailylog-workspace-first.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.40
       - run: node --test tools/test-dailylog-entry-direct.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.30
       - run: node --test tools/test-meeting-entry-performance.mjs
