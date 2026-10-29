@@ -9,7 +9,9 @@ export async function resultRequest(env,c,base,v,h){
  if(!s||t.deletedAt||t.mergedInto||s.sourceWithdrawn||!s.reporters.some(p=>p.account===actor.account))throw fail('請由原回報人確認自己的案件。',403);
  const reporter=s.reporters.find(p=>p.account===actor.account);if((reporter.source?.type==='user'||reporter.source?.type==='group'&&s.findingQuestion)&&(reporter.source.userId!==source.userId||reporter.source.botUserId!==source.botUserId))throw fail('原回報來源已變更，請從案件頁查核。',403);
  if(command.reopen||command.followup){
-  const valid=command.reopen?sameResultVersion(t,command.version)&&s.stage==='awaiting_confirmation'&&!!s.result:t.version===command.version&&s.stage==='clarifying'&&!!s.waitingForReporter;
+  const q=s.findingQuestion,notice=command.followup&&q?(await record(env.DB,'xiaoye-notifications',t.id+':finding-question:'+q.eventId+':'+actor.account))?.value:null;
+  const originalQuestion=!!(notice&&['sent','sending','unknown'].includes(notice.state)&&notice.payloadFrozen===true&&notice.payloadVersion===command.version&&notice.sourceVersion===s.sourceVersion&&q.sourceVersion===s.sourceVersion&&q.expiresAt>Date.now()&&notice.context?.eventId===q.eventId&&notice.context?.findingId===q.findingId&&notice.expectedUserId===source.userId&&notice.context?.botUserId===source.botUserId&&notice.lineMessage?.contents?.footer?.contents?.[0]?.action?.data===source.postbackData);
+  const valid=command.reopen?sameResultVersion(t,command.version)&&s.stage==='awaiting_confirmation'&&!!s.result:(t.version===command.version||originalQuestion)&&s.stage==='clarifying'&&!!s.waitingForReporter;
   if(!valid)throw fail('案件已有更新，請從最新通知或案件頁確認。');
   const key=await digest(JSON.stringify([source.botUserId,'user',source.userId,source.userId]));
   const current=await record(env.DB,'xiaoye-intake-sessions',key),owner=await record(env.DB,'xiaoye-owner-sessions',key);
