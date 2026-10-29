@@ -4,6 +4,7 @@ const folder=process.argv[2];assert(path.isAbsolute(folder||''));
 const baseline=fs.readFileSync(path.join(folder,'baseline','worker.mjs'),'utf8');
 function replaceOnce(source,oldValue,newValue){assert.equal(source.split(oldValue).length,2,'Expected exactly one matching Worker anchor');return source.replace(oldValue,newValue);}
 let next=baseline;
+next=replaceOnce(next,'selfTaskContract:"line-group-bot-quick-create-v1", speedPolicy:', 'selfTaskContract:"line-group-bot-quick-create-v1", directTaskContract:"line-group-bot-direct-v2", speedPolicy:');
 next=replaceOnce(next,'async function assignmentMachine(request, env, { now = Date.now, directory, permission: permission2, makeService, publish } = {})','async function assignmentMachine(request, env, { now = Date.now, directory, permission: permission2, makeService, makeEditor, publish } = {})');
 const original='if (route.endsWith("/self-create")) return response(await createLineSelfTask(value,env,{now,directory,permission:permission2,makeService,publish}));';
 const replacement='if (route.endsWith("/direct-read")) return response(await readLineDirectTask(value,env,{directory,permission:permission2,makeEditor}));\n    if (route.endsWith("/direct-update")) return response(await updateLineDirectTask(value,env,{now,directory,permission:permission2,makeEditor,publish}));\n    if (route.endsWith("/self-create")) return response(await createLineSelfTask(value,env,{now,directory,permission:permission2,makeService,publish,trustedInputs,assignmentContract:ASSIGNMENT_CONTRACT}));';

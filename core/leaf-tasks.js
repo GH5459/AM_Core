@@ -51,7 +51,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function submitSelfTask(t,event,prior,draft,confirmation,revision,{direct=false}={}){
   const c=await config(t),who=await identity(event.source.userId,t,event.source.groupId,{readOnly:true},c);
   if(!who||who.account!==prior.account||who.bindingId!==prior.bindingId||(!direct&&confirmation?.userId!==event.source.userId))throw Error('group_identity_changed');
-  if(direct){const current=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!current||current.account!==who.account||current.bindingId!==who.bindingId)throw taskIneligible();}
+  if(direct){const health=await call(t,c,'health');if(health.directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');const current=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!current||current.account!==who.account||current.bindingId!==who.bindingId)throw taskIneligible();}
   const result=await call(t,c,'self-create',{contract:direct?'line-group-bot-direct-create-v2':'line-group-bot-quick-create-v1',id:hash('self:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),
    botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},
    source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,...direct?{}:{confirmation},revision});
@@ -60,6 +60,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  }
  async function submitDirectGroupTask(t,event,participants,draft,revision){
   const c=await config(t);if(!c||!participants.length||participants[0].userId!==event.source.userId)throw Error('task_sender_required');
+  if((await call(t,c,'health')).directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');
   const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')&&m.userId!==env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).map(m=>m.userId))];
   const recipients=ids.map(id=>participants.find(p=>p.userId===id));if(!recipients.length||recipients.some(p=>!p))throw Error('task_recipient_required');
   for(const prior of [participants[0],...recipients]){const current=await taskIdentity(prior.userId,t,event.source.groupId,c);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)throw taskIneligible();}
@@ -68,7 +69,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   if(result.contract!=='line-group-bot-direct-assignment-v2'||!Array.isArray(result.taskIds)||result.taskIds.length!==1||!/^work-[a-f0-9-]{36}$/i.test(result.taskIds[0]||''))throw Error('invalid_direct_task_receipt');
   return {...result,link:new URL('/?task='+encodeURIComponent(result.taskIds[0]),c.base).href};
  }
- async function readDirectTask(t,event,taskId){const c=await config(t);if(!c)throw Error('task_service_not_configured');const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();return call(t,c,'direct-read',{taskId,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},source:{groupId:event.source.groupId}});}
+ async function readDirectTask(t,event,taskId){const c=await config(t);if(!c)throw Error('task_service_not_configured');if((await call(t,c,'health')).directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();return call(t,c,'direct-read',{taskId,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},source:{groupId:event.source.groupId}});}
  async function updateDirectTask(t,event,taskId,change,expectedVersion){
   const c=await config(t);if(!c)throw Error('task_service_not_configured');
   const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();
