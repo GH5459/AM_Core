@@ -93,6 +93,11 @@ export class XiaoyeEvents {
     }
     const message='葉小蝸處理受阻：'+t.title+'\n原因：'+(s.recovery?.reason||reason)+'\n下一步：'+(automatic?effectiveNextStep:s.recovery?.nextStep||nextStep)+'\n'+url;
     const n={id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,lineMessage:recoveryCard(this.env.PUBLIC_ORIGIN,t,automatic),sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
+    for(const p of s.reporters||[]){
+      if(!p.account||!p.source?.userId)continue;
+      const noticeId=id+':reporter:'+p.account,notice={id:noticeId,taskId:e.taskId,account:p.account,kind:'progress',message:'葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+url,sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:p.source.userId,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
+      extra.push(this.env.DB.prepare("INSERT OR IGNORE INTO documents(namespace,key,value,revision) VALUES('xiaoye-notifications',?,?,1)").bind(noticeId,JSON.stringify(notice)));
+    }
     const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),entry={id,workId:e.taskId,title:t.title,action:'event_failed',text:message,at,stage:s.stage};
     await this.env.DB.batch([
       ...extra,

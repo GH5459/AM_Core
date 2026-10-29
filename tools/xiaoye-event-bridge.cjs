@@ -29,7 +29,10 @@ class EventBridge {
     const previous=fs.existsSync(p)?JSON.parse(fs.readFileSync(p)):null;
     const source=path.join(this.folder,rel,'tools-preflight.private.json');
     const code=fs.existsSync(source)?JSON.parse(fs.readFileSync(source)).code||'unclassified':'unclassified';
-    const next=nextFailure(previous,{eventId:active.id,signature:inspected.event.kind+':'+code,now:this.clock()});
+    // The server separately bounds replanning; infrastructure failures keep their own retry budget.
+    if(inspected.event.state==='done'&&inspected.event.kind==='execute')return true;
+    const signature=inspected.event.kind+':'+code;
+    const next=nextFailure(previous,{eventId:active.id,signature,now:this.clock()});
     this.save(relative,next);
     return next.automaticRetryAllowed;
   }

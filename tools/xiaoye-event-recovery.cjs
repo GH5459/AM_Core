@@ -27,7 +27,7 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
   const inspected = await inspectEvent(active.taskId, active.id);
   if (!eventMatches(active, inspected)) return {decision:'identity-mismatch', terminal:false};
   const event = inspected.event;
-  if (event.state === 'done') {
+  if (event.state === 'done' && inspected.autoResumeEligible !== true) {
     if (inspected.task?.sourceVersion !== active.sourceVersion) return {decision:'finished-case-updated', terminal:true};
     return {decision:!inspected.resultNotification || inspected.resultNotification.state === 'sent' ? 'finished' : 'notification-only', terminal:true};
   }
@@ -37,7 +37,7 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
   if (inspected.task?.id !== active.taskId || inspected.task?.sourceVersion !== active.sourceVersion) {
     return {decision:'case-version-changed', terminal:false};
   }
-  if (event.state === 'failed') {
+  if (event.state === 'failed' || event.state === 'done' && event.kind === 'execute') {
     const executorReady=inspected.autoResumeEligible === true &&
       (typeof evidence.executorReady === 'function' ? await evidence.executorReady(active,inspected) : evidence.executorReady === true);
     const withinBudget=executorReady &&

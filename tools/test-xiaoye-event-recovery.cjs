@@ -32,6 +32,12 @@ test('old blocked auto-authorized case resumes with a stable operation ID',async
   const result=await run(fixture('failed',{autoResumeEligible:true}),{evidence:{executorReady:true},autoResume:async input=>{calls.push(input);return {state:'clarifying'}}});
   assert.deepEqual(calls,[{id:active.taskId,version:9,eventId:id,operationId:'auto-resume-event-'+id}]);assert.equal(result.decision,'auto-resumed');
 });
+test('a completed execution blocked on a new scope starts a new analysis only when the server permits it',async()=>{
+ const inspected=fixture('done',{event:{...fixture('done').event,kind:'execute',leaseActive:false},task:{...fixture().task,stage:'blocked'},autoResumeEligible:true});
+ const calls=[];const result=await run(inspected,{evidence:{executorReady:true},autoResume:async input=>{calls.push(input);return {stage:'clarifying'}}});
+ assert.equal(result.decision,'auto-resumed');assert.equal(calls.length,1);assert.equal(calls[0].eventId,id);
+ assert.equal((await run({...inspected,autoResumeEligible:false})).decision,'finished');
+});
 test('server refusal and mismatched identity cannot be bypassed by local evidence',async()=>{
   assert.equal((await run(fixture('failed',{autoResumeEligible:false}))).decision,'failed-needs-reconciliation');
   assert.equal((await run(fixture('failed',{autoResumeEligible:true}))).decision,'failed-needs-reconciliation');

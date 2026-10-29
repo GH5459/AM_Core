@@ -22,3 +22,9 @@ test('a historical tool failure without a completion file can be checked for saf
  fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),'{}');
  assert.deepEqual(failedEventCandidates(dir),[]);
 });
+test('completed execution events can be checked for blocked-case replanning',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-failed-scan-')),run=record(dir,id1,task,Date.now(),false);
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id:id1,taskId:task,sourceVersion:2,lease:'fixture-lease',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ assert.deepEqual(failedEventCandidates(dir).map(x=>x.id),[id1]);
+});

@@ -17,7 +17,8 @@ function failedEventCandidates(folder,{limit=32}={}){
     const run=path.join(root,dir.id),acquired=read(path.join(run,'acquire.response.private.json'))?.job;
     const completed=read(path.join(run,'completion.private.json'));
     const failedPreflight=read(path.join(run,'tools-failed.input.private.json'));
-    if((completed?.state!=='failed'&&!failedPreflight)||acquired?.id!==dir.id||!TASK_ID.test(acquired.taskId||'')||
+    const completedExecution=completed?.state==='done'&&acquired?.kind==='execute';
+    if((completed?.state!=='failed'&&!failedPreflight&&!completedExecution)||acquired?.id!==dir.id||!TASK_ID.test(acquired.taskId||'')||
        !Number.isSafeInteger(acquired.sourceVersion)||!acquired.lease||
        fs.existsSync(path.join(run,'auto-resume.response.private.json')))continue;
     if(!byTask.has(acquired.taskId))byTask.set(acquired.taskId,{id:dir.id,taskId:acquired.taskId,

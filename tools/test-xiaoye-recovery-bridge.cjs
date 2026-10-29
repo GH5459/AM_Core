@@ -68,3 +68,13 @@ test('temporarily unavailable desktop tools schedule another check and then resu
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
  f.bridge.stop();
 });
+test('completed execution blocked on new scope is rechecked and starts a new analysis',async()=>{
+ const f=fixture(async(action,input)=>action==='event-inspect'?{...inspection('done','blocked'),event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:true}:(assert.equal(action,'auto-resume'),assert.equal(input.eventId,id),{stage:'clarifying'}),'finished',async()=>true);
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ await f.bridge.recoverFailedEvents();
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','auto-resume']);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
+ f.bridge.stop();
+});

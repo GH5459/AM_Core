@@ -76,8 +76,10 @@ function imageBytes(image){
 function draftState(session){const d=session?.value,active=d?.mode==='draft'&&d.until>Date.now(),pending=d?.mode==='conversation-pending'&&d.until>Date.now();const entries=active?d.entries.filter(e=>!e.withdrawn):[];return {draft:active,...active?{draftId:d.id,texts:entries.filter(e=>e.text).length,images:entries.filter(e=>e.image).length}:pending?{conversational:true,awaitingFirstMessage:true,until:d.until}:d?.taskId?{taskId:d.taskId}:{}};}
 export function canAutoResume(c,t,e,ownerDraft){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
- const terminal=e?.state==='failed'||e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
- return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!(already?.sourceCount===sourceCount&&already.attempts>=1);
+ const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
+ const terminal=e?.state==='failed'||replan;
+ const exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1);
+ return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
  if(!/^[a-f0-9]{64}$/.test(v.eventId||'')||!/^work-[a-f0-9-]{36}$/.test(v.id||''))throw fail('事件或案件識別無效。',400);
@@ -98,9 +100,11 @@ async function autoResume(env,c,v){
  const inspected=await inspectEvent(env,c,v),old=await load(env.DB,v.id),t=structuredClone(old.task),s=t.secretary;
  if(v.version!==t.version||!inspected.autoResumeEligible)throw fail('案件已有更新或尚不符合自動接續條件。');
  if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
- const sourceCount=s.sources?.length||0,attempts=s.autoRecovery?.sourceCount===sourceCount?s.autoRecovery.attempts:0;
+ const sourceCount=s.sources?.length||0,previous=s.autoRecovery?.sourceCount===sourceCount?s.autoRecovery:null;
+ const replan=inspected.event.state==='done'&&inspected.event.kind==='execute';
+ const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0;
  restartAnalysis(t,retireProposal);
- s.autoRecovery={sourceCount,attempts:attempts+1,at:new Date().toISOString(),eventId:v.eventId};
+ s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:attempts+1,...replanAttempts?{replanAttempts}:{},at:new Date().toISOString(),eventId:v.eventId};
  s.recoveryHistory.at(-1).automatic=true;
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
  const saved=await transaction(env,old,t,v.operationId,input,actor,'系統確認工具恢復後，沿原案件自動接續查核；已完成的動作先核對，不重做。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);
@@ -333,7 +337,7 @@ async function runner(env,c,base,authority,action,v,preview){
    if(typeof v.deployed!=='boolean'||v.deployed!==s.proposal.deploy)throw fail('結果與核准的發布範圍不符。');
    s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
    for(const p of s.reporters)extras.push(notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
-  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));}
+  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+link(env,t.id),p.source));}
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }
  if(action==='claim'){
