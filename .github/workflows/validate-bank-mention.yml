@@ -3,7 +3,7 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
-      - 'versions/AM-IMP-2026.1029.20/**'
+      - 'versions/AM-IMP-2026.1029.30/**'
       - 'core/line-task-dates.mjs'
       - 'core/line-task-reply-worker.mjs'
       - 'tools/test-line-task-dates.mjs'
@@ -329,6 +329,8 @@ jobs:
       - run: node --test tools/test-meeting-calendar-speed.mjs
       - run: node --test tools/test-rich-menu-dailylog-entry.mjs
       - run: node --test tools/test-future-navigation.mjs
+      - run: node --test tools/test-dailylog-entry-direct.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.30
       - run: node --test tools/test-meeting-entry-performance.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.13
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.11
@@ -377,7 +379,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.01
       - run: node --experimental-vm-modules --test tools/test-group-quick-create.mjs
       - run: node --test tools/test-line-task-dates.mjs tools/test-line-activity-agenda.mjs
-      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.20
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.30
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs
