@@ -142,21 +142,14 @@ async function exceptionDispatchSettled(client,folder,active,{readProcessIdentit
  if(intent.id!==active.id||intent.lease!==active.lease)return false;
  const dispatchFile=path.join(run,'chat-dispatch.input.private.json');
  if(!fs.existsSync(dispatchFile))return true; // intent is written before any send
- const dispatch=read('chat-dispatch.input.private.json');if(!dispatch)return false;
- if(typeof dispatch.threadId!=='string'||dispatch.hostId!=='local')return false;
- const mark=read('chat-turn-started.private.json');
- // Desktop turn status alone has been observed stale. Require both an exact
- // captured turn and independent evidence that its original server exited.
- // Old dispatches without these identities stay unconfirmed.
- if(!mark||mark.eventId!==active.id||mark.taskId!==active.taskId||mark.sourceVersion!==active.sourceVersion||mark.threadId!==dispatch.threadId||!mark.turnId||!Number.isSafeInteger(mark.serverPid)||mark.serverPid<=0||typeof mark.serverStartedAt!=='string'||!mark.serverStartedAt)return false;
- const receipt=read('chat-server-exit.private.json');
- const matchedReceipt=receipt&&(Number.isSafeInteger(receipt.exitCode)||typeof receipt.signal==='string'&&receipt.signal.length>0)&&['eventId','taskId','sourceVersion','threadId','turnId','serverPid','serverStartedAt'].every(k=>receipt[k]===mark[k]);
- if(!matchedReceipt){const now=await readProcessIdentity(mark.serverPid);if(now.state!=='absent'&&!(now.state==='present'&&now.startedAt!==mark.serverStartedAt))return false;}
- const response=await client.request('thread/read',{threadId:dispatch.threadId,includeTurns:true});
- const thread=response?.thread,turns=thread?.turns;
- if(thread?.id!==dispatch.threadId||!Array.isArray(turns)||!['idle','notLoaded'].includes(thread.status?.type))return false;
- const turn=turns.find(t=>t.id===mark.turnId);if(!turn||turns.at(-1)?.id!==mark.turnId)return false;
- return ['completed','failed','interrupted','cancelled','canceled'].includes(turn?.status);
+ const dispatch=read('chat-dispatch.input.private.json'),accepted=read('chat-dispatch.response.private.json'),completed=read('chat-completed.private.json'),receipt=read('completion.private.json');
+ // A normal, explicitly acknowledged completed turn follows the established
+ // recovery path. This is not proof that detached or remote work has ended.
+ if(name==='event-complete.input.private.json'&&!fs.existsSync(path.join(run,'bridge-error.private.json'))&&dispatch?.hostId==='local'&&accepted?.status==='completed'&&accepted.threadId===dispatch.threadId&&accepted.turnId&&completed?.threadId===accepted.threadId&&completed.turnId===accepted.turnId&&receipt?.state==='done')return true;
+ // An uncertain dispatch was attempted. An app-server exit, PID identity or desktop turn
+ // status cannot prove its children (or remote operations) have stopped. This
+ // receiver has no authoritative process-tree completion receipt; fail closed.
+ return false;
 }
 function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=message=>console.warn(message),resolveExecutable=codexExecutable}={}){
  return async function verifyCaseExecutor(active,inspected){

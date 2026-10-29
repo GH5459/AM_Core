@@ -59,6 +59,12 @@ test('exception intent waits while finalization is unknown, then rechecks the sa
  await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);assert(f.bridge.failedRecoveryTimer);assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.decision.private.json'))).decision,'finalization-unconfirmed');
  state='failed';await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect','auto-resume']);await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,3);f.bridge.stop();
 });
+test('failed dispatch is never restarted merely because parent and desktop turn appear finished',async()=>{
+ const {exceptionDispatchSettled}=require('./xiaoye-app-server-client.cjs');let f;
+ f=fixture(async action=>{assert.equal(action,'event-inspect');return {...inspection('failed','blocked'),event:{...inspection('failed','blocked').event,kind:'execute'},autoResumeEligible:true};},'finished',async active=>exceptionDispatchSettled({request:async()=>({thread:{id:'fixture-thread',status:{type:'notLoaded'},turns:[{id:'fixture-turn',status:'interrupted'}]}})},f.dir,active));
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});const put=(n,v)=>fs.writeFileSync(path.join(run,n),JSON.stringify(v));put('acquire.response.private.json',{job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}});put('failure.input.private.json',{id,lease:'lease-a',operationId:'failure-original'});put('chat-dispatch.input.private.json',{threadId:'fixture-thread',hostId:'local'});const mark={eventId:id,taskId,sourceVersion:4,threadId:'fixture-thread',turnId:'fixture-turn',serverPid:1234,serverStartedAt:'fixture-start'};put('chat-turn-started.private.json',mark);put('chat-server-exit.private.json',{...mark,exitCode:0});
+ await f.bridge.recoverFailedEvents();await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(x=>x.action==='auto-resume').length,0);assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
+});
 test('temporarily unavailable desktop tools schedule another check and then resume the same failed case',async()=>{
  let ready=false;
  const f=fixture(async(action,input)=>action==='event-inspect'?{...inspection('failed','blocked'),autoResumeEligible:true}:(assert.equal(action,'auto-resume'),assert.equal(input.eventId,id),{stage:'clarifying'}),'finished',async()=>ready);

@@ -407,7 +407,7 @@ export function notificationCurrent(n,t,c){
  if(n.kind==='receipt')return !s.sourceWithdrawn&&s.reporters.some(p=>p.account===n.account);
  if(n.kind==='progress'&&/^event-blocked:[a-f0-9]{64}:reporter:/.test(n.id||'')){
   const legacy=/^event-blocked:([a-f0-9]{64}):reporter:(.+)$/.exec(n.id||''),eventId=n.context?.eventId||legacy?.[1],bot=n.context?.botUserId||c?.oaBotUserId;
-  if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!eventId||!bot||!n.expectedUserId||legacy&&legacy[2]!==n.account||!s.reporters?.some(p=>p.account===n.account&&p.source?.type==='user'&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===bot))return false;
+  if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!eventId||!bot||!n.expectedUserId||legacy&&legacy[2]!==n.account||!s.reporters?.some(p=>p.account===n.account&&['user','group'].includes(p.source?.type)&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===bot))return false;
   if(s.stage==='blocked')return s.sourceVersion===n.sourceVersion&&n.proposalHash===(s.proposal?.hash||null);
   return ['clarifying','awaiting_approval','approved','executing'].includes(s.stage)&&s.sourceVersion===n.sourceVersion+1&&s.autoRecovery?.eventId===eventId;
  }

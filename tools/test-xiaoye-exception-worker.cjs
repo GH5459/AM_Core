@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const {setup,proposal}=require('./test-xiaoye-worker.cjs'),{EventBridge}=require('./xiaoye-event-bridge.cjs');
 const op=()=>crypto.randomUUID(),wait=ms=>new Promise(r=>setTimeout(r,ms));
-test('completed exception failure without receipt resumes once and preserves reporter progress and reply',async()=>{
+for(const originType of ['user','group'])test('completed exception recovery preserves '+originType+' reporter progress',async()=>{
  const a=await setup();let bridge;try{
   a.config.autoResolutionEnabled=true;a.config.autoResolutionEpoch=op();await a.db.prepare("UPDATE documents SET value=? WHERE namespace='xiaoye-secretary' AND key='config'").bind(JSON.stringify(a.config)).run();
-  let t=await a.get((await a.ok(await a.intake({text:'隔離長時間處理'}))).taskId),firstRow=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze'").bind(t.id).first();await wait(5300);
+  const source=originType==='group'?{botUserId:'U'+'a'.repeat(32),type:'group',conversationId:'C'+'d'.repeat(32),userId:'U'+'b'.repeat(32),eventId:op(),messageId:op(),timestamp:Date.now()}:undefined;let t=await a.get((await a.ok(await a.intake({text:'隔離長時間處理',...(source?{source}:{})}))).taskId),firstRow=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze'").bind(t.id).first();await wait(5300);
   const first=(await a.ok(await a.machine('runner/event-acquire',{id:firstRow.id,operationId:'acquire-'+firstRow.id},true))).job;
   t=(await a.ok(await a.machine('runner/propose',{id:t.id,version:t.version,operationId:op(),eventId:first.id,eventLease:first.lease,projectId:a.projects[3].id,category:'bug',proposal},true))).task;
   const threadId=op();t=(await a.ok(await a.machine('runner/bind-chat',{id:t.id,version:t.version,operationId:op(),eventId:first.id,eventLease:first.lease,threadId,projectId:op(),hostId:'local'},true))).task;
@@ -15,6 +15,7 @@ test('completed exception failure without receipt resumes once and preserves rep
   const calls=[],fetcher=async(url,opts)=>{const action=new URL(url).pathname.split('/').at(-1);calls.push(action);return a.machine('runner/'+action,JSON.parse(opts.body),true);};bridge=new EventBridge({operatorDirectory:root,workRoot:root},{fetcher,WebSocket:class{},verifyCaseExecutor:async()=>true});
   await bridge.recoverFailedEvents();let resumed=await a.get(t.id);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(resumed.secretary.caseChat.threadId,threadId);assert.equal(calls.filter(x=>x==='auto-resume').length,1);assert.equal(calls.filter(x=>x==='event-fail').length,0);await bridge.recoverFailedEvents();assert.equal(calls.filter(x=>x==='auto-resume').length,1);
   let progress=0;for(let i=0;i<10;i++){const n=(await a.ok(await a.machine('notifications/claim'))).notification;if(!n)break;if(n.kind==='progress'&&n.context?.eventId===job.id){assert.equal(n.expectedUserId,'U'+'b'.repeat(32));assert((await a.ok(await a.machine('notifications/validate',{id:n.id,lease:n.lease}))).notification);progress++;}await a.ok(await a.machine('notifications/receipt',{id:n.id,lease:n.lease,state:'sent',requestId:'fixture-accepted'}));}assert.equal(progress,1);
+  if(originType==='group')return;
   const next=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,firstRow.id).first();await wait(5300);const nextJob=(await a.ok(await a.machine('runner/event-acquire',{id:next.id,operationId:'acquire-'+next.id},true))).job;
   await a.ok(await a.machine('runner/clarify',{id:t.id,version:resumed.version,eventId:nextJob.id,eventLease:nextJob.lease,operationId:op(),question:'隔離問題：請描述操作畫面。'},true));
   const question=JSON.parse((await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='question' AND json_extract(value,'$.taskId')=?").bind(t.id).first()).value);assert.equal(question.expectedUserId,'U'+'b'.repeat(32));
