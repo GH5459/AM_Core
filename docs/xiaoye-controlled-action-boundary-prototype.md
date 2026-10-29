@@ -32,3 +32,19 @@
 - 本機查無 Docker／Podman，WSL 未安裝；現有方案不可視為已具備獨立作業系統或容器邊界。特定 deny 只驗證一個虛構路徑，不能證明 Windows 憑證保管、所有其他檔案、桌面現有 session、命名管道、其他本機服務、所有 MCP／應用或子程序已隔離。
 
 最小可行實作需獨立受限執行身分及獨立 broker，broker 保管正式憑證並持有持久動作帳本；事件憑證只能授權該事件的已確認操作。執行環境必須拒絕其他桌面工具、現有 session、正式憑證與未核准網路／本機服務，並驗證子程序終止。建立隔離身分、ACL、service 或網路規則通常需管理員或既有受管環境；本次未建立帳號、變更 ACL、防火牆或正式服務。現有簡單 deny 設定與 loopback 開放，不足以證明此設計已安全可用。
+
+## 受控 broker 雛形（僅假 provider）
+
+`tools/xiaoye-controlled-broker.cjs` 是可由測試或隔離主控呼叫的 Node 模組，不啟動網路服務，也沒有 GitHub／Render 憑證或正式 API 實作。只允許事先由主控登記的精確 PR 合併或指定服務／commit 發布；不接受任意 URL、方法或轉發。安全依據是主控設定的固定 allowlist 和每個事件獨立 scope，而非模型自行提供的文字。
+
+主控介面：
+
+- `registerEvent({eventId,sourceVersion,generation,leaseId,capability,expiresAt,maxExpiresAt,scopes})`：註冊原事件、執行資格及精確操作範圍。正式能力值必須由安全的隨機來源生成；資料庫只保存雜湊。相同內容可重播，事件一旦撤銷不得再次註冊。
+- `renewEvent({eventId,sourceVersion,generation,leaseId,expectedExpiresAt,expiresAt})`：比對原期限、事件代次、lease、未逾期狀態及最大期限；不能復活已逾期或撤銷的事件。主控還須獨立確認真正事件租約，這裡的 SQLite 和原事件服務並非同一交易。
+- `revokeEvent({eventId,sourceVersion,generation})`：若事件尚未註冊也持久保存撤銷紀錄，避免晚到註冊復活。撤銷不能取消已交給外部提供者的請求；晚到結果保留，仍須核對。
+- 受限端 `dispatch({eventId,sourceVersion,generation,leaseId,capability,operationId,kind,target})`：核對本地事件期限與精確範圍，使用同一 SQLite 交易保存派送保護，再呼叫事先注入的固定 provider 方法。超時、錯誤或未取得有效回執都保留 unknown，禁止重送；同資源 unknown 不能透過更換操作 ID／版本繞過。
+- 受限端 `reconcile({eventId,sourceVersion,generation,leaseId,capability,operationId})` 只接受仍有效的原事件；主控可在撤銷後用 `reconcilePending(operationId)` 唯讀查原記錄。查核失敗以 SQLite 保存下次時間，5 秒起逐次退避、最高 15 分鐘，外層主控必須依 `retryAt` 繼續排程。此處不自動寫入、不重送原動作。
+
+執行 `node --test tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs` 使用虛構來源與模擬 provider，測同資源防重、逾期／代次、撤銷晚到註冊、逾時、重啟及只讀退避。GitHub 觀察只證明目前 PR 狀態，Render 需原 deployment ID；兩者都不能單憑此判定原問題已解決。
+
+**未提供**：實際 OS 隔離、服務端身分與存取控制、跨事件服務一致性、真實 provider 連線／認證、完整外部動作清冊、可驗證程序樹終止、簽章發行與驗證，以及正式長期排程。`registerEvent`／`renewEvent`／`revokeEvent`／`reconcilePending` 必須放在 guest 無法呼叫的可信主控側；目前只是同一 Node 程序的內部方法，不能單靠它們防止不受控程式偽造結果或繞行，不能啟用正式自動解除。
