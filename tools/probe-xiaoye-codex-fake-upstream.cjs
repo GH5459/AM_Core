@@ -1,4 +1,5 @@
 'use strict';
+const fakeLease={fixtureOnly:true,check:v=>({allowed:true,...v,expiresAt:Number.MAX_SAFE_INTEGER})};
 // Local-only protocol probe. No real credential, company data or API backend.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 const {CodexAppServerClient}=require('./xiaoye-app-server-client.cjs');
@@ -37,7 +38,7 @@ const server=http.createServer(async(req,res)=>{
 });
 async function run(){
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const upstreamPort=server.address().port;let gateway,port=upstreamPort;
- if(viaGateway){const upstream={fixtureOnly:true,async open({payload,signal}){const r=await fetch(`http://127.0.0.1:${upstreamPort}/v1/responses`,{method:'POST',headers:{authorization:'Bearer '+fakeToken,'content-type':'application/json'},body:JSON.stringify(payload),signal});return {status:r.status,contentType:r.headers.get('content-type'),body:r.body};}};gateway=new FixtureCodexProxy({upstream,timeoutMs:5000});port=await gateway.listen();env.FIXTURE_KEY=gateway.issue({eventId:'a'.repeat(64),sourceVersion:1,generation:1,expiresAt:Date.now()+60000,maxRequests:8});}
+ if(viaGateway){const upstream={fixtureOnly:true,async open({payload,signal}){const r=await fetch(`http://127.0.0.1:${upstreamPort}/v1/responses`,{method:'POST',headers:{authorization:'Bearer '+fakeToken,'content-type':'application/json'},body:JSON.stringify(payload),signal});return {status:r.status,contentType:r.headers.get('content-type'),body:r.body};}};gateway=new FixtureCodexProxy({upstream,leaseVerifier:fakeLease,timeoutMs:5000});port=await gateway.listen();env.FIXTURE_KEY=gateway.issue({eventId:'a'.repeat(64),sourceVersion:1,generation:1,leaseId:'fixture-lease',expiresAt:Date.now()+60000,maxRequests:8});}
  const sandboxConfig=['default_permissions="probe"','permissions.probe={filesystem={":root"="read",":minimal"="read",":workspace_roots"={"."="write"}},network={enabled=false}}'];
  const overrides=['model_provider="fixture"','model_providers.fixture.name="Fixture"',`model_providers.fixture.base_url="http://127.0.0.1:${port}/v1"`,'model_providers.fixture.env_key="FIXTURE_KEY"','model_providers.fixture.wire_api="responses"','model_providers.fixture.requires_openai_auth=false','model_providers.fixture.supports_websockets=false','model_providers.fixture.request_max_retries=1','model_providers.fixture.stream_max_retries=1','web_search="disabled"','features.multi_agent=false'];
  const launch=(_exe,args,opts)=>spawn(codex,['sandbox','--permission-profile','probe',...sandboxConfig.flatMap(x=>['-c',x]),'-C',workspace,'--',codex,...args],{...opts,cwd:workspace,env});

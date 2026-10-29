@@ -37,17 +37,15 @@ function validCodex(v,hashes=toolHashes){
  const names=new Set();for(const t of v.tools){if(!only(t,['type','name','description','parameters','strict'])||t.type!=='function'||!Object.hasOwn(hashes,t.name)||names.has(t.name)||digest(JSON.stringify(canonical(t)))!==hashes[t.name])return false;names.add(t.name);}return true;
 }
 class FixtureCodexProxy extends FixtureGateway{
- constructor({upstream,clock=Date.now,timeoutMs=5000,maxResponseBytes=262144,fixtureToolHashes=toolHashes}={}){super({clock});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!fixtureToolHashes||typeof fixtureToolHashes!=='object'||!Object.entries(fixtureToolHashes).every(([k,v])=>/^[a-z_]{1,100}$/.test(k)&&/^[a-f0-9]{64}$/.test(v)))throw Error('fake upstream and fixture policy required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.toolHashes={...fixtureToolHashes};this.inference=new Map();}
+ constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,timeoutMs=5000,maxResponseBytes=262144,fixtureToolHashes=toolHashes}={}){super({clock,dbPath,leaseVerifier});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!fixtureToolHashes||typeof fixtureToolHashes!=='object'||!Object.entries(fixtureToolHashes).every(([k,v])=>/^[a-z_]{1,100}$/.test(k)&&/^[a-f0-9]{64}$/.test(v)))throw Error('fake upstream and fixture policy required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.toolHashes={...fixtureToolHashes};}
  async handle(req,res){
   const reject=status=>{if(!res.headersSent)res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end('{"error":"fixture_rejected"}');};
   if(req.method!=='POST'||req.url!=='/v1/responses')return reject(404);
   const token=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization||'')?.[1],requestId=req.headers['x-client-request-id'];if(!token||!this.authorize(token))return reject(401);if(typeof requestId!=='string'||!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId))return reject(400);
   let raw;try{raw=await this.readBody(req,this.authorize(token),262144);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
   let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validCodex(body,this.toolHashes))return reject(400);
-  const grant=this.authorize(token);if(!grant)return reject(401);if(grant.inFlight||grant.used>=grant.maxRequests)return reject(429);
-  const bodyHash=digest(JSON.stringify(canonical(body))),key=digest(JSON.stringify([grant.eventId,grant.sourceVersion,grant.generation,requestId,bodyHash])),entry=this.inference.get(key);
-  if(entry&&!(entry.state==='prestream-503'&&entry.attempts<2))return reject(409);
-  const attempt={state:'unknown',attempts:(entry?.attempts||0)+1};this.inference.set(key,attempt);grant.used++;grant.inFlight=true;
+  const grant=this.authorize(token);if(!grant)return reject(401);
+  const bodyHash=digest(JSON.stringify(canonical(body))),claim=this.claim(token,{mode:'codex',requestId,bodyHash});if(claim.status!==200)return reject(claim.status);
   const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('deadline');return ms;};
   try{
    // Inference is separate from external actions. Original metadata is not
@@ -55,12 +53,12 @@ class FixtureCodexProxy extends FixtureGateway{
    const {client_metadata,prompt_cache_key,...safe}=body;const payload={...safe,max_output_tokens:1024,prompt_cache_key:'fixture-'+digest(JSON.stringify([grant.eventId,grant.sourceVersion,grant.generation])).slice(0,32)};
    const upstream=await timeout(Promise.resolve().then(()=>{if(!this.authorize(token))throw Error('revoked');return this.upstream.open({endpoint:FIXED_ENDPOINT,payload,signal:abort.signal});}),remaining());
    if(!this.authorize(token))throw Error('revoked');
-   if(upstream?.status===503){attempt.state='prestream-503';return reject(503);}
+   if(upstream?.status===503){this.settle(claim,'prestream-503');return reject(503);}
    if(upstream?.status!==200||upstream.contentType!=='text/event-stream'||!upstream.body?.[Symbol.asyncIterator])return reject(502);
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});let bytes=0;const iterator=upstream.body[Symbol.asyncIterator](),events=new TerminalEvents(Object.fromEntries(body.tools.map(t=>[t.name,args=>validToolArguments(t.parameters,args)]))),terminalChunks=[];
    for(;;){const n=await timeout(iterator.next(),remaining());if(n.done)break;if(!this.authorize(token)||abort.signal.aborted)throw Error('revoked');const chunk=Buffer.from(n.value);bytes+=chunk.length;if(bytes>this.maxResponseBytes)throw Error('limit');events.feed(chunk);if(events.terminal||events.sawFunctionCall)terminalChunks.push(chunk);else if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}
-   if(!this.authorize(token))throw Error('revoked');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('revoked');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}attempt.state='terminal';res.end();
-  }catch{if(!res.headersSent&&!abort.signal.aborted)reject(502);else res.destroy();abort.abort();}finally{untrack();grant.inFlight=false;}
+   if(!this.authorize(token))throw Error('revoked');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('revoked');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}this.settle(claim,'terminal');res.end();
+  }catch{if(!res.headersSent&&!abort.signal.aborted)reject(502);else res.destroy();abort.abort();}finally{untrack();}
  }
 }
 module.exports={FixtureCodexProxy,validCodex,validToolArguments,toolHashes};

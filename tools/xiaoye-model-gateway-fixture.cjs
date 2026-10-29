@@ -1,8 +1,8 @@
 'use strict';
-// Fixture only: loopback HTTP, in-memory state, no production provider or keys.
+// Fixture only: loopback HTTP and SQLite, no production provider or keys.
 const http = require('node:http');
 const crypto = require('node:crypto');
-const assert = require('node:assert/strict');
+const {FixtureGatewayStore}=require('./xiaoye-model-gateway-store-fixture.cjs');
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const only = (value, fields) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => fields.includes(k));
 
@@ -12,29 +12,23 @@ function validBody(body) {
 }
 
 class FixtureGateway {
-  constructor({clock = Date.now} = {}) {
+  constructor({clock = Date.now, dbPath=':memory:', leaseVerifier} = {}) {
     this.clock = clock;
+    this.store = new FixtureGatewayStore({clock,dbPath,leaseVerifier});
     this.grants = new Map();
-    this.issuedEvents = new Set();
-    this.requests = new Set();
     this.readers = new Map(); this.activeStreams = new Map(); this.readerCount = 0;
     this.maxReaders = 4; this.maxReadersPerGrant = 1; this.readTimeoutMs = 1000;
     this.backendCalls = 0;
     this.server = http.createServer((req, res) => { this.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); }); });
   }
   // Only the test supervisor can call these methods. There is no HTTP issuer.
-  issue({eventId, sourceVersion, generation, expiresAt, maxRequests}) {
-    assert(/^[a-f0-9]{64}$/.test(eventId) && Number.isSafeInteger(sourceVersion) && sourceVersion >= 0 && Number.isSafeInteger(generation) && generation > 0);
-    assert(Number.isSafeInteger(expiresAt) && expiresAt > this.clock() && expiresAt <= this.clock() + 300000 && Number.isSafeInteger(maxRequests) && maxRequests > 0 && maxRequests <= 8);
-    const eventKey = JSON.stringify([eventId, sourceVersion, generation]);
-    assert(!this.issuedEvents.has(eventKey), 'Event generation already issued');
-    const token = crypto.randomBytes(32).toString('base64url');
-    this.issuedEvents.add(eventKey);
-    this.grants.set(digest(token), {eventId, sourceVersion, generation, expiresAt, maxRequests, used: 0, revoked: false});
-    return token;
-  }
-  revoke(token) { const grant = this.grants.get(digest(token)); if (grant) { grant.revoked = true; for(const req of this.readers.get(grant)||[]) req.destroy(); for(const abort of this.activeStreams.get(grant)||[]) abort.abort(); } }
-  authorize(token) { const grant = this.grants.get(digest(token)); return grant && !grant.revoked && grant.expiresAt > this.clock() ? grant : null; }
+  issue(grant) { return this.store.issue(grant); }
+  abortEvent(eventId){const grant=this.grants.get(eventId);if(grant){for(const req of this.readers.get(grant)||[])req.destroy();for(const abort of this.activeStreams.get(grant)||[])abort.abort();}}
+  revoke(token) { const grant=this.store.revokeToken(token);if(grant)this.abortEvent(grant.event_id); }
+  revokeEvent(identity) { const ack=this.store.revokeEvent(identity);this.abortEvent(identity.eventId);return ack; }
+  authorize(token) { const row=this.store.authorize(token);if(!row)return null;let grant=this.grants.get(row.event_id);if(!grant){grant={eventId:row.event_id,sourceVersion:row.source_version,generation:row.generation};this.grants.set(row.event_id,grant);}return grant; }
+  claim(token,request){return this.store.claim(token,request);}
+  settle(claim,state){return this.store.settle(claim,state);}
   trackStream(grant, abort) { let set=this.activeStreams.get(grant); if(!set)this.activeStreams.set(grant,set=new Set()); set.add(abort); return ()=>{set.delete(abort);if(!set.size)this.activeStreams.delete(grant);}; }
   async readBody(req,grant,maxBytes) {
     let set=this.readers.get(grant);if(this.readerCount>=this.maxReaders||(set?.size||0)>=this.maxReadersPerGrant)throw Object.assign(Error('too many readers'),{status:429});
@@ -44,7 +38,7 @@ class FixtureGateway {
     finally{clearTimeout(timer);set.delete(req);this.readerCount--;if(!set.size)this.readers.delete(grant);}
   }
   async listen() { await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); }); return this.server.address().port; }
-  async close() { await new Promise((resolve, reject) => this.server.close(err => err ? reject(err) : resolve())); }
+  async close() { await new Promise((resolve, reject) => this.server.close(err => err ? reject(err) : resolve())); this.store.close(); }
   async handle(req, res) {
     const fail = status => { res.writeHead(status, {'content-type': 'application/json', 'cache-control': 'no-store'}); res.end('{"error":"request_rejected"}'); };
     if (req.method !== 'POST' || req.url !== '/v1/responses') return fail(404);
@@ -55,18 +49,12 @@ class FixtureGateway {
     let raw;try{raw=await this.readBody(req,this.authorize(token),16384);}catch(e){if(!res.destroyed)return fail(e.status||408);return;}
     let body; try { body = JSON.parse(raw.toString('utf8')); } catch { return fail(400); }
     if (!validBody(body)) return fail(400);
-    // Re-check after potentially slow body upload. This atomic synchronous
-    // section enforces the in-memory request limit in this single process.
-    const grant = this.authorize(token); if (!grant) return fail(401);
-    const requestKey = digest(JSON.stringify([grant.eventId, grant.sourceVersion, grant.generation, id]));
-    if (this.requests.has(requestKey)) return fail(409);
-    if (grant.used >= grant.maxRequests) return fail(429);
-    this.requests.add(requestKey); grant.used++;
+    const claim=this.claim(token,{mode:'fixture',requestId:id,bodyHash:'fixture'});if(claim.status!==200)return fail(claim.status);
     // Deterministic local fixture: never forwards text, URLs or credentials.
     this.backendCalls++;
     const event = {type: 'response.completed', response: {id: 'fixture-response', status: 'completed', output: [{type: 'message', role: 'assistant', content: [{type: 'output_text', text: 'fixture response'}]}]}};
     res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-store'});
-    res.end('event: response.completed\ndata: ' + JSON.stringify(event) + '\n\n');
+    this.settle(claim,'terminal');res.end('event: response.completed\ndata: ' + JSON.stringify(event) + '\n\n');
   }
 }
 module.exports = {FixtureGateway, validBody};
