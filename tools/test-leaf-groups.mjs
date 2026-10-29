@@ -67,6 +67,10 @@ test('explicit activity reports disconnected participants without replaying succ
  assert.match(report,/已加入行事曆：發起人、同仁甲/);assert.match(report,/未建立：同仁乙/);
  f.advance(3600000);f.restart();await f.drain();assert.equal(f.attempts.length,3);assert.equal(f.writes.size,2);
 }finally{await f.close();}});
+test('a mentioned group member without a linked work identity may confirm the activity',async()=>{const f=await fixture();try{
+ f.identities.delete(b);await f.capture(f.message('活動 會議 明天15:00',[a,b]));await f.drain();const p=(await f.rows())[0];assert.equal(p.phase,'confirmation');
+ await f.capture(f.button(p.id,1,b));await f.drain();assert.equal(f.writes.size,2);const report=f.pushes.find(x=>typeof x.message==='string'&&x.message.startsWith('活動：'))?.message;assert.match(report,/未建立：同仁乙/);
+}finally{await f.close();}});
 test('simultaneous organizer and participant confirmations create one event per person',async()=>{const f=await fixture();try{
  await f.capture(f.message());await f.drain();const p=(await f.rows())[0];await Promise.all([f.capture(f.button(p.id,1,owner)),f.capture(f.button(p.id,1,a))]);await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.length,3);
 }finally{await f.close();}});

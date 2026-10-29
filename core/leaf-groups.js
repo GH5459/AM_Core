@@ -98,7 +98,8 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     if(p.action==='confirm'&&row.event.source.userId!==parent.event.source.userId){
       const participant=pp.people?.find(person=>person.userId===row.event.source.userId);
       const current=context.people.find(person=>person.userId===row.event.source.userId);
-      if(!participant?.account||!participant.bindingId||!current||current.account!==participant.account||current.bindingId!==participant.bindingId)throw Error('group_identity_changed');
+      if(!participant||!current||participant.account&&(current.account!==participant.account||current.bindingId!==participant.bindingId))throw Error('group_identity_changed');
+      const member=await line.lineGet(`/v2/bot/group/${row.event.source.groupId}/member/${row.event.source.userId}`,{timeoutMs:5000});if(member.userId!==row.event.source.userId)throw Error('group_member_changed');
     }
     let prepared;if(p.action==='edit'){
       if(pp.mode==='selftask'||pp.mode==='directtask')prepared=pp.directSelfTask?await extractDirectSelfTask({text:p.correction,at:row.event.timestamp,llm:context.tenant?platform.llmForTenant?.(context.tenant)||llm:llm,existing:{...pp.prepared.draft,missing:pp.prepared.missing},group:pp.mode==='directtask'}):await extractSelfTask({text:p.correction,at:row.event.timestamp,llm:context.tenant?platform.llmForTenant?.(context.tenant)||llm:llm,existing:{...pp.prepared.draft,missing:pp.prepared.missing}});
@@ -188,7 +189,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       p.noticeMessageIds=await taskNotice(row,messages,'direct-created');p.noticeMessageId=p.noticeMessageIds[0]||null;p.phase='done';return store.save(row,p);
     }
     if(p.phase==='fanout'){
-      if(!p.confirmation||!p.people.some(person=>person.userId===p.confirmation.userId&&person.account&&person.bindingId)||p.prepared.missing.length)throw Error('group_confirmation_required');
+      if(!p.confirmation||!p.people.some(person=>person.userId===p.confirmation.userId)||p.prepared.missing.length)throw Error('group_confirmation_required');
       for(const person of p.people){if(!person.account||person.calendarResult)continue;
         const verified=await tasks.resolveGroupIdentity(person.userId,context.tenant,row.event.source.groupId);
         if(!verified||verified.account!==person.account||verified.bindingId!==person.bindingId)throw Error('group_identity_changed');

@@ -52,7 +52,7 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
     const row=(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_kind='group' AND c.source_id=$2 AND j.payload->'${marker}'->>'id'=$3 FOR UPDATE OF j`,[bot,event.source.groupId,id])).rows[0];
     if(!row)return {code:'owner'};const p=row.dispatch;
     const isOwner=row.event.source.userId===event.source.userId;
-    const isParticipant=p.mode==='meeting'&&p.people?.some(person=>person.userId===event.source.userId&&person.account&&person.bindingId);
+    const isParticipant=p.mode==='meeting'&&p.people?.some(person=>person.userId===event.source.userId);
     if(!isOwner&&!(action==='confirm'&&isParticipant))return {code:'owner'};
     if(p.leaseUntil>now())return {code:'busy'};
     if(p.sourceRemoved)return {code:'closed'};
