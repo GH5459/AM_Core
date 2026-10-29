@@ -55,6 +55,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const result=await call(t,c,'self-create',{contract:direct?'line-group-bot-direct-create-v2':'line-group-bot-quick-create-v1',id:hash('self:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),
    botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},
    source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,...direct?{}:{confirmation},revision});
+  if(direct&&(result.contract!=='line-group-bot-direct-create-v2'||!Array.isArray(result.taskIds)||result.taskIds.length!==1||!/^work-[a-f0-9-]{36}$/i.test(result.taskIds[0]||'')))throw Error('invalid_direct_task_receipt');
   return {...result,link:new URL('/?task='+encodeURIComponent(result.taskIds[0]),c.base).href,message:taskEditNotice(c.base,result.taskIds,'已建立自己的任務，可從今天的工作任務查看。')};
  }
  async function submitDirectGroupTask(t,event,participants,draft,revision){
@@ -64,6 +65,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   for(const prior of [participants[0],...recipients]){const current=await taskIdentity(prior.userId,t,event.source.groupId,c);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)throw taskIneligible();}
   const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
   const result=await call(t,c,'self-create',{contract:'line-group-bot-direct-assignment-v2',id:hash('direct-group:'+t.tenantId+':'+event.source.groupId+':'+event.message.id),botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,actor:clean(participants[0]),recipients:recipients.map(clean),source:{groupId:event.source.groupId,messageId:event.message.id,eventId:event.webhookEventId||event.message.id,text:event.message.text,timestamp:event.timestamp},draft,revision});
+  if(result.contract!=='line-group-bot-direct-assignment-v2'||!Array.isArray(result.taskIds)||result.taskIds.length!==1||!/^work-[a-f0-9-]{36}$/i.test(result.taskIds[0]||''))throw Error('invalid_direct_task_receipt');
   return {...result,link:new URL('/?task='+encodeURIComponent(result.taskIds[0]),c.base).href};
  }
  async function readDirectTask(t,event,taskId){const c=await config(t);if(!c)throw Error('task_service_not_configured');const who=await taskIdentity(event.source.userId,t,event.source.groupId,c);if(!who)throw taskIneligible();return call(t,c,'direct-read',{taskId,actor:{userId:who.userId,account:who.account,bindingId:who.bindingId},source:{groupId:event.source.groupId}});}

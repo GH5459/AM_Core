@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {extractEvents,prepareEvent,preview,calendarCandidate} from '../core/leaf-calendar/extract.js';
 test('activity command triggers clarification without complete date, while a usage question does not',()=>{
- assert.equal(calendarCandidate('活動：下週碰面'),true);assert.equal(calendarCandidate('活動：怎麼建立活動？'),false);
+ assert.equal(calendarCandidate('活動：下週碰面'),true);assert.equal(calendarCandidate('活動明天討論'),true);assert.equal(calendarCandidate('活動：怎麼建立活動？'),false);
 });
 test('agenda remains in calendar content even when the model summarizes it',async()=>{
  const text='活動 2026年11月3日 15:00 台北會議室\n議程：\n1. 預算\n2. 三樓設備';

@@ -24,6 +24,7 @@ test('Taiwan date and invalid dates are enforced',()=>{
 test('explicit date must agree with message rather than model guess',()=>{
  const at=Date.parse('2026-12-31T09:00:00Z');assert.equal(matchesExplicitDate('下週一執行',at,'2027-01-04'),true);assert.equal(matchesExplicitDate('下週一執行',at,'2027-01-11'),false);
  assert.equal(matchesExplicitDate('12月30日執行',at,'2027-12-30'),false);assert.equal(matchesExplicitDate('1月2日及1月3日執行',at,'2026-01-02'),false);
+ const october=Date.parse('2026-10-29T00:00:00Z');assert.equal(matchesExplicitDate('11月3日執行，11月5日截止',october,'2026-11-03'),true);assert.equal(matchesExplicitDate('11月3日執行，11月6日截止',october,'2026-11-03'),false);
 });
 test('direct worker rejects a deadline that does not match the execution date',async()=>{
  const at=Date.parse('2026-10-29T08:00:00Z'), user='U'+'1'.repeat(32);

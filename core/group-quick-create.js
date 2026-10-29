@@ -6,7 +6,7 @@ export function directGroupTaskIntent(e,bot){
  const mentions=e.message.mention?.mentionees||[];
  if(!mentions.some(m=>m.type==='user'&&!m.isSelf&&m.userId!==bot&&/^U[a-f0-9]{32}$/i.test(m.userId||'')))return false;
  let text=e.message.text;for(const m of [...mentions].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);
- text=text.normalize('NFKC').trim();return /^任務(?:\s|[：:]|$)/u.test(text)&&!/^(?:任務[：:\s]*)?(?:怎麼|如何|能不能|可不可以|可以嗎|查詢|列出|查看)/u.test(text)&&!/[?？]$/u.test(text);
+ text=text.normalize('NFKC').trim();return /^任務/u.test(text)&&!/^(?:任務[：:\s]*)?(?:怎麼|如何|能不能|可不可以|可以嗎|查詢|清單|列表|列出|查看)/u.test(text)&&!/[?？]$/u.test(text);
 }
 // isSelf is LINE's indication that the mention targets this OA, not the sender.
 export function quickCreateIntent(e,bot){
@@ -16,7 +16,7 @@ export function quickCreateIntent(e,bot){
  let text=e.message.text;
  for(const m of [...mentions].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);
  text=text.normalize('NFKC').trim();
- if(/^任務(?:\s|[：:]|$)/u.test(text)){if(/^任務[：:\s]*(?:如何|怎麼|能不能|可不可以|可以嗎|查詢|列出|查看)/u.test(text)||/[?？]$/u.test(text))return null;return {kind:'selftask',direct:true};}
+ if(/^任務/u.test(text)){if(/^任務[：:\s]*(?:如何|怎麼|能不能|可不可以|可以嗎|查詢|清單|列表|列出|查看)/u.test(text)||/[?？]$/u.test(text))return null;return {kind:'selftask',direct:true};}
  if(/不要|不用|取消|如何|怎麼|能不能|可不可以|可以嗎|嗎[?？]?$|查詢|列出|查看/u.test(text))return null;
  const meeting=/(?:建立|新增|安排|預約|排|設立|設定).{0,12}(?:會議|開會)|(?:開會|會議).{0,8}(?:安排|建立)/u.test(text);
  if(meeting)return {kind:'meeting'};

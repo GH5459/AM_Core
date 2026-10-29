@@ -3,6 +3,11 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1029.20/**'
+      - 'core/line-task-dates.mjs'
+      - 'core/line-task-reply-worker.mjs'
+      - 'tools/test-line-task-dates.mjs'
+      - 'tools/test-line-activity-agenda.mjs'
       - 'versions/AM-IMP-2026.1029.future-nav/**'
       - 'tools/test-future-navigation.mjs'
       - 'versions/AM-IMP-2026.1028.14/**'
@@ -371,6 +376,8 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1016.06
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.01
       - run: node --experimental-vm-modules --test tools/test-group-quick-create.mjs
+      - run: node --test tools/test-line-task-dates.mjs tools/test-line-activity-agenda.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.20
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03
       - run: node --test tools/test-leaf-task-photos.mjs

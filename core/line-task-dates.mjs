@@ -11,7 +11,9 @@ export function matchesExplicitDate(text,at,chosen){
  for(const m of input.matchAll(/(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|號|号)?|(?:(\d{4})[\/.-])?(\d{1,2})[\/.-](\d{1,2})/gu)){
   const year=Number(m[1]||m[4]||today.slice(0,4)),month=Number(m[2]||m[5]),day=Number(m[3]||m[6]);const value=String(year).padStart(4,'0')+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0');candidates.push(value);
  }
- const unique=[...new Set(candidates)];return unique.length===1&&unique[0]===chosen;
+ const unique=[...new Set(candidates)];if(unique.length===1)return unique[0]===chosen;
+ if(unique.length===2&&unique.includes(chosen)&&/截止|期限/u.test(input)){const due=new Date(Date.parse(chosen+'T00:00:00Z')+2*DAY_MS).toISOString().slice(0,10);return unique.includes(due);}
+ return false;
 }
 function taipeiDateOnly(at){if(!Number.isFinite(at))throw new Error('invalid_source_timestamp');return new Date(at+8*3600000).toISOString().slice(0,10);}
 export function taskDates(executionDate, sourceTimestamp) {

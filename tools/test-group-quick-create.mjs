@@ -13,6 +13,9 @@ test('explicit direct self task creates without a button, preserves source and d
  await f.capture(e);await f.drain();assert.equal(f.selfSubmissions.length,1);assert.equal(f.selfSubmissions[0].d.executionDate,'2026-10-14');assert.equal(f.selfSubmissions[0].d.dueDate,'2026-10-16');assert.equal(f.selfSubmissions[0].c,undefined);assert.equal(f.selfSubmissions[0].e.message.text,e.message.text);
  await f.capture(e);f.restart();await f.drain();assert.equal(f.selfSubmissions.length,1);
 }finally{await f.close();}});
+test('task command can start immediately after the mention without a separator',()=>{
+ const e={type:'message',source:{type:'group'},message:{type:'text',text:'@小葉任務明天盤點',mention:{mentionees:[{type:'user',userId:bot,isSelf:true,index:0,length:3}]}}};assert.deepEqual(quickCreateIntent(e,bot),{kind:'selftask',direct:true});
+});
 test('explicit group task creates one shared task and mentions the sender and recipients',async()=>{const f=await fixture();try{
  const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>input.schema.properties.executionDate?{title:'盤點用品',description:'共同盤點三樓用品',executionDate:'2026-10-14',missing:[]}:original(input);
  const e=f.message('@甲 @乙 任務 明天盤點三樓用品',[other,'U'+'3'.repeat(32)]);Object.assign(e.message.mention.mentionees[0],{index:0,length:2});Object.assign(e.message.mention.mentionees[1],{index:3,length:2});
