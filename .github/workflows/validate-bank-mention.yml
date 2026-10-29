@@ -3,6 +3,8 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1029.60/**'
+      - 'tools/test-uof-entry-request.mjs'
       - 'versions/AM-IMP-2026.1029.51/**'
       - 'tools/test-dailylog-first-screen-session.mjs'
       - 'versions/AM-IMP-2026.1029.50/**'
@@ -433,6 +435,8 @@ jobs:
       - run: node --test tools/test-login-continuation.mjs tools/test-login-continuation-authority.mjs tools/test-login-continuation-postgres.mjs tools/test-login-continuation-http.mjs tools/test-login-continuation-worker.mjs
       - run: node --test tools/test-journal-recovery.mjs
       - run: node --test tools/test-entry-speed.mjs
+      - run: node --test tools/test-uof-entry-request.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.60
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1026.03
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1026.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.50
