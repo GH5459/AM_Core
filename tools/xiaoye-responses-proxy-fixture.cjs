@@ -39,16 +39,16 @@ class TerminalEvents{
  end(){this.buffer+=this.decoder.end();if(this.buffer.trim()||!this.terminal)throw Error('missing terminal response');}
 }
 class FixtureResponsesProxy extends FixtureGateway{
- constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,timeoutMs=1000,maxResponseBytes=262144}={}){super({clock,dbPath,leaseVerifier});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<10||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1)throw Error('fixture upstream required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;}
+ constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,pollIntervalMs=100,timeoutMs=1000,maxResponseBytes=262144}={}){super({clock,dbPath,leaseVerifier,pollIntervalMs});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<10||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1)throw Error('fixture upstream required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;}
  async handle(req,res){
   const reject=status=>{if(!res.headersSent)res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end('{"error":"request_rejected"}');};
   if(req.method!=='POST'||req.url!=='/v1/responses')return reject(404);
   const token=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization||'')?.[1];if(!token||!this.authorize(token))return reject(401);
   const id=req.headers['x-fixture-request-id'];if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{8,80}$/.test(id))return reject(400);
-  let raw;try{raw=await this.readBody(req,this.authorize(token),65536);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
+  let raw;try{raw=await this.readBody(req,this.authorize(token),65536,token);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
   let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validBody(body))return reject(400);
   const grant=this.authorize(token);if(!grant)return reject(401);const claim=this.claim(token,{mode:'responses',requestId:id,bodyHash:'responses'});if(claim.status!==200)return reject(claim.status);
-  const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});
+  const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort,token);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});
   const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('fixture total deadline');return ms;};
   try{
    // Only a fake injected adapter exists. No request-supplied URL, headers or

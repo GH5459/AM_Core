@@ -37,16 +37,16 @@ function validCodex(v,hashes=toolHashes){
  const names=new Set();for(const t of v.tools){if(!only(t,['type','name','description','parameters','strict'])||t.type!=='function'||!Object.hasOwn(hashes,t.name)||names.has(t.name)||digest(JSON.stringify(canonical(t)))!==hashes[t.name])return false;names.add(t.name);}return true;
 }
 class FixtureCodexProxy extends FixtureGateway{
- constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,timeoutMs=5000,maxResponseBytes=262144,fixtureToolHashes=toolHashes}={}){super({clock,dbPath,leaseVerifier});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!fixtureToolHashes||typeof fixtureToolHashes!=='object'||!Object.entries(fixtureToolHashes).every(([k,v])=>/^[a-z_]{1,100}$/.test(k)&&/^[a-f0-9]{64}$/.test(v)))throw Error('fake upstream and fixture policy required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.toolHashes={...fixtureToolHashes};}
+ constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,pollIntervalMs=100,timeoutMs=5000,maxResponseBytes=262144,fixtureToolHashes=toolHashes}={}){super({clock,dbPath,leaseVerifier,pollIntervalMs});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!fixtureToolHashes||typeof fixtureToolHashes!=='object'||!Object.entries(fixtureToolHashes).every(([k,v])=>/^[a-z_]{1,100}$/.test(k)&&/^[a-f0-9]{64}$/.test(v)))throw Error('fake upstream and fixture policy required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.toolHashes={...fixtureToolHashes};}
  async handle(req,res){
   const reject=status=>{if(!res.headersSent)res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end('{"error":"fixture_rejected"}');};
   if(req.method!=='POST'||req.url!=='/v1/responses')return reject(404);
   const token=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization||'')?.[1],requestId=req.headers['x-client-request-id'];if(!token||!this.authorize(token))return reject(401);if(typeof requestId!=='string'||!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId))return reject(400);
-  let raw;try{raw=await this.readBody(req,this.authorize(token),262144);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
+  let raw;try{raw=await this.readBody(req,this.authorize(token),262144,token);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
   let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validCodex(body,this.toolHashes))return reject(400);
   const grant=this.authorize(token);if(!grant)return reject(401);
   const bodyHash=digest(JSON.stringify(canonical(body))),claim=this.claim(token,{mode:'codex',requestId,bodyHash});if(claim.status!==200)return reject(claim.status);
-  const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('deadline');return ms;};
+  const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort,token);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('deadline');return ms;};
   try{
    // Inference is separate from external actions. Original metadata is not
    // forwarded; the fake adapter receives a scoped cache identifier instead.

@@ -1,5 +1,5 @@
 'use strict';
-const fakeLease={fixtureOnly:true,check:v=>({allowed:true,...v,expiresAt:Number.MAX_SAFE_INTEGER})};
+const fakeLease={fixtureOnly:true,check:v=>({status:'active',...v,expiresAt:Number.MAX_SAFE_INTEGER})};
 // Local-only protocol probe. No real credential, company data or API backend.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 const {CodexAppServerClient}=require('./xiaoye-app-server-client.cjs');

@@ -1,5 +1,5 @@
 'use strict';
-const fakeLease={fixtureOnly:true,check:v=>({allowed:true,...v,expiresAt:Number.MAX_SAFE_INTEGER})};
+const fakeLease={fixtureOnly:true,check:v=>({status:'active',...v,expiresAt:Number.MAX_SAFE_INTEGER})};
 const test = require('node:test'), assert = require('node:assert/strict'), http = require('node:http'), crypto = require('node:crypto'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {FixtureGateway} = require('./xiaoye-model-gateway-fixture.cjs');
 const {ControlledBroker} = require('./xiaoye-controlled-broker.cjs');

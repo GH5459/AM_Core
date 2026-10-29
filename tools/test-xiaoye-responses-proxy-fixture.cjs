@@ -1,5 +1,5 @@
 'use strict';
-const fakeLease={fixtureOnly:true,check:v=>({allowed:true,...v,expiresAt:Number.MAX_SAFE_INTEGER})};
+const fakeLease={fixtureOnly:true,check:v=>({status:'active',...v,expiresAt:Number.MAX_SAFE_INTEGER})};
 const test=require('node:test'),assert=require('node:assert/strict'),http=require('node:http');
 const {FixtureResponsesProxy,FIXED_ENDPOINT,TOOL,TerminalEvents}=require('./xiaoye-responses-proxy-fixture.cjs');
 const eventId='a'.repeat(64),identity={eventId,sourceVersion:1,generation:1,leaseId:'fixture-lease'};

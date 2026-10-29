@@ -78,10 +78,16 @@ node --test tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-mode
 這些保證只限所有實例共用同一 SQLite：多節點使用不同資料庫、跨
 服務 lease／動作 broker、節點故障、資料回復、真實模型授權或成本
 都沒有一致性保證。撤銷後已發往上游的請求可能仍執行、計費；
-跨程序撤銷僅在後續核對時可觀察，並非即時中斷。沒有正式模型
+假 gateway 在上傳及串流期間以可配置的短間隔重新核對同庫撤銷與假 lease，確認無效或不可用時請求中止本程序串流；這是輪詢而非即時通知，事件迴圈或資料庫延遲會使觀察時間超過設定間隔。中止不證明遠端已停止。沒有正式模型
 憑證、TLS、可驗證服務身分、可信租約查核、總費用上限或正式接線。
 持久 schema 變更尚無自動遷移；不相容資料庫會拒絕並保留原資料。
 
 ```sh
 node --test tools/test-xiaoye-model-gateway-store-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-codex-proxy-fixture.cjs
 ```
+
+
+假 lease verifier 使用明確狀態：`revoked`／`stale` 且事件、來源、
+代次及 lease ID 完全相符時寫永久撤銷墓碑；`unavailable`、錯置
+回覆及查詢錯誤只拒絕當次使用，之後可再次核對。假驗證器和
+短間隔輪詢不構成可信服務，也無法跨獨立 SQLite 保證同步。
