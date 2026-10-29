@@ -1,7 +1,10 @@
+# Validate the future-work navigation package as part of the full suite.
 name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1029.future-nav/**'
+      - 'tools/test-future-navigation.mjs'
       - 'versions/AM-IMP-2026.1028.14/**'
       - 'versions/AM-IMP-2026.1028.13/**'
       - 'tools/test-meeting-entry-performance.mjs'
@@ -320,6 +323,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.09
       - run: node --test tools/test-meeting-calendar-speed.mjs
       - run: node --test tools/test-rich-menu-dailylog-entry.mjs
+      - run: node --test tools/test-future-navigation.mjs
       - run: node --test tools/test-meeting-entry-performance.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.13
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1028.11
