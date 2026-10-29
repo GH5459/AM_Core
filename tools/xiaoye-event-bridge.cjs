@@ -16,10 +16,11 @@ class EventBridge {
   save(file,value) {const destination=path.join(this.folder,file);fs.mkdirSync(path.dirname(destination),{recursive:true});const temp=destination+'.tmp';fs.writeFileSync(temp,JSON.stringify(value,null,2));fs.renameSync(temp,destination);return destination;}
   async call(action,input={},file) {
     if(file)this.save(file,input);
-    for(let attempt=0;attempt<3;attempt++){
+    const limit=['event-fail','event-complete'].includes(action)?1:3;
+    for(let attempt=0;attempt<limit;attempt++){
       try{const r=await this.fetcher(new URL(this.prefix+action,this.worker.vars.PUBLIC_ORIGIN),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.credentials.key,'Content-Type':'application/json'},body:JSON.stringify({tenantKey:this.worker.vars.LEAF_TASK_TENANT,...input}),signal:AbortSignal.timeout(45000)});
         const v=await r.json();if(!r.ok||!v.ok)throw Object.assign(Error('Secretary event API rejected action'),{status:r.status,action,reason:typeof v.error==='string'&&/^[\u3000-\u9fff\s，。；：、（）「」／0-9]{1,180}$/.test(v.error)?v.error:null});return v;
-      }catch(e){if(attempt===2||e.status&&e.status<500)throw e;await new Promise(resolve=>setTimeout(resolve,500*2**attempt));}
+      }catch(e){e.action=e.action||action;if(attempt===limit-1||e.status&&e.status<500)throw e;await new Promise(resolve=>setTimeout(resolve,500*2**attempt));}
     }
   }
   status(state,extra={}) {this.save('bridge-status.private.json',{state,pid:process.pid,at:new Date(this.clock()).toISOString(),childrenStarted:this.childrenStarted,...extra});}
@@ -49,7 +50,7 @@ class EventBridge {
       this.status('reconciliation-required',{eventId:active.id,decision:'missing-exact-identity'});return;
     }
     const completeIntent=read('event-complete.input.private.json'),failIntent=read('event-fail.input.private.json')||read('failure.input.private.json'),intent=completeIntent||failIntent;
-    const evidence={finalization:intent?.operationId?{action:completeIntent?'complete':'fail',operationId:intent.operationId}:null,chatDispatchInput:!!read('chat-dispatch.input.private.json'),executorReady:typeof this.verifyCaseExecutor==='function'?this.verifyCaseExecutor:false};
+    const evidence={uncertainFinalization:!!intent?.operationId&&!read('completion.private.json'),finalization:intent?.operationId?{action:completeIntent?'complete':'fail',operationId:intent.operationId}:null,chatDispatchInput:!!read('chat-dispatch.input.private.json'),executorReady:typeof this.verifyCaseExecutor==='function'?this.verifyCaseExecutor:false};
     evidence.failureBudgetAvailable=(a,inspected)=>this.failedRetryBudget(a,inspected,rel);
     const result=await reconcileInterruptedEvent({active,evidence,
       inspectEvent:async(taskId,eventId)=>this.call('event-inspect',{id:taskId,eventId}),
@@ -77,6 +78,9 @@ class EventBridge {
         if(inspected.autoResumeEligible!==true){
           if(inspected.event?.id!==active.id||inspected.event?.taskId!==active.taskId||inspected.task?.id!==active.taskId)
             throw Error('原案件事件識別未確認，暫不變更重查紀錄');
+          if(inspected.event.state==='running'&&inspected.event.sourceVersion===active.sourceVersion&&inspected.task.sourceVersion===active.sourceVersion&&!['paused','closed','duplicate'].includes(inspected.task.stage)){
+            retryNeeded=true;this.save(rel+'/auto-resume.decision.private.json',{decision:'finalization-unconfirmed',retryScheduled:true,at:new Date(this.clock()).toISOString()});continue;
+          }
           const terminal=inspected.event?.state==='failed'||inspected.event?.state==='done'&&inspected.event?.kind==='execute';
           const current=terminal&&inspected.event.sourceVersion===active.sourceVersion&&inspected.task.sourceVersion===active.sourceVersion&&inspected.task.stage==='blocked';
           if(!current)this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'confirmed-case-changed'});
@@ -232,7 +236,7 @@ class EventBridge {
         const {DesktopMcp,runVisibleEvent}=require('./xiaoye-visible-chats.cjs');
         const routes=JSON.parse(fs.readFileSync(this.config.visibleChatsFile));
         const context=JSON.parse(fs.readFileSync(routes.desktopContextFile));
-        const appServerContext={kind:job.kind,operatorDirectory:this.folder,nodeExecutable:this.config.nodeExecutable,codexExecutable:this.config.codexExecutable,runtimeToolsFile:this.config.runtimeToolsFile,toolContextFile:this.config.toolContextFile,eventCheckFile:checkFile};
+        const appServerContext={kind:job.kind,operatorDirectory:this.folder,nodeExecutable:this.config.nodeExecutable,codexExecutable:this.config.codexExecutable,runtimeToolsFile:this.config.runtimeToolsFile,toolContextFile:this.config.toolContextFile,eventCheckFile:checkFile,onTurnStarted:({threadId,turnId,serverPid,serverStartedAt})=>this.save(rel+'/chat-turn-started.private.json',{eventId:job.id,taskId:job.taskId,sourceVersion:job.sourceVersion,threadId,turnId,serverPid,serverStartedAt,at:new Date(this.clock()).toISOString()}),onServerExit:({threadId,turnId,serverPid,serverStartedAt,exitCode,signal})=>this.save(rel+'/chat-server-exit.private.json',{eventId:job.id,taskId:job.taskId,sourceVersion:job.sourceVersion,threadId,turnId,serverPid,serverStartedAt,exitCode,signal,at:new Date(this.clock()).toISOString()})};
         const client=await (this.visibleClientFactory?this.visibleClientFactory(context,appServerContext):new DesktopMcp(context,{appServerContext})).connect();
         try {
           const checked=await this.call('event-check',checkInput);
@@ -276,10 +280,10 @@ class EventBridge {
       this.save(rel+'/completion.private.json',result);
       this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
     } catch(e) {
-      const rejected=[401,403,409].includes(e.status),confirmation=e.code==='confirmation_required',reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):confirmation?'案件聊天搬到所屬專案時，需要先確認資料夾存取權限。':'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':confirmation?'請在 Codex 側欄將原案件聊天移到所屬專案並完成確認，再沿原案件重新查核；原聊天和案件紀錄保留。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
-      this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,action:e.action||null,reason:rejected?reason:null,message:'Event stopped; original state and evidence retained.'});
+      const rejected=[401,403,409].includes(e.status),confirmation=e.code==='confirmation_required',timedOut=e.code==='turn_timeout',reason=rejected?'原服務未通過本次執行資格檢查，已停止。'+(e.reason||'原登入、核准或案件版本需要重新確認。'):confirmation?'案件聊天搬到所屬專案時，需要先確認資料夾存取權限。':timedOut?'本次案件處理回合已達時間上限，尚未確認完成。':'Codex專用聊天接續受阻，本次不改用隱藏程序重做。',nextStep=rejected?'請重新確認本人登入與原案件目前方案，再沿原卡接續；已完成程式與測試保留，不重播舊事件。':confirmation?'請在 Codex 側欄將原案件聊天移到所屬專案並完成確認，再沿原案件重新查核；原聊天和案件紀錄保留。':timedOut?'目前尚無足夠證據確認原處理及其背景作業都已停止；原案件與已有紀錄保留，不重送結果不明的操作。':'確認Codex桌面與指定聊天可用後，沿原案件重新查核並提案；不要重送結果不明的事件。';
+      this.save(rel+'/bridge-error.private.json',{at:new Date(this.clock()).toISOString(),status:e.status||null,action:e.action||null,category:timedOut?'turn_timeout':null,reason:rejected?reason:null,message:'Event stopped; original state and evidence retained.'});
       const activePath=path.join(this.folder,'bridge-active.private.json');
-      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'){try{await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason,nextStep}:{}},rel+'/failure.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished'});}catch{}}}
+      if(fs.existsSync(activePath)){const active=JSON.parse(fs.readFileSync(activePath));if(active.id===id&&active.phase!=='finished'&&!['event-complete','event-fail'].includes(e.action)){try{const result=await this.call('event-fail',{id,lease:active.lease,operationId:active.failureOperation,...this.config.visibleChatsFile?{reason,nextStep}:{}},rel+'/failure.input.private.json');this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});}catch{}}}
     } finally {
       this.running=null;this.status(this.ws?.readyState===1?'connected':'disconnected');
       if(this.ws?.readyState===1)this.ws.send('ready');

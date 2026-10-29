@@ -53,6 +53,7 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
   if (event.state !== 'running' || event.leaseActive !== true) {
     return {decision:'lease-changed', terminal:false};
   }
+  if(evidence.uncertainFinalization)return {decision:'await-finalization-readback',terminal:false};
   if (typeof verifyLease !== 'function' || await verifyLease(active) !== true) {
     return {decision:'lease-unverified', terminal:false};
   }

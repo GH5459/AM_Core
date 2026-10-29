@@ -21,12 +21,13 @@ test('startup keeps unknown desktop dispatch for reconciliation; it sends no new
  assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'running');
  assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'inspect-original-chat');
 });
-test('startup replays an uncertain finalization with the original operation ID',async()=>{
+test('startup never resends an uncertain finalization and waits for readback',async()=>{
  const f=fixture(async(action,input)=>action==='event-inspect'?inspection('running'):action==='event-check'?{job:{id,lease:'lease-a'}}:(assert.equal(action,'event-complete'),assert.equal(input.operationId,'original-complete'),{state:'done'}));
  const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'event-complete.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-complete'}));
  await f.bridge.recover();
- assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-check','event-complete']);
- assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'finished');
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'await-finalization-readback');
+ assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'running');
 });
 test('startup with a completed case requests notification only',async()=>{
  const f=fixture(async action=>{assert.equal(action,'event-inspect');return inspection('done','awaiting_confirmation')});
@@ -51,6 +52,18 @@ test('connection recovery scans a bounded local failed event and never resends C
  assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','auto-resume']);
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
  await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,2);
+});
+test('exception intent waits while finalization is unknown, then rechecks the same failed event exactly once',async()=>{
+ let state='running';const f=fixture(async(action,input)=>{if(action==='event-inspect')return {...inspection(state,state==='running'?'executing':'blocked'),event:{...inspection(state).event,kind:'execute'},autoResumeEligible:state==='failed'};assert.equal(action,'auto-resume');assert.equal(input.eventId,id);return {stage:'clarifying'};},'finished',async()=>true);
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(run,'failure.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-fail-operation'}));
+ await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);assert(f.bridge.failedRecoveryTimer);assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.decision.private.json'))).decision,'finalization-unconfirmed');
+ state='failed';await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect','auto-resume']);await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,3);f.bridge.stop();
+});
+test('failed dispatch is never restarted merely because parent and desktop turn appear finished',async()=>{
+ const {exceptionDispatchSettled}=require('./xiaoye-app-server-client.cjs');let f;
+ f=fixture(async action=>{assert.equal(action,'event-inspect');return {...inspection('failed','blocked'),event:{...inspection('failed','blocked').event,kind:'execute'},autoResumeEligible:true};},'finished',async active=>exceptionDispatchSettled({request:async()=>({thread:{id:'fixture-thread',status:{type:'notLoaded'},turns:[{id:'fixture-turn',status:'interrupted'}]}})},f.dir,active));
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});const put=(n,v)=>fs.writeFileSync(path.join(run,n),JSON.stringify(v));put('acquire.response.private.json',{job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}});put('failure.input.private.json',{id,lease:'lease-a',operationId:'failure-original'});put('chat-dispatch.input.private.json',{threadId:'fixture-thread',hostId:'local'});const mark={eventId:id,taskId,sourceVersion:4,threadId:'fixture-thread',turnId:'fixture-turn',serverPid:1234,serverStartedAt:'fixture-start'};put('chat-turn-started.private.json',mark);put('chat-server-exit.private.json',{...mark,exitCode:0});
+ await f.bridge.recoverFailedEvents();await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(x=>x.action==='auto-resume').length,0);assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
 });
 test('temporarily unavailable desktop tools schedule another check and then resume the same failed case',async()=>{
  let ready=false;
