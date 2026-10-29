@@ -95,3 +95,11 @@ node --test tools/test-xiaoye-model-gateway-store-fixture.cjs tools/test-xiaoye-
 令牌一旦經本機時鐘觀察到到期，會持久標記撤銷，時鐘回撥或
 重啟不會使它復活；尚未觀察到期前的時鐘回撥，仍需要可信時間
 來源和跨節點一致時鐘，本模擬尚無法保證。
+
+「已確定尚未送出」另以 reserved 狀態和只在本次執行記憶體中的
+隨機 attempt secret 證明；只有同一仍存活的 handler 在呼叫上游之前
+可將其標記為 not-sent，並退還未使用的模型請求額度。相同請求
+最多三次 not-sent，重試須等持久化退避時間且重新核權；上游交送
+前先持久標為 unknown。程序崩潰後的 reserved、已交送或回覆不明
+均不可按 not-sent 解鎖。若未接排程或客戶端不重試，這些狀態仍
+不會自行繼續。這是同程序假介面，secret 雜湊不構成作業系統隔離。

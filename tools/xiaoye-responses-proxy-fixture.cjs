@@ -50,15 +50,15 @@ class FixtureResponsesProxy extends FixtureGateway{
   const grant=this.authorize(token);if(!grant)return reject(401);const claim=this.claim(token,{mode:'responses',requestId:id,bodyHash:'responses'});if(claim.status!==200)return reject(claim.status);
   const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort,token);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});
   const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('fixture total deadline');return ms;};
-  try{
+  let dispatched=false;try{
    // Only a fake injected adapter exists. No request-supplied URL, headers or
    // credential is ever handed to it; the endpoint constant is not fetched.
-   const upstream=await timeout(Promise.resolve().then(()=>{if(!this.authorize(token))throw Error('authority expired');return this.upstream.open({endpoint:FIXED_ENDPOINT,payload:body,signal:abort.signal});}),remaining());
+   const budget=remaining();const upstream=await timeout(Promise.resolve().then(()=>{if(abort.signal.aborted||!this.arm(token,claim)){this.notSent(claim);throw Object.assign(Error('not sent'),{code:'not_sent'});}dispatched=true;return this.upstream.open({endpoint:FIXED_ENDPOINT,payload:body,signal:abort.signal});}),budget);
    if(!this.authorize(token)||upstream?.status!==200||upstream.contentType!=='text/event-stream'||!upstream.body?.[Symbol.asyncIterator])return reject(502);
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});const iterator=upstream.body[Symbol.asyncIterator](),events=new TerminalEvents(body.tools?.length?{fixture_read:args=>object(args,['path'])&&typeof args.path==='string'&&/^[A-Za-z0-9._/-]{1,200}$/.test(args.path)&&!args.path.includes('..')}:[]),terminalChunks=[];let bytes=0;
    for(;;){const next=await timeout(iterator.next(),remaining());if(next.done)break;if(!this.authorize(token)||abort.signal.aborted)throw Error('authority ended');const chunk=Buffer.from(next.value);bytes+=chunk.length;if(bytes>this.maxResponseBytes)throw Error('response too large');events.feed(chunk);if(events.terminal||events.sawFunctionCall)terminalChunks.push(chunk);else if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}
    if(!this.authorize(token))throw Error('authority ended');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('authority ended');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}this.settle(claim,'terminal');res.end();
-  }catch{if(!res.headersSent&&!abort.signal.aborted)reject(502);else res.destroy();abort.abort();}finally{untrack();}
+  }catch(e){if(!dispatched)this.notSent(claim);if(!res.headersSent&&!abort.signal.aborted)reject(e.code==='not_sent'?503:502);else res.destroy();abort.abort();}finally{untrack();}
  }
 }
 module.exports={FixtureResponsesProxy,FIXED_ENDPOINT,TOOL,validBody,TerminalEvents,timeout};

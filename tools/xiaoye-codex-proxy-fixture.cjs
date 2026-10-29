@@ -47,18 +47,18 @@ class FixtureCodexProxy extends FixtureGateway{
   const grant=this.authorize(token);if(!grant)return reject(401);
   const bodyHash=digest(JSON.stringify(canonical(body))),claim=this.claim(token,{mode:'codex',requestId,bodyHash});if(claim.status!==200)return reject(claim.status);
   const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort,token);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('deadline');return ms;};
-  try{
+  let dispatched=false;try{
    // Inference is separate from external actions. Original metadata is not
    // forwarded; the fake adapter receives a scoped cache identifier instead.
    const {client_metadata,prompt_cache_key,...safe}=body;const payload={...safe,max_output_tokens:1024,prompt_cache_key:'fixture-'+digest(JSON.stringify([grant.eventId,grant.sourceVersion,grant.generation])).slice(0,32)};
-   const upstream=await timeout(Promise.resolve().then(()=>{if(!this.authorize(token))throw Error('revoked');return this.upstream.open({endpoint:FIXED_ENDPOINT,payload,signal:abort.signal});}),remaining());
+   const budget=remaining();const upstream=await timeout(Promise.resolve().then(()=>{if(abort.signal.aborted||!this.arm(token,claim)){this.notSent(claim);throw Object.assign(Error('not sent'),{code:'not_sent'});}dispatched=true;return this.upstream.open({endpoint:FIXED_ENDPOINT,payload,signal:abort.signal});}),budget);
    if(!this.authorize(token))throw Error('revoked');
    if(upstream?.status===503){this.settle(claim,'prestream-503');return reject(503);}
    if(upstream?.status!==200||upstream.contentType!=='text/event-stream'||!upstream.body?.[Symbol.asyncIterator])return reject(502);
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});let bytes=0;const iterator=upstream.body[Symbol.asyncIterator](),events=new TerminalEvents(Object.fromEntries(body.tools.map(t=>[t.name,args=>validToolArguments(t.parameters,args)]))),terminalChunks=[];
    for(;;){const n=await timeout(iterator.next(),remaining());if(n.done)break;if(!this.authorize(token)||abort.signal.aborted)throw Error('revoked');const chunk=Buffer.from(n.value);bytes+=chunk.length;if(bytes>this.maxResponseBytes)throw Error('limit');events.feed(chunk);if(events.terminal||events.sawFunctionCall)terminalChunks.push(chunk);else if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}
    if(!this.authorize(token))throw Error('revoked');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('revoked');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}this.settle(claim,'terminal');res.end();
-  }catch{if(!res.headersSent&&!abort.signal.aborted)reject(502);else res.destroy();abort.abort();}finally{untrack();}
+  }catch(e){if(!dispatched)this.notSent(claim);if(!res.headersSent&&!abort.signal.aborted)reject(e.code==='not_sent'?503:502);else res.destroy();abort.abort();}finally{untrack();}
  }
 }
 module.exports={FixtureCodexProxy,validCodex,validToolArguments,toolHashes};

@@ -30,6 +30,8 @@ class FixtureGateway {
   authorize(token) { const row=this.store.authorize(token);if(!row)return null;let grant=this.grants.get(row.event_id);if(!grant){grant={eventId:row.event_id,sourceVersion:row.source_version,generation:row.generation};this.grants.set(row.event_id,grant);}return grant; }
   claim(token,request){return this.store.claim(token,request);}
   settle(claim,state){return this.store.settle(claim,state);}
+  arm(token,claim){return this.store.arm(token,claim);}
+  notSent(claim){return this.store.notSent(claim);}
   watch(token,onInvalid){const check=()=>{let valid=false;try{valid=!!this.authorize(token);}catch{}if(!valid)onInvalid();};const timer=setInterval(check,this.pollIntervalMs);timer.unref();check();return ()=>clearInterval(timer);}
   trackStream(grant, abort, token) { let set=this.activeStreams.get(grant); if(!set)this.activeStreams.set(grant,set=new Set()); set.add(abort);const stopWatch=this.watch(token,()=>abort.abort());return ()=>{stopWatch();set.delete(abort);if(!set.size)this.activeStreams.delete(grant);}; }
   async readBody(req,grant,maxBytes,token) {
@@ -52,6 +54,7 @@ class FixtureGateway {
     let body; try { body = JSON.parse(raw.toString('utf8')); } catch { return fail(400); }
     if (!validBody(body)) return fail(400);
     const claim=this.claim(token,{mode:'fixture',requestId:id,bodyHash:'fixture'});if(claim.status!==200)return fail(claim.status);
+    if(!this.arm(token,claim)){this.notSent(claim);return fail(503);}
     // Deterministic local fixture: never forwards text, URLs or credentials.
     this.backendCalls++;
     const event = {type: 'response.completed', response: {id: 'fixture-response', status: 'completed', output: [{type: 'message', role: 'assistant', content: [{type: 'output_text', text: 'fixture response'}]}]}};
