@@ -133,7 +133,7 @@ class EventBridge {
           // Analysis in the designated case chat remains read-only. A failed
           // preflight never grants permission to change code or retry work.
           if(job.kind==='analyze'&&this.config.visibleChatsFile){this.toolWarning=label;}
-          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'工具恢復後系統會自動核對原案件及已有動作，再依目前設定接續；若需補充情況，會在原案件詢問回報人。'},rel+'/tools-failed.input.private.json');this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
+          else {const result=await this.call('event-fail',{...checkInput,operationId:active.failureOperation,reason:label+'，本次未啟動AI執行。',nextStep:'工具恢復後系統會自動核對原案件及已有動作，再依目前設定接續；若需補充情況，會在原案件詢問回報人。'},rel+'/tools-failed.input.private.json');this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});return;}
         }
       }
       if(this.config.visibleChatsFile){

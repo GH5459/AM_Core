@@ -14,3 +14,11 @@ test('already resumed, incomplete and invalid local records cannot dispatch work
  fs.writeFileSync(path.join(a,'auto-resume.response.private.json'),'{}');
  assert.deepEqual(failedEventCandidates(dir),[]);
 });
+test('a historical tool failure without a completion file can be checked for safe recovery',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-failed-scan-')),now=Date.now();
+ const run=record(dir,id1,task,now,false);
+ fs.writeFileSync(path.join(run,'tools-failed.input.private.json'),JSON.stringify({id:id1,lease:'fixture-lease',operationId:'event-failure-fixture'}));
+ assert.deepEqual(failedEventCandidates(dir).map(x=>x.id),[id1]);
+ fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),'{}');
+ assert.deepEqual(failedEventCandidates(dir),[]);
+});

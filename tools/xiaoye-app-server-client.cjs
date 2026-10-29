@@ -1,6 +1,7 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+const { codexExecutable } = require('./xiaoye-runtime-paths.cjs');
 
 class CodexAppServerClient {
   constructor({ executable = 'codex', launch = spawn, requestTimeoutMs = 30000, turnTimeoutMs = 27 * 60000, configOverrides = [] } = {}) {
@@ -123,7 +124,7 @@ class CodexAppServerClient {
   }
 }
 const caseRepositories = Object.freeze({am:'GH5459/AM_Core',dailylog:'GH5459/DailyLog',uof:'GH5459/UOF_LoginCheck',meeting:'GH5459/AM_Core',hozo:'GH5459/rental-management-blueprint'});
-function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=message=>console.warn(message)}={}){
+function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=message=>console.warn(message),resolveExecutable=codexExecutable}={}){
  return async function verifyCaseExecutor(active,inspected){
   let client;
   try{
@@ -150,7 +151,7 @@ function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=mess
     'mcp_servers.xiaoye_runtime.enabled=true',
     'mcp_servers.xiaoye_runtime.default_tools_approval_mode="approve"'
    ];
-   client=await new Client({executable:config.codexExecutable||'codex',configOverrides:overrides}).connect();
+   client=await new Client({executable:resolveExecutable(config.codexExecutable),configOverrides:overrides}).connect();
    const profiles=await client.request('permissionProfile/list');
    if(!profiles.data?.some(p=>p.id===':danger-full-access'&&p.allowed))throw Error('案件完整執行權限不可用');
    const status=await client.request('mcpServerStatus/list');
