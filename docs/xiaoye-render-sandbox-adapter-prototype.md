@@ -48,8 +48,10 @@ Locally: `node --test tools/test-xiaoye-render-sandbox-adapter.cjs`.
 References: [Render CLI reference](https://render.com/docs/sandboxes-cli-reference)
 and installed Render CLI 2.33.0 help for `sandboxes create/list/stop`.
 
-Concurrency is bounded by a persistent per-workspace/group limit; each event
-can have only one create intent. Unknown creation and termination continue to
+Concurrency is bounded by a persistent per-workspace/group limit; each event can dispatch creation at most once. A provably pre-dispatch
+failure can retry at most five times with persistent backoff, a new attempt
+identifier, the original deadline and exactly matching authority. Cancellation
+of such a pending attempt is persisted and prevents retry. Unknown creation and termination continue to
 occupy capacity; capacity is released only after confirmed termination or a
 verified pre-dispatch denial. These limits apply only within the same shared
 SQLite database, not to another independent supervisor/database or other Render
@@ -62,3 +64,16 @@ list is unknown; the list is not claimed to be a complete inventory.
 This schema is experimental. Older prototype databases without the lease and
 workspace columns are explicitly rejected without deleting their records; no
 migration, retroactive lease assumption or duplicate-owner repair is supplied.
+
+For pre-dispatch failures, periodic `recover` can retry only `not_started`
+records after the persisted retry time. A crash or uncertain provider response
+is never reclassified as not-started. The scheduler is not implemented and
+retry exhaustion is not automatic completion; unverified cases stay pending.
+Render's documented minimum lifetime is 60 seconds; if the remaining original
+local deadline is less than 60 whole seconds the adapter does not send create.
+It never sends timeout zero, which the CLI treats as its long default. Remote
+creation may start later than the local request, so even a valid provider timeout
+is not an absolute wall-clock enforcement without the independent supervisor.
+A nominal 60-second event window will be rejected if prechecks consume any time;
+the caller must supply additional time for checks, or wait for a new authorized
+work item. This adapter never silently extends the original event deadline.
