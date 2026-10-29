@@ -14,20 +14,39 @@ function fixture(api,phase='running',verifyCaseExecutor) {
 const inspection=(state,stage='executing')=>({event:{id,taskId,sourceVersion:4,leaseActive:state==='running',state},task:{id:taskId,sourceVersion:4,stage,version:10},resultNotification:{state:'pending'}});
 
 test('startup keeps unknown desktop dispatch for reconciliation; it sends no new turn',async()=>{
- const f=fixture(async action=>{if(action==='event-inspect')return inspection('running');assert.equal(action,'event-check');return {job:{id,lease:'lease-a'}}});
+ const f=fixture(async action=>{if(action==='event-inspect')return inspection('running');assert.equal(action,'event-check');return {job:{id,lease:'lease-a',taskId,sourceVersion:4}}});
  const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'chat-dispatch.input.private.json'),'{}');
  await f.bridge.recover();
  assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-check']);
  assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'running');
  assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'inspect-original-chat');
 });
-test('startup never resends an uncertain finalization and waits for readback',async()=>{
- const f=fixture(async(action,input)=>action==='event-inspect'?inspection('running'):action==='event-check'?{job:{id,lease:'lease-a'}}:(assert.equal(action,'event-complete'),assert.equal(input.operationId,'original-complete'),{state:'done'}));
+test('startup retries only the persisted idempotent finalization after exact lease check',async()=>{
+ const f=fixture(async(action,input)=>action==='event-inspect'?inspection('running'):action==='event-check'?{job:{id,lease:'lease-a',taskId,sourceVersion:4}}:(assert.equal(action,'event-complete'),assert.equal(input.operationId,'original-complete'),{state:'done'}));
  const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'event-complete.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-complete'}));
  await f.bridge.recover();
- assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);
- assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'await-finalization-readback');
- assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'running');
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-complete']);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'finalization-replayed');
+ assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'finished');
+});
+test('startup preserves a saved preflight failure reason and retries its original operation',async()=>{
+ const f=fixture(async(action,input)=>action==='event-inspect'?inspection('running'):action==='event-check'?{job:{id,lease:'lease-a',taskId,sourceVersion:4}}:(assert.equal(action,'event-fail'),assert.equal(input.operationId,'original-failure'),assert.equal(input.reason,'工具暫時離線'),assert.equal(input.nextStep,'稍後自動重查'),{state:'failed'}));
+ const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'tools-failed.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-failure',reason:'工具暫時離線',nextStep:'稍後自動重查'}));await f.bridge.recover();
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-fail']);assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'finalization-replayed');f.bridge.stop();
+});
+test('conflicting finalizations or a mismatched saved lease never reach the DO',async()=>{
+ for(const mode of ['conflict','lease-mismatch']){const f=fixture(async action=>{assert.equal(action,'event-inspect');return inspection('running');});const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'event-complete.input.private.json'),JSON.stringify({id,lease:mode==='lease-mismatch'?'wrong-lease':'lease-a',operationId:'original-complete'}));if(mode==='conflict')fs.writeFileSync(path.join(p,'failure.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'other-failure'}));await f.bridge.recover();assert.deepEqual(f.calls.map(x=>x.action),['event-inspect']);assert.equal(JSON.parse(fs.readFileSync(path.join(p,'recovery.private.json'))).decision,'await-finalization-readback');f.bridge.stop();}
+});
+test('startup retries a transient reconciliation failure without relaunching Codex',async()=>{
+ let state='running',failOnce=true,connections=0;const f=fixture(async(action,input)=>{if(action==='event-inspect')return inspection(state);if(action==='event-check')return {job:{id,lease:'lease-a',taskId,sourceVersion:4}};assert.equal(action,'event-fail');assert.equal(input.operationId,'original-failure');state='failed';return {state};});
+ const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'tools-failed.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-failure',reason:'工具離線'}));
+ const call=f.bridge.call.bind(f.bridge);f.bridge.call=async(...args)=>{if(args[0]==='event-inspect'&&failOnce){failOnce=false;throw Error('temporary offline');}return call(...args);};f.bridge.startupRetryMs=10;f.bridge.connect=()=>{connections++;};
+ await f.bridge.start();assert(f.bridge.startupRetryTimer);const deadline=Date.now()+1000;while(!connections&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));assert.equal(connections,1);assert.equal(state,'failed');assert.deepEqual(f.calls.map(x=>x.action),['event-inspect','event-fail']);assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'finished');f.bridge.stop();
+});
+test('failed-event scan reconciles an uncertain saved receipt and schedules follow-up',async()=>{
+ let state='running';const f=fixture(async(action,input)=>{if(action==='event-inspect')return {...inspection(state,state==='running'?'executing':'blocked'),autoResumeEligible:false};if(action==='event-check')return {job:{id,lease:'lease-a',taskId,sourceVersion:4}};assert.equal(action,'event-fail');assert.equal(input.reason,'工具短暫離線');state='failed';return {state};},'running',async()=>true);
+ const p=path.join(f.dir,'event-runs',id);fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(p,'tools-failed.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'original-failure',reason:'工具短暫離線'}));await f.bridge.recoverFailedEvents();
+ assert.deepEqual(f.calls.map(x=>x.action),['event-inspect','event-inspect','event-fail']);assert.equal(state,'failed');assert(f.bridge.failedRecoveryTimer);assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'bridge-active.private.json'))).phase,'finished');f.bridge.stop();
 });
 test('startup with a completed case requests notification only',async()=>{
  const f=fixture(async action=>{assert.equal(action,'event-inspect');return inspection('done','awaiting_confirmation')});

@@ -13,6 +13,12 @@ function outcomeRecorded(inspected) {
   return OUTCOME_STAGES.has(task?.stage) ||
     task?.stage === 'clarifying' && task?.waitingForReporter === true;
 }
+function savedFinalization(active,value){
+ if(!value||!['complete','fail'].includes(value.action)||!value.input||typeof value.input!=='object'||Array.isArray(value.input))return null;
+ const input=value.input,allowed=value.action==='fail'?['id','lease','operationId','reason','nextStep']:['id','lease','operationId'];
+ if(Object.keys(input).some(k=>!allowed.includes(k))||input.id!==active.id||input.lease!==active.lease||typeof input.operationId!=='string'||input.operationId.length<8||input.operationId.length>180||input.reason!==undefined&&typeof input.reason!=='string'||input.nextStep!==undefined&&typeof input.nextStep!=='string')return null;
+ return {action:value.action,input:{...input}};
+}
 
 /**
  * inspectEvent must be an authenticated, read-only lookup for exactly
@@ -27,6 +33,15 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
   const inspected = await inspectEvent(active.taskId, active.id);
   if (!eventMatches(active, inspected)) return {decision:'identity-mismatch', terminal:false};
   const event = inspected.event;
+  const finalization=savedFinalization(active,evidence.finalization);
+  if(evidence.finalizationConflict||(evidence.finalization||evidence.uncertainFinalization)&&!finalization)return {decision:'await-finalization-readback',terminal:false};
+  // A terminal state alone does not identify which operation completed it.
+  // Let the DO compare the saved original body against its stored fingerprint.
+  if(finalization&&['done','failed'].includes(event.state)){
+    if(inspected.task?.id!==active.taskId||inspected.task?.sourceVersion!==active.sourceVersion)return {decision:'case-version-changed',terminal:false};
+    const result=await finalizeEvent(finalization.action,finalization.input);
+    return {decision:'finalization-replayed',terminal:['done','failed'].includes(result?.state),result};
+  }
   if (event.state === 'done' && inspected.autoResumeEligible !== true) {
     if (inspected.task?.sourceVersion !== active.sourceVersion) return {decision:'finished-case-updated', terminal:true};
     return {decision:!inspected.resultNotification || inspected.resultNotification.state === 'sent' ? 'finished' : 'notification-only', terminal:true};
@@ -50,18 +65,18 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
     }
     return {decision:'failed-needs-reconciliation', terminal:true};
   }
-  if (event.state !== 'running' || event.leaseActive !== true) {
+  if (event.state !== 'running') {
     return {decision:'lease-changed', terminal:false};
   }
-  if(evidence.uncertainFinalization)return {decision:'await-finalization-readback',terminal:false};
+  if (finalization) {
+    // The DO checks the original lease and source. An expired lease permits
+    // only settlement of matching already-persisted DO and D1 evidence.
+    const result = await finalizeEvent(finalization.action,finalization.input);
+    return {decision:'finalization-replayed', terminal:['done','failed'].includes(result?.state), result};
+  }
+  if(event.leaseActive!==true)return {decision:'lease-changed',terminal:false};
   if (typeof verifyLease !== 'function' || await verifyLease(active) !== true) {
     return {decision:'lease-unverified', terminal:false};
-  }
-  if (evidence.finalization?.operationId && ['complete','fail'].includes(evidence.finalization.action)) {
-    const result = await finalizeEvent(evidence.finalization.action, {
-      id:active.id, lease:active.lease, operationId:evidence.finalization.operationId
-    });
-    return {decision:'finalization-replayed', terminal:['done','failed'].includes(result?.state), result};
   }
   if (outcomeRecorded(inspected)) {
     const result = await finalizeEvent('complete', {
@@ -72,7 +87,9 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
   if (evidence.chatDispatchInput || evidence.desktopTurnUnknown) {
     return {decision:'inspect-original-chat', terminal:false};
   }
-  return {decision:'resume-same-event', terminal:false};
+  // No marker is not proof that a previous unrestricted executor never ran.
+  // The existing runner has no separately enforced durable dispatch boundary.
+  return {decision:'dispatch-evidence-incomplete', terminal:false};
 }
 
 function nextFailure(previous, {eventId, signature, now = Date.now(), maxAutomaticAttempts = 2}) {

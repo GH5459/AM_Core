@@ -8,6 +8,7 @@ class EventBridge {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(codexExecutable(config.codexExecutable),args,options));this.fetcher=fetcher;this.clock=clock;
     this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;this.verifyExactRenderPublish=verifyExactRenderPublish;
     this.failedRecoveryTimer=null;this.failedRecoveryAttempts=0;this.failedRecoveryOffset=0;this.failedRecoverySweepPending=false;
+    this.startupRetryTimer=null;this.startupFailures=0;this.startupRunning=false;this.startupRetryMs=1000;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -49,17 +50,17 @@ class EventBridge {
     if(!active.taskId||!Number.isSafeInteger(active.sourceVersion)){
       this.status('reconciliation-required',{eventId:active.id,decision:'missing-exact-identity'});return;
     }
-    const completeIntent=read('event-complete.input.private.json'),failIntent=read('event-fail.input.private.json')||read('failure.input.private.json'),intent=completeIntent||failIntent;
-    const evidence={uncertainFinalization:!!intent?.operationId&&!read('completion.private.json'),finalization:intent?.operationId?{action:completeIntent?'complete':'fail',operationId:intent.operationId}:null,chatDispatchInput:!!read('chat-dispatch.input.private.json'),executorReady:typeof this.verifyCaseExecutor==='function'?this.verifyCaseExecutor:false};
+    const intents=[['complete','event-complete.input.private.json'],['fail','event-fail.input.private.json'],['fail','failure.input.private.json'],['fail','tools-failed.input.private.json'],['fail','repeat-stop.input.private.json']].map(([action,name])=>({action,input:read(name)})).filter(x=>x.input);
+    const first=intents[0],conflict=intents.some(x=>x.action!==first.action||JSON.stringify(x.input)!==JSON.stringify(first.input));
+    const evidence={uncertainFinalization:!!first&&!read('completion.private.json'),finalization:first||null,finalizationConflict:conflict,chatDispatchInput:!!read('chat-dispatch.input.private.json')||!!read('started.private.json')||!!read('chat-turn-started.private.json'),executorReady:typeof this.verifyCaseExecutor==='function'?this.verifyCaseExecutor:false};
     evidence.failureBudgetAvailable=(a,inspected)=>this.failedRetryBudget(a,inspected,rel);
     const result=await reconcileInterruptedEvent({active,evidence,
       inspectEvent:async(taskId,eventId)=>this.call('event-inspect',{id:taskId,eventId}),
-      verifyLease:async a=>{try{const r=await this.call('event-check',{id:a.id,lease:a.lease});return r.job?.id===a.id&&r.job?.lease===a.lease;}catch(e){if([403,409].includes(e.status))return false;throw e;}},
+      verifyLease:async a=>{try{const r=await this.call('event-check',{id:a.id,lease:a.lease});return r.job?.id===a.id&&r.job?.lease===a.lease&&r.job?.taskId===a.taskId&&r.job?.sourceVersion===a.sourceVersion;}catch(e){if([403,409].includes(e.status))return false;throw e;}},
       finalizeEvent:async(action,input)=>this.call(action==='complete'?'event-complete':'event-fail',input,rel+'/recovery-'+action+'.input.private.json'),
       autoResume:async input=>this.call('auto-resume',input,rel+'/auto-resume.input.private.json')});
     this.save(rel+'/recovery.private.json',{decision:result.decision,terminal:result.terminal,at:new Date(this.clock()).toISOString()});
     if(result.terminal){this.save('bridge-active.private.json',{...active,phase:'finished',recoveryDecision:result.decision});return;}
-    if(result.decision==='resume-same-event') {this.recoveringSameEventId=active.id;this.pending.add(active.id);return;}
     this.status('reconciliation-required',{eventId:active.id,decision:result.decision});
   }
   async recoverFailedEvents(){
@@ -87,6 +88,14 @@ class EventBridge {
           if(inspected.event?.id!==active.id||inspected.event?.taskId!==active.taskId||inspected.task?.id!==active.taskId)
             throw Error('原案件事件識別未確認，暫不變更重查紀錄');
           if(inspected.event.state==='running'&&inspected.event.sourceVersion===active.sourceVersion&&inspected.task.sourceVersion===active.sourceVersion&&!['paused','closed','duplicate'].includes(inspected.task.stage)){
+            // The exact active record may contain a saved idempotent receipt.
+            // Reinspect and verify its original lease before replaying it; do
+            // not launch a new turn or infer absent side effects.
+            const p=path.join(this.folder,'bridge-active.private.json');let current;try{current=JSON.parse(fs.readFileSync(p));}catch{}
+            if(current?.id===active.id&&current.taskId===active.taskId&&current.sourceVersion===active.sourceVersion&&current.lease===active.lease&&current.phase!=='finished'){
+              await this.recover();try{current=JSON.parse(fs.readFileSync(p));}catch{}
+              if(current?.id===active.id&&current.phase==='finished'){retryNeeded=true;continue;}
+            }
             retryNeeded=true;this.save(rel+'/auto-resume.decision.private.json',{decision:'finalization-unconfirmed',retryScheduled:true,at:new Date(this.clock()).toISOString()});continue;
           }
           const terminal=inspected.event?.state==='failed'||inspected.event?.state==='done'&&inspected.event?.kind==='execute';
@@ -178,6 +187,13 @@ class EventBridge {
         this.failedRecoveryTimer.unref?.();
       }else {this.failedRecoveryAttempts=0;this.failedRecoverySweepPending=false;}
     }
+  }
+  async start(){
+    if(this.stopped||this.startupRunning||this.ws)return;
+    this.startupRunning=true;
+    try{await this.recover();if(!this.stopped){this.startupFailures=0;this.connect();}}
+    catch{if(!this.stopped){this.status('connection-recovering',{reason:'startup-reconciliation-unavailable'});const delay=Math.min(300000,this.startupRetryMs*2**Math.min(this.startupFailures++,8));this.startupRetryTimer=setTimeout(()=>{this.startupRetryTimer=null;this.start().catch(()=>{});},delay);}}
+    finally{this.startupRunning=false;}
   }
   connect() {
     if(this.stopped)return;
@@ -299,7 +315,7 @@ class EventBridge {
       else if(this.ws?.readyState===1)this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));
     }
   }
-  stop() {this.stopped=true;clearTimeout(this.reconnect);clearTimeout(this.failedRecoveryTimer);clearInterval(this.pingTimer);clearTimeout(this.pongTimeout);this.ws?.close();this.running?.child?.kill();this.status('stopped');}
+  stop() {this.stopped=true;clearTimeout(this.startupRetryTimer);clearTimeout(this.reconnect);clearTimeout(this.failedRecoveryTimer);clearInterval(this.pingTimer);clearTimeout(this.pongTimeout);this.ws?.close();this.running?.child?.kill();this.status('stopped');}
 }
 module.exports={EventBridge};
 if(require.main===module){
@@ -311,5 +327,5 @@ if(require.main===module){
  const bridge=new EventBridge(config,{verifyCaseExecutor:createCaseExecutorVerifier(config),verifyExactRenderPublish:createExactRenderPublishVerifier(config)});
  process.on('exit',()=>{try{if(JSON.parse(fs.readFileSync(lock)).pid===process.pid)fs.unlinkSync(lock);}catch{}});
  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{bridge.stop();process.exit(0);});
- bridge.recover().then(()=>bridge.connect()).catch(()=>{bridge.status('blocked');process.exitCode=1;});
+ bridge.start().catch(()=>{bridge.status('blocked');process.exitCode=1;});
 }
