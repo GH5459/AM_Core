@@ -12,7 +12,7 @@ function legacyMissingPublishCapability(folder,active){
  const p=read(path.join(run,'progress.private.json'));
  const c=read(path.join(run,'publish-capability.private.json'));
  const fail=read(path.join(run,'fail.input.private.json'));
- return !!(p&&c&&fail&&fail.id===active.taskId&&p.capabilityChanged===false&&p.deployed===false&&p.originalIssueResolved===false&&
+ return !!(p&&c&&fail&&fail.id===active.taskId&&p.capabilityChanged===false&&p.deployed===false&&p.merged===false&&p.newCodeChanges===false&&p.prState==='OPEN'&&p.originalIssueResolved===false&&
   typeof p.browserError==='string'&&p.browserError.length>0&&/^[a-f0-9]{40}$/.test(p.head||'')&&
   Array.isArray(c.processRenderNames)&&c.processRenderNames.length===0&&Array.isArray(c.projectRenderNames)&&c.projectRenderNames.length===0&&
   Array.isArray(c.userRenderNames)&&c.userRenderNames.length===0&&c.altConfigExists===false&&c.configExists===false&&c.renderCliFound===false);
@@ -34,13 +34,14 @@ function serviceFromResult(result){
 function cliJson(result){if(result?.exitCode!==0||typeof result.stdout!=='string')return null;try{return JSON.parse(result.stdout);}catch{return null;}}
 async function probeCli(client,target,config){
  if(typeof target.cliExecutable!=='string'||!path.isAbsolute(target.cliExecutable))return 'unknown';
+ if(!fs.existsSync(target.cliExecutable))return 'unavailable';
  const root=target.workRoot||config.workRoot;
  const run=async args=>client.request('command/exec',{command:[target.cliExecutable,...args],cwd:root,permissionProfile:':danger-full-access',timeoutMs:15000,outputBytesCap:2*1024*1024},30000);
- const help=await run(['help','deploys','create']);
+ let help;try{help=await run(['help','deploys','create']);}catch(e){return ['ENOENT','ERROR_FILE_NOT_FOUND'].includes(e?.code)?'unavailable':'unknown';}
  if(help.exitCode!==0)return 'unknown';
  if(!/--commit\s+<COMMIT_ID>/.test(help.stdout||''))return 'unavailable';
  const whoResult=await run(['whoami','--output','json']);
- if(whoResult.exitCode!==0&&/run [`']?render login[`']? to authenticate/i.test(whoResult.stderr||''))return 'unavailable';
+ if(whoResult.exitCode!==0&&(/run [`']?render login[`']? to authenticate/i.test(whoResult.stderr||'')||/token is expired;\s*run\b/i.test(whoResult.stderr||'')))return 'unavailable';
  const who=cliJson(whoResult);
  const ws=cliJson(await run(['workspace','current','--output','json']));
  if(!who||typeof who!=='object'||!ws||typeof ws!=='object')return 'unknown';

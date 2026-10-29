@@ -4,7 +4,7 @@ const eventId='a'.repeat(64),taskId='work-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 function fixture(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-render-')),run=path.join(dir,'event-runs',eventId);fs.mkdirSync(run,{recursive:true});
  const write=(name,value)=>fs.writeFileSync(path.join(run,name),JSON.stringify(value));
- write('progress.private.json',{capabilityChanged:false,deployed:false,originalIssueResolved:false,browserError:'unavailable',head:'b'.repeat(40)});
+ write('progress.private.json',{capabilityChanged:false,deployed:false,merged:false,newCodeChanges:false,prState:'OPEN',originalIssueResolved:false,browserError:'unavailable',head:'b'.repeat(40)});
  write('publish-capability.private.json',{processRenderNames:[],projectRenderNames:[],userRenderNames:[],altConfigExists:false,configExists:false,renderCliFound:false});
  write('fail.input.private.json',{id:taskId});
  return {dir,write,active:{id:eventId,taskId,sourceVersion:4},inspected:{task:{id:taskId,primaryParentId:'meeting-project'},projects:[{id:'meeting-project',key:'meeting'}]}};
@@ -39,7 +39,7 @@ test('missing commit argument, failed service lookup, or another workspace never
  assert.equal(await verify(f.active,f.inspected),false);status=schema(true);owner='tea-wrong';assert.equal(await verify(f.active,f.inspected),false);owner='tea-abc';error=true;assert.equal(await verify(f.active,f.inspected),false);
 });
 test('CLI verification checks --commit, the authenticated identity, the active workspace, and the exact service',async()=>{
- const target={cliExecutable:path.resolve('render-fixture.exe'),workspaceId:'tea-abc',serviceId:'srv-abc',accountEmail:'a@example.invalid',repository:'https://github.com/fixture/repo'},seen=[];
+ const target={cliExecutable:process.execPath,workspaceId:'tea-abc',serviceId:'srv-abc',accountEmail:'a@example.invalid',repository:'https://github.com/fixture/repo'},seen=[];
  let values={help:'--commit <COMMIT_ID>',who:{email:'a@example.invalid'},workspace:{id:'tea-abc'},services:[{id:'srv-abc',ownerId:'tea-abc',repo:target.repository}]};
  const client={async request(method,params){assert.equal(method,'command/exec');const a=params.command.slice(1);seen.push(a.join(' '));const v=a[0]==='help'?values.help:a[0]==='whoami'?values.who:a[0]==='workspace'?values.workspace:values.services;return {exitCode:0,stdout:typeof v==='string'?v:JSON.stringify(v)};}};
  assert.equal(await probeCli(client,target,{workRoot:process.cwd()}),'available');
@@ -47,4 +47,16 @@ test('CLI verification checks --commit, the authenticated identity, the active w
  values.workspace={id:'tea-wrong'};assert.equal(await probeCli(client,target,{workRoot:process.cwd()}),'unknown');
  values.workspace={id:'tea-abc'};values.services=[{id:'srv-other'}];assert.equal(await probeCli(client,target,{workRoot:process.cwd()}),'unknown');
  values.help='no commit support';assert.equal(await probeCli(client,target,{workRoot:process.cwd()}),'unavailable');
+});
+test('CLI missing, missing spawn, expired token and unknown errors remain distinct',async()=>{
+ const config={workRoot:process.cwd()},target={cliExecutable:path.join(os.tmpdir(),'nonexistent-render-fixture.exe')};
+ assert.equal(await probeCli({request:async()=>{throw Error('must not run')}},target,config),'unavailable');
+ target.cliExecutable=process.execPath;
+ const missing={request:async()=>{throw Object.assign(Error('missing'),{code:'ENOENT'});}};
+ const unknown={request:async()=>{throw Object.assign(Error('timeout'),{code:'ETIMEDOUT'});}};
+ assert.equal(await probeCli(missing,target,config),'unavailable');assert.equal(await probeCli(unknown,target,config),'unknown');
+ const expired={request:async(method,p)=>p.command[1]==='help'?{exitCode:0,stdout:'--commit <COMMIT_ID>'}:{exitCode:1,stderr:'your token is expired; run render login to get a new one'}};
+ assert.equal(await probeCli(expired,target,config),'unavailable');
+ const recovered={request:async(method,p)=>{const a=p.command.slice(1);return {exitCode:0,stdout:a[0]==='help'?'--commit <COMMIT_ID>':JSON.stringify(a[0]==='whoami'?{email:'a@example.invalid'}:a[0]==='workspace'?{id:'tea-abc'}:[{id:'srv-abc',ownerId:'tea-abc'}])};}};
+ Object.assign(target,{workspaceId:'tea-abc',serviceId:'srv-abc',accountEmail:'a@example.invalid'});assert.equal(await probeCli(recovered,target,config),'available');
 });

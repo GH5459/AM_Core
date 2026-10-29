@@ -16,7 +16,7 @@ test('complete worker: legacy marker, missing capability, paused guard, one reco
   await a.ok(await a.machine('runner/event-complete',{id:first.id,lease:first.lease,operationId:op()},true));await wait(1200);
   const job=(await a.ok(await a.machine('runner/event-acquire',{id:execution.id,operationId:'acquire-'+execution.id},true))).job;
   const claim=await a.ok(await a.machine('runner/claim',{id:t.id,operationId:op(),eventId:job.id,eventLease:job.lease},true));
-  t=(await a.ok(await a.machine('runner/fail',{id:t.id,lease:claim.lease,eventId:job.id,eventLease:job.lease,operationId:op(),result:'隔離發布工具不可用',blockerInfo:{reason:'隔離工具未提供精準發布。',nextStep:'恢復後自動接續。'}},true))).task;
+  t=(await a.ok(await a.machine('runner/fail',{id:t.id,lease:claim.lease,eventId:job.id,eventLease:job.lease,operationId:op(),result:'隔離發布工具不可用',blockerInfo:{reason:'隔離工具未提供精準發布。',nextStep:'恢復後自動接續。',capability:'render-deploy-commit-v1',publishOutcome:'not-started'}},true))).task;
   const notice=JSON.parse((await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='progress' AND json_extract(value,'$.taskId')=?").bind(t.id).first()).value);
   assert.equal(notice.account,'900003');assert.equal(notice.expectedUserId,'U'+'b'.repeat(32));assert.match(notice.message,/尚未完成/);
   await a.ok(await a.machine('runner/event-complete',{id:job.id,lease:job.lease,operationId:op()},true));
@@ -35,7 +35,7 @@ test('complete worker: legacy marker, missing capability, paused guard, one reco
   await a.db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(t),t.id).run();fs.writeFileSync(marker,JSON.stringify({skipped:true,reason:'case-changed'}));
   calls.length=0;capability=false;await bridge.recoverFailedEvents();assert.equal((await a.get(t.id)).secretary.stage,'blocked');assert(!calls.includes('auto-resume'));assert(bridge.failedRecoveryTimer);
   calls.length=0;capability=true;await bridge.recoverFailedEvents();assert.equal(calls.filter(x=>x==='auto-resume').length,1);
-  const resumed=await a.get(t.id);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(resumed.secretary.caseChat.threadId,threadId);assert.deepEqual(resumed.secretary.autoRecovery.capabilities,['render-deploy-commit-v1']);
+  const resumed=await a.get(t.id);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(resumed.secretary.caseChat.threadId,threadId);assert.equal(resumed.secretary.autoRecovery.capabilityEvents[0].name,'render-deploy-commit-v1');assert.equal(resumed.secretary.autoRecovery.capabilityEvents[0].eventId,job.id);
   await bridge.recoverFailedEvents();assert.equal(calls.filter(x=>x==='auto-resume').length,1);
   const next=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,analysis.id).first();assert(next);await wait(5300);
   const nextJob=(await a.ok(await a.machine('runner/event-acquire',{id:next.id,operationId:'acquire-'+next.id},true))).job;

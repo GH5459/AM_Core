@@ -78,10 +78,14 @@ export function canAutoResume(c,t,e,ownerDraft,capability){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
  const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
  const terminal=e?.state==='failed'||replan;
+ if(replan&&s?.recovery?.capability&&(s.recovery.capability.eventId!==e.id||s.recovery.capability.sourceVersion!==e.sourceVersion||s.recovery.capability.outcome==='unknown'||capability!==s.recovery.capability.name))return false;
  let exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
- // Only the trusted receiver may signal a verified exact-commit deployment
- // capability; each source set may use that new capability once.
- if(exhausted&&replan&&capability==='render-deploy-commit-v1'&&!already?.capabilities?.includes(capability))exhausted=false;
+ // The same runner credential records the dependency and asks to resume; this
+ // is an identity/version guard, not independent proof of tool authorization.
+ const dep=s?.recovery?.capability,history=already?.sourceCount===sourceCount&&Array.isArray(already?.capabilityEvents)?already.capabilityEvents:[];
+ const recent=history.filter(x=>x?.name===capability&&Number.isFinite(x.at)&&x.at>Date.now()-86400000);
+ if(capability&&!(replan&&capability==='render-deploy-commit-v1'&&dep?.name===capability&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion))return false;
+ if(replan&&capability==='render-deploy-commit-v1'&&dep?.name===capability&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion)exhausted=!['not-started','rejected'].includes(dep.outcome)||history.some(x=>x?.name===capability&&x.eventId===e.id)||recent.length>=3;
  return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
@@ -92,7 +96,7 @@ async function inspectEvent(env,c,v){
  if(!s)throw fail('找不到原案件。',404);
  const draft=await ownerDraftActive(env,t.id);
  const notification=await env.DB.prepare("SELECT json_extract(value,'$.state') AS state,json_extract(value,'$.attempts') AS attempts FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.kind')='result' AND json_extract(value,'$.sourceVersion')=? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 1").bind(t.id,s.sourceVersion).first();
- return {ok:true,event:e,task:{id:t.id,primaryParentId:t.primaryParentId||null,stage:s.stage,version:t.version,sourceVersion:s.sourceVersion,waitingForReporter:!!s.waitingForReporter,leasePresent:!!s.lease,leaseActive:!!s.lease&&s.leaseUntil>Date.now()},projects:c.projects.map(p=>({id:p.id,key:p.key})),autoResumeEligible:canAutoResume(c,t,e,draft),capabilityResumeEligible:canAutoResume(c,t,e,draft,v.capability),resultNotification:notification?{state:notification.state,attempts:notification.attempts}:null};
+ return {ok:true,event:e,task:{id:t.id,primaryParentId:t.primaryParentId||null,stage:s.stage,version:t.version,sourceVersion:s.sourceVersion,waitingForReporter:!!s.waitingForReporter,leasePresent:!!s.lease,leaseActive:!!s.lease&&s.leaseUntil>Date.now(),capabilityDependency:s.recovery?.capability||null},projects:c.projects.map(p=>({id:p.id,key:p.key})),autoResumeEligible:canAutoResume(c,t,e,draft),capabilityResumeEligible:canAutoResume(c,t,e,draft,v.capability),resultNotification:notification?{state:notification.state,attempts:notification.attempts}:null};
 }
 async function autoResume(env,c,v){
  if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);
@@ -108,12 +112,28 @@ async function autoResume(env,c,v){
  const replan=inspected.event.state==='done'&&inspected.event.kind==='execute';
  const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0;
  restartAnalysis(t,retireProposal);
- const capabilities=[...new Set([...(previous?.capabilities||[]),...v.capability?[v.capability]:[]])];
- s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},...capabilities.length?{capabilities}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},...capabilities.length?{capabilities}:{},at:new Date().toISOString(),eventId:v.eventId};
+ const capabilityEvents=[...(previous?.capabilityEvents||[]).filter(x=>Number.isFinite(x?.at)&&x.at>Date.now()-86400000),...v.capability?[{name:v.capability,eventId:v.eventId,at:Date.now()}]:[]];
+ s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},...capabilityEvents.length?{capabilityEvents}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},...capabilityEvents.length?{capabilityEvents}:{},at:new Date().toISOString(),eventId:v.eventId};
  s.recoveryHistory.at(-1).automatic=true;
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
  const saved=await transaction(env,old,t,v.operationId,input,actor,'系統確認工具恢復後，沿原案件自動接續查核；已完成的動作先核對，不重做。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);
  return {ok:true,taskId:saved.id,version:saved.version,stage:saved.secretary.stage,sourceVersion:saved.secretary.sourceVersion};
+}
+// Backfill a dependency declared by the local receiver for an older event.
+// This uses the same runner credential as the case chat; it is auditable but
+// is not independent attestation of what the external tool actually did.
+async function recordLegacyCapability(env,c,v){
+ if(v.capability!=='render-deploy-commit-v1'||v.evidence!=='legacy-local-preflight-v1'||!Number.isSafeInteger(v.version))throw fail('工具依賴紀錄無效。',400);
+ const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'capability-record',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId,capability:v.capability,evidence:v.evidence};
+ const prior=await replay(env,v.id,v.operationId,input,actor);if(prior)return {ok:true,replayed:true,version:prior.version};
+ const inspected=await inspectEvent(env,c,v),old=await load(env.DB,v.id),t=structuredClone(old.task),s=t.secretary;
+ const unrestricted=structuredClone(t);unrestricted.secretary.autoRecovery=null;
+ if(v.version!==t.version||s.recovery?.capability||inspected.event.state!=='done'||inspected.event.kind!=='execute'||!canAutoResume(c,unrestricted,inspected.event,await ownerDraftActive(env,t.id)))throw fail('原案件已變更或不符合依賴紀錄條件。');
+ if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
+ s.recovery.capability={name:v.capability,outcome:'not-started',eventId:v.eventId,sourceVersion:s.sourceVersion,evidence:v.evidence};
+ const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
+ const saved=await transaction(env,old,t,v.operationId,input,actor,'接收器依原事件保存既有發布工具受阻紀錄；尚未確認發布寫入權限。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);
+ return {ok:true,version:saved.version};
 }
 export async function waitingCases(env,source,account=null){
  if(!source||source.type!=='user'||source.conversationId!==source.userId||!source.botUserId||!source.userId)return [];
@@ -342,7 +362,7 @@ async function runner(env,c,base,authority,action,v,preview){
    if(typeof v.deployed!=='boolean'||v.deployed!==s.proposal.deploy)throw fail('結果與核准的發布範圍不符。');
    s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
    for(const p of s.reporters)extras.push(notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
-  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+link(env,t.id),p.source));}
+  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);if(v.blockerInfo?.capability==='render-deploy-commit-v1'&&s.executionEvent?.id)s.recovery.capability={name:v.blockerInfo.capability,outcome:['not-started','rejected'].includes(v.blockerInfo?.publishOutcome)?v.blockerInfo.publishOutcome:'unknown',eventId:s.executionEvent.id,sourceVersion:s.sourceVersion,evidence:'runner-asserted'};t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+link(env,t.id),p.source));}
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }
  if(action==='claim'){
@@ -406,6 +426,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx,
    if(request.method!=='POST')throw fail('Method not allowed',405);const v=await body(request);if(v.tenantKey!==env.LEAF_TASK_TENANT)throw fail('Tenant mismatch',403);
    if(action==='reporter')return json(await resultRequest(env,c,base,v,{record,load,linePerson,digest,fail,docsInsert,transaction}));
    if(action==='runner/event-inspect')return json(await inspectEvent(env,c,v));
+   if(action==='runner/record-legacy-capability')return json(await recordLegacyCapability(env,c,v));
    if(action==='runner/auto-resume')return json(await autoResume(env,c,v));
    if(action==='evidence-check')return json(await runner(env,c,base,authority,action,v));
    if(action==='owner')return json(await ownerRequest(env,c,base,v,{record,load,linePerson,membership,digest,fail,docsInsert,transaction,retireProposal,imageBytes,uuidFrom}));

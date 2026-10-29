@@ -72,7 +72,8 @@ class EventBridge {
       for(const active of page.candidates){
         if(this.running||this.pending.size||this.stopped){this.failedRecoveryOffset=0;retryNeeded=true;more=false;break;}
         const rel='event-runs/'+active.id;
-        const inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
+        try{
+        let inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
         if(inspected.autoResumeEligible!==true){
           if(inspected.event?.id!==active.id||inspected.event?.taskId!==active.taskId||inspected.task?.id!==active.taskId)
             throw Error('原案件事件識別未確認，暫不變更重查紀錄');
@@ -81,7 +82,18 @@ class EventBridge {
           if(!current)this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'confirmed-case-changed'});
           else {
             const capability='render-deploy-commit-v1';
-            if(inspected.event.state==='done'&&typeof this.verifyExactRenderPublish==='function'&&await this.verifyExactRenderPublish(active,inspected)){
+            const {legacyMissingPublishCapability}=require('./xiaoye-render-publish-recovery.cjs');
+            if(inspected.event.state==='done'&&!inspected.task.capabilityDependency&&legacyMissingPublishCapability(this.folder,active)){
+              await this.call('record-legacy-capability',{id:active.taskId,version:inspected.task.version,eventId:active.id,operationId:'legacy-capability-'+active.id,capability,evidence:'legacy-local-preflight-v1'},rel+'/capability-legacy.input.private.json');
+              inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
+            }
+            const dep=inspected.task?.capabilityDependency;
+            const matches=dep?.name===capability&&dep.eventId===active.id&&dep.sourceVersion===active.sourceVersion&&['not-started','rejected'].includes(dep.outcome);
+            let probe='unknown';
+            if(matches&&typeof this.verifyExactRenderPublish?.probe==='function')probe=await this.verifyExactRenderPublish.probe(active,inspected);
+            else if(matches&&typeof this.verifyExactRenderPublish==='function')probe=await this.verifyExactRenderPublish(active,inspected)?'available':'unknown';
+            if(matches)this.save(rel+'/capability-state.private.json',{id:active.id,taskId:active.taskId,sourceVersion:active.sourceVersion,capability,state:['available','unavailable','unknown'].includes(probe)?probe:'unknown',at:new Date(this.clock()).toISOString()});
+            if(matches&&probe==='available'){
               const fresh=await this.call('event-inspect',{id:active.taskId,eventId:active.id,capability});
               if(fresh.capabilityResumeEligible===true&&fresh.event?.id===active.id&&fresh.event?.taskId===active.taskId&&fresh.event?.sourceVersion===active.sourceVersion&&fresh.task?.id===active.taskId&&fresh.task?.sourceVersion===active.sourceVersion&&Number.isSafeInteger(fresh.task?.version)&&await this.verifyCaseExecutor(active,fresh)){
                 const result=await this.call('auto-resume',{id:active.taskId,version:fresh.task.version,eventId:active.id,operationId:'capability-resume-event-'+active.id,capability},rel+'/auto-resume.input.private.json');
@@ -95,12 +107,21 @@ class EventBridge {
         }
         let executorReady=false;
         const result=await reconcileInterruptedEvent({active,inspectEvent:async()=>inspected,
-          evidence:{executorReady:async(a,v)=>{executorReady=await this.verifyCaseExecutor(a,v);return executorReady;},failureBudgetAvailable:(a,v)=>this.failedRetryBudget(a,v,rel)},
+          evidence:{executorReady:async(a,v)=>{executorReady=await this.verifyCaseExecutor(a,v);if(!executorReady)this.save(rel+'/executor-observation.private.json',{id:a.id,taskId:a.taskId,sourceVersion:a.sourceVersion,state:'unavailable',at:new Date(this.clock()).toISOString()});return executorReady;},failureBudgetAvailable:(a,v)=>{
+            if(this.failedRetryBudget(a,v,rel))return true;
+            let previous;try{previous=JSON.parse(fs.readFileSync(path.join(this.folder,rel,'executor-observation.private.json')));}catch{}
+            return previous?.id===a.id&&previous?.taskId===a.taskId&&previous?.sourceVersion===a.sourceVersion&&previous?.state==='unavailable';
+          }},
           autoResume:async input=>this.call('auto-resume',input,rel+'/auto-resume.input.private.json')});
-        const needsRetry=result.decision==='failed-needs-reconciliation'&&!executorReady;
+        const needsRetry=result.decision==='failed-needs-reconciliation';
         if(needsRetry)retryNeeded=true;
         this.save(rel+'/auto-resume.decision.private.json',{decision:result.decision,retryScheduled:needsRetry,at:new Date(this.clock()).toISOString()});
         if(result.decision==='auto-resumed')this.save(rel+'/auto-resume.response.private.json',result.result);
+        }catch(error){
+          // One missing, revoked, or malformed case is never evidence about
+          // another case. Preserve it for backoff and continue this page.
+          retryNeeded=true;this.save(rel+'/auto-resume.decision.private.json',{decision:'inspection-unconfirmed',retryScheduled:true,at:new Date(this.clock()).toISOString()});
+        }
       }
     }catch(error){
       // A transient inspection failure is not proof that an event changed.
@@ -189,7 +210,7 @@ class EventBridge {
           const checked=await this.call('event-check',checkInput);
           if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
           const renderTarget=this.config.exactRenderDeployRecovery,renderProjectKeys=renderTarget?.projectKeys||[renderTarget?.projectKey].filter(Boolean),renderTools=renderTarget&&renderProjectKeys.includes(preflightRoute?.key)?{renderExecutable:renderTarget.cliExecutable,renderWorkspaceId:renderTarget.workspaceId,renderServiceId:renderTarget.serviceId}:{};
-          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。若確定受阻於無法指定受測 commit 發布 Render，請在本事件資料夾 fail.input.private.json 的 blockerInfo 加入 capability: "render-deploy-commit-v1"；不得用讀取能力取代精準發布。使用已設定的 Render CLI 前重新確認登入、工作區、服務與指定版本能力。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,...renderTools}}:{}});
+          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。若確定受阻於無法指定受測 commit 發布 Render，請於 runner/fail 的 blockerInfo 加入 capability: "render-deploy-commit-v1" 以及 publishOutcome: "not-started" 或 "rejected"，僅在分別確定未送出或確定被拒絕時使用；發布結果不明不得標為其中任一種，不得重送。工具登入及支援語法不代表寫入權限已驗證。使用已設定的 Render CLI 前重新確認登入、工作區、服務與指定版本能力。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,...renderTools}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
           const saveEvent=(file,v)=>this.save(rel+'/'+file,v);
@@ -203,16 +224,6 @@ class EventBridge {
           }else await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:saveEvent,check:eventCheck});
           const result=await this.call('event-complete',{...checkInput,operationId:'event-complete-'+job.id},rel+'/event-complete.input.private.json');
           this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
-          // Record a real unavailable capability only after the execution
-          // itself identifies that blocker and a separate read-only probe.
-          try{
-            const fail=JSON.parse(fs.readFileSync(path.join(this.folder,rel,'fail.input.private.json')));
-            if(job.kind==='execute'&&fail.id===job.taskId&&fail.blockerInfo?.capability==='render-deploy-commit-v1'&&typeof this.verifyExactRenderPublish?.probe==='function'){
-              const inspected=await this.call('event-inspect',{id:job.taskId,eventId:job.id});
-              if(inspected.event?.id===job.id&&inspected.event?.taskId===job.taskId&&inspected.event?.sourceVersion===job.sourceVersion&&inspected.task?.id===job.taskId&&inspected.task?.stage==='blocked'&&await this.verifyExactRenderPublish.probe(active,inspected)==='unavailable')
-                this.save(rel+'/capability-blocked.private.json',{id:job.id,taskId:job.taskId,sourceVersion:job.sourceVersion,capability:'render-deploy-commit-v1',state:'unavailable',at:new Date(this.clock()).toISOString()});
-            }
-          }catch{}
         } finally {client.close();}
         return;
       }
