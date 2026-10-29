@@ -74,18 +74,20 @@ function imageBytes(image){
  return {bytes,mime:png?'image/png':jpg?'image/jpeg':'image/webp',name:'問題截圖.'+(png?'png':jpg?'jpg':'webp')};
 }
 function draftState(session){const d=session?.value,active=d?.mode==='draft'&&d.until>Date.now(),pending=d?.mode==='conversation-pending'&&d.until>Date.now();const entries=active?d.entries.filter(e=>!e.withdrawn):[];return {draft:active,...active?{draftId:d.id,texts:entries.filter(e=>e.text).length,images:entries.filter(e=>e.image).length}:pending?{conversational:true,awaitingFirstMessage:true,until:d.until}:d?.taskId?{taskId:d.taskId}:{}};}
+function validDeployment(d){return !!(d&&/^tea-[a-z0-9]+$/.test(d.workspaceId||'')&&/^srv-[a-z0-9]+$/.test(d.serviceId||'')&&/^dep-[a-z0-9]+$/.test(d.deployId||'')&&/^[a-f0-9]{40}$/.test(d.commitId||''));}
 export function canAutoResume(c,t,e,ownerDraft,capability){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
  const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
  const terminal=e?.state==='failed'||replan;
- if(replan&&s?.recovery?.capability&&(s.recovery.capability.eventId!==e.id||s.recovery.capability.sourceVersion!==e.sourceVersion||s.recovery.capability.outcome==='unknown'||capability!==s.recovery.capability.name))return false;
+ const dep=s?.recovery?.capability,reconciled=capability==='render-deploy-reconciled-v1'&&dep?.outcome==='reconciled-live'&&dep?.reconciliation?.status==='live';
+ if(replan&&dep&&(dep.eventId!==e.id||dep.sourceVersion!==e.sourceVersion||dep.outcome==='unknown'||(!reconciled&&capability!==dep.name)))return false;
  let exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
  // The same runner credential records the dependency and asks to resume; this
  // is an identity/version guard, not independent proof of tool authorization.
- const dep=s?.recovery?.capability,history=already?.sourceCount===sourceCount&&Array.isArray(already?.capabilityEvents)?already.capabilityEvents:[];
+ const history=already?.sourceCount===sourceCount&&Array.isArray(already?.capabilityEvents)?already.capabilityEvents:[];
  const recent=history.filter(x=>x?.name===capability&&Number.isFinite(x.at)&&x.at>Date.now()-86400000);
- if(capability&&!(replan&&capability==='render-deploy-commit-v1'&&dep?.name===capability&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion))return false;
- if(replan&&capability==='render-deploy-commit-v1'&&dep?.name===capability&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion)exhausted=!['not-started','rejected'].includes(dep.outcome)||history.some(x=>x?.name===capability&&x.eventId===e.id)||recent.length>=3;
+ if(capability&&!(replan&&dep?.name==='render-deploy-commit-v1'&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion&&(capability===dep.name||reconciled)))return false;
+ if(replan&&capability&&(capability===dep?.name||reconciled))exhausted=!(reconciled||['not-started','rejected'].includes(dep.outcome))||history.some(x=>x?.name===capability&&x.eventId===e.id)||recent.length>=3;
  return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
@@ -101,7 +103,7 @@ async function inspectEvent(env,c,v){
 async function autoResume(env,c,v){
  if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);
  if(!Number.isSafeInteger(v.version)||typeof v.operationId!=='string'||v.operationId.length<8||v.operationId.length>180)throw fail('案件版本或操作識別無效。',400);
- if(v.capability!==undefined&&v.capability!=='render-deploy-commit-v1')throw fail('不支援的工具能力。',400);
+ if(v.capability!==undefined&&!['render-deploy-commit-v1','render-deploy-reconciled-v1'].includes(v.capability))throw fail('不支援的工具能力。',400);
  const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'resume',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId,...v.capability?{capability:v.capability}:{}};
  const prior=await replay(env,v.id,v.operationId,input,actor);
  if(prior)return {ok:true,replayed:true,taskId:prior.id,version:prior.version,stage:prior.secretary.stage};
@@ -133,6 +135,23 @@ async function recordLegacyCapability(env,c,v){
  s.recovery.capability={name:v.capability,outcome:'not-started',eventId:v.eventId,sourceVersion:s.sourceVersion,evidence:v.evidence};
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
  const saved=await transaction(env,old,t,v.operationId,input,actor,'接收器依原事件保存既有發布工具受阻紀錄；尚未確認發布寫入權限。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);
+ return {ok:true,version:saved.version};
+}
+// Caller is the existing runner: identity and version guards prevent stale
+// records, but it remains an assertion by that shared principal.
+async function recordDeployReconciliation(env,c,v){
+ if(!['live','build_failed','update_failed','pre_deploy_failed','canceled'].includes(v.status)||!validDeployment(v.deployment)||!Number.isSafeInteger(v.version))throw fail('發布查核紀錄無效。',400);
+ const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'deploy-reconciliation',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId,status:v.status,deployment:v.deployment};
+ const prior=await replay(env,v.id,v.operationId,input,actor);if(prior)return {ok:true,replayed:true,version:prior.version};
+ const inspected=await inspectEvent(env,c,v),old=await load(env.DB,v.id),t=structuredClone(old.task),s=t.secretary,dep=s.recovery?.capability;
+ const unrestricted=structuredClone(t);unrestricted.secretary.autoRecovery=null;if(unrestricted.secretary.recovery)delete unrestricted.secretary.recovery.capability;
+ const d=dep?.deployment;
+ if(v.version!==t.version||dep?.outcome!=='unknown'||dep.name!=='render-deploy-commit-v1'||dep.eventId!==v.eventId||dep.sourceVersion!==s.sourceVersion||!validDeployment(d)||['workspaceId','serviceId','deployId','commitId'].some(k=>d[k]!==v.deployment[k])||!canAutoResume(c,unrestricted,inspected.event,await ownerDraftActive(env,t.id)))throw fail('原案件或發布識別已變更。');
+ if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
+ dep.outcome=v.status==='live'?'reconciled-live':'reconciled-failed';dep.reconciliation={status:v.status,at:new Date().toISOString(),evidence:'runner-asserted-read-only'};
+ const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
+ const extras=v.status==='live'?[]:s.reporters.map(p=>notification(env,t,p.account,'deploy-reconciliation','葉小蝸已核對發布狀態：這次發布未成功，目前問題尚未完成，系統會保留原案件進一步查核。\n'+link(env,t.id),p.source));
+ const saved=await transaction(env,old,t,v.operationId,input,actor,v.status==='live'?'接收器核對原發布已上線，仍需查核原問題，不重送原發布。':'接收器核對原發布未成功，保留案件及執行證據，不重送原發布。',extras,guard,[t.id,Date.now(),c.autoResolutionEpoch]);
  return {ok:true,version:saved.version};
 }
 export async function waitingCases(env,source,account=null){
@@ -362,7 +381,7 @@ async function runner(env,c,base,authority,action,v,preview){
    if(typeof v.deployed!=='boolean'||v.deployed!==s.proposal.deploy)throw fail('結果與核准的發布範圍不符。');
    s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
    for(const p of s.reporters)extras.push(notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
-  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);if(v.blockerInfo?.capability==='render-deploy-commit-v1'&&s.executionEvent?.id)s.recovery.capability={name:v.blockerInfo.capability,outcome:['not-started','rejected'].includes(v.blockerInfo?.publishOutcome)?v.blockerInfo.publishOutcome:'unknown',eventId:s.executionEvent.id,sourceVersion:s.sourceVersion,evidence:'runner-asserted'};t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+link(env,t.id),p.source));}
+  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);if(v.blockerInfo?.capability==='render-deploy-commit-v1'&&s.executionEvent?.id){const d=v.blockerInfo.deployment;s.recovery.capability={name:v.blockerInfo.capability,outcome:['not-started','rejected'].includes(v.blockerInfo?.publishOutcome)?v.blockerInfo.publishOutcome:'unknown',eventId:s.executionEvent.id,sourceVersion:s.sourceVersion,evidence:'runner-asserted',...validDeployment(d)?{deployment:{workspaceId:d.workspaceId,serviceId:d.serviceId,deployId:d.deployId,commitId:d.commitId}}:{}};}t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。'+(s.recovery.capability?.outcome==='unknown'?'發布結果尚未確認，系統會核對，確認前不重送。':'若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。')+'\n'+link(env,t.id),p.source));}
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }
  if(action==='claim'){
@@ -427,6 +446,7 @@ export async function xiaoyeFetch(request,env,{base,readAuthority,authority,ctx,
    if(action==='reporter')return json(await resultRequest(env,c,base,v,{record,load,linePerson,digest,fail,docsInsert,transaction}));
    if(action==='runner/event-inspect')return json(await inspectEvent(env,c,v));
    if(action==='runner/record-legacy-capability')return json(await recordLegacyCapability(env,c,v));
+   if(action==='runner/record-deploy-reconciliation')return json(await recordDeployReconciliation(env,c,v));
    if(action==='runner/auto-resume')return json(await autoResume(env,c,v));
    if(action==='evidence-check')return json(await runner(env,c,base,authority,action,v));
    if(action==='owner')return json(await ownerRequest(env,c,base,v,{record,load,linePerson,membership,digest,fail,docsInsert,transaction,retireProposal,imageBytes,uuidFrom}));

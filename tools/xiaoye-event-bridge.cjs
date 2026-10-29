@@ -87,7 +87,27 @@ class EventBridge {
               await this.call('record-legacy-capability',{id:active.taskId,version:inspected.task.version,eventId:active.id,operationId:'legacy-capability-'+active.id,capability,evidence:'legacy-local-preflight-v1'},rel+'/capability-legacy.input.private.json');
               inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
             }
-            const dep=inspected.task?.capabilityDependency;
+            let dep=inspected.task?.capabilityDependency;
+            if(dep?.outcome==='reconciled-failed'&&dep.eventId===active.id&&dep.sourceVersion===active.sourceVersion){this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'confirmed-deploy-failed'});continue;}
+            if(dep?.eventId===active.id&&dep.sourceVersion===active.sourceVersion&&['unknown','reconciled-live'].includes(dep.outcome)&&typeof this.verifyExactRenderPublish?.probeDeployment==='function'){
+              const observation=await this.verifyExactRenderPublish.probeDeployment(active,inspected);
+              this.save(rel+'/deployment-reconciliation.private.json',{id:active.id,taskId:active.taskId,sourceVersion:active.sourceVersion,state:['live','pending','failed','unknown'].includes(observation?.state)?observation.state:'unknown',at:new Date(this.clock()).toISOString()});
+              if(dep.outcome==='unknown'&&['live','failed'].includes(observation?.state)){
+                await this.call('record-deploy-reconciliation',{id:active.taskId,version:inspected.task.version,eventId:active.id,operationId:'deploy-reconcile-'+active.id,status:observation.status,deployment:dep.deployment},rel+'/deploy-reconciliation.input.private.json');
+                if(observation.state==='failed'){this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'confirmed-deploy-failed'});continue;}
+                inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});dep=inspected.task?.capabilityDependency;
+              }
+              if(dep?.outcome==='reconciled-live'&&observation?.state==='live'){
+                const again=await this.verifyExactRenderPublish.probeDeployment(active,inspected);
+                if(again?.state==='live'){
+                  const reconciled='render-deploy-reconciled-v1',fresh=await this.call('event-inspect',{id:active.taskId,eventId:active.id,capability:reconciled});
+                  if(fresh.capabilityResumeEligible===true&&fresh.event?.id===active.id&&fresh.event?.taskId===active.taskId&&fresh.event?.sourceVersion===active.sourceVersion&&fresh.task?.id===active.taskId&&fresh.task?.sourceVersion===active.sourceVersion&&Number.isSafeInteger(fresh.task?.version)&&await this.verifyCaseExecutor(active,fresh)){
+                    const result=await this.call('auto-resume',{id:active.taskId,version:fresh.task.version,eventId:active.id,operationId:'deploy-live-resume-'+active.id,capability:reconciled},rel+'/auto-resume.input.private.json');
+                    this.save(rel+'/auto-resume.response.private.json',result);continue;
+                  }
+                }
+              }
+            }
             const matches=dep?.name===capability&&dep.eventId===active.id&&dep.sourceVersion===active.sourceVersion&&['not-started','rejected'].includes(dep.outcome);
             let probe='unknown';
             if(matches&&typeof this.verifyExactRenderPublish?.probe==='function')probe=await this.verifyExactRenderPublish.probe(active,inspected);
@@ -210,7 +230,7 @@ class EventBridge {
           const checked=await this.call('event-check',checkInput);
           if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
           const renderTarget=this.config.exactRenderDeployRecovery,renderProjectKeys=renderTarget?.projectKeys||[renderTarget?.projectKey].filter(Boolean),renderTools=renderTarget&&renderProjectKeys.includes(preflightRoute?.key)?{renderExecutable:renderTarget.cliExecutable,renderWorkspaceId:renderTarget.workspaceId,renderServiceId:renderTarget.serviceId}:{};
-          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。若確定受阻於無法指定受測 commit 發布 Render，請於 runner/fail 的 blockerInfo 加入 capability: "render-deploy-commit-v1" 以及 publishOutcome: "not-started" 或 "rejected"，僅在分別確定未送出或確定被拒絕時使用；發布結果不明不得標為其中任一種，不得重送。工具登入及支援語法不代表寫入權限已驗證。使用已設定的 Render CLI 前重新確認登入、工作區、服務與指定版本能力。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,...renderTools}}:{}});
+          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。若確定受阻於無法指定受測 commit 發布 Render，請於 runner/fail 的 blockerInfo 加入 capability: "render-deploy-commit-v1" 以及 publishOutcome: "not-started" 或 "rejected"，僅在分別確定未送出或確定被拒絕時使用；發布結果不明應設為 "unknown"，若已確定取得唯一部署 ID，附 deployment: {workspaceId,serviceId,deployId,commitId} 原值；不確定不得猜測。已核對上線的原發布不可重送，接續查核是否解決原問題。工具登入及支援語法不代表寫入權限已驗證。使用已設定的 Render CLI 前重新確認登入、工作區、服務與指定版本能力。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,...renderTools}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
           const saveEvent=(file,v)=>this.save(rel+'/'+file,v);

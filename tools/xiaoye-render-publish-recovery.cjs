@@ -31,6 +31,7 @@ function serviceFromResult(result){
  if(result?.structuredContent?.id)return result.structuredContent;
  try{return JSON.parse(result?.content?.find(c=>c.type==='text')?.text||'null');}catch{return null;}
 }
+function exactDeployment(d){return !!(d&&/^tea-[a-z0-9]+$/.test(d.workspaceId||'')&&/^srv-[a-z0-9]+$/.test(d.serviceId||'')&&/^dep-[a-z0-9]+$/.test(d.deployId||'')&&/^[a-f0-9]{40}$/.test(d.commitId||''));}
 function cliJson(result){if(result?.exitCode!==0||typeof result.stdout!=='string')return null;try{return JSON.parse(result.stdout);}catch{return null;}}
 async function probeCli(client,target,config){
  if(typeof target.cliExecutable!=='string'||!path.isAbsolute(target.cliExecutable))return 'unknown';
@@ -76,6 +77,23 @@ function createExactRenderPublishVerifier(config,{Client=CodexAppServerClient,re
  }
  const verify=async(active,inspected)=>hasMissingPublishEvidence(config.operatorDirectory,active)&&await probe(active,inspected)==='available';
  verify.probe=probe;
+ verify.probeDeployment=async(active,inspected)=>{
+  const target=config.exactRenderDeployRecovery,dep=inspected.task?.capabilityDependency,d=dep?.deployment,keys=target?.projectKeys||[target?.projectKey].filter(Boolean);
+  if(!target||!exactDeployment(d)||d.workspaceId!==target.workspaceId||d.serviceId!==target.serviceId||dep.eventId!==active.id||dep.sourceVersion!==active.sourceVersion||!keys.includes(inspected.projects?.find(p=>p.id===inspected.task?.primaryParentId)?.key))return {state:'unknown'};
+  let client;try{
+   client=await new Client({executable:resolveExecutable(config.codexExecutable)}).connect();
+   const t=await client.request('thread/start',{ephemeral:true,cwd:target.workRoot||config.workRoot,permissions:':danger-full-access',approvalPolicy:'never'});if(!t.thread?.id)return {state:'unknown'};
+   const call=async(tool,args)=>client.request('mcpServer/tool/call',{server:'codex_apps',tool,arguments:args,threadId:t.thread.id},45000);
+   const service=serviceFromResult(await call('render.get_service',{workspaceId:d.workspaceId,serviceId:d.serviceId}));
+   if(service?.id!==d.serviceId||service?.ownerId!==d.workspaceId||target.repository&&service.repo!==target.repository)return {state:'unknown'};
+   const deploy=serviceFromResult(await call('render.get_deploy',{workspaceId:d.workspaceId,serviceId:d.serviceId,deployId:d.deployId}));
+   if(deploy?.id!==d.deployId||deploy.commit?.id!==d.commitId)return {state:'unknown'};
+   if(deploy.status==='live')return {state:'live',status:'live'};
+   if(['created','queued','build_in_progress','update_in_progress','pre_deploy_in_progress'].includes(deploy.status))return {state:'pending'};
+   if(['build_failed','update_failed','pre_deploy_failed','canceled'].includes(deploy.status))return {state:'failed',status:deploy.status};
+   return {state:'unknown'};
+  }catch{return {state:'unknown'};}finally{client?.close();}
+ };
  return verify;
 }
-module.exports={CAPABILITY,legacyMissingPublishCapability,hasMissingPublishEvidence,exactCommitToolAvailable,serviceFromResult,probeCli,createExactRenderPublishVerifier};
+module.exports={CAPABILITY,legacyMissingPublishCapability,hasMissingPublishEvidence,exactCommitToolAvailable,serviceFromResult,exactDeployment,probeCli,createExactRenderPublishVerifier};

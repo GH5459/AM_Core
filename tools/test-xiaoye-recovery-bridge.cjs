@@ -161,3 +161,19 @@ test('local budget refusal remains pending and accepts one new recovery after ob
  ready=false;await f.bridge.recoverFailedEvents();assert.equal(JSON.parse(fs.readFileSync(path.join(run,'executor-observation.private.json'))).state,'unavailable');
  ready=true;await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(c=>c.action==='auto-resume').length,1);await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(c=>c.action==='auto-resume').length,1);f.bridge.stop();
 });
+test('an identified unknown deployment remains pending, then live creates only a new analysis',async()=>{
+ const d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};let state='unknown',outcome='unknown',version=10;
+ const f=fixture(async(action,input)=>{if(action==='event-inspect')return {...inspection('done','blocked'),task:{...inspection('done','blocked').task,version,capabilityDependency:{name:'render-deploy-commit-v1',eventId:id,sourceVersion:4,outcome,deployment:d}},event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:false,capabilityResumeEligible:input.capability==='render-deploy-reconciled-v1'&&outcome==='reconciled-live'};if(action==='record-deploy-reconciliation'){assert.equal(input.status,'live');outcome='reconciled-live';version++;return {version};}assert.equal(action,'auto-resume');assert.equal(input.capability,'render-deploy-reconciled-v1');assert.equal(input.version,11);return {stage:'clarifying'};},'finished',async()=>true);
+ const verify=async()=>false;verify.probeDeployment=async()=>state==='live'?{state:'live',status:'live'}:{state};f.bridge.verifyExactRenderPublish=verify;
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ for(const pending of ['unknown','pending']){state=pending;await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(c=>c.action==='auto-resume').length,0);assert(f.bridge.failedRecoveryTimer);}
+ state='live';await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(c=>c.action==='record-deploy-reconciliation').length,1);assert.equal(f.calls.filter(c=>c.action==='auto-resume').length,1);
+ await f.bridge.recoverFailedEvents();assert.equal(f.calls.filter(c=>c.action==='auto-resume').length,1);f.bridge.stop();
+});
+test('a confirmed failed deploy is recorded and not automatically resent',async()=>{
+ const d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};
+ const f=fixture(async(action,input)=>{if(action==='event-inspect')return {...inspection('done','blocked'),task:{...inspection('done','blocked').task,capabilityDependency:{name:'render-deploy-commit-v1',eventId:id,sourceVersion:4,outcome:'unknown',deployment:d}},event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:false};assert.equal(action,'record-deploy-reconciliation');assert.equal(input.status,'build_failed');return {version:11};},'finished',async()=>{throw Error('must not execute');});
+ const verify=async()=>false;verify.probeDeployment=async()=>({state:'failed',status:'build_failed'});f.bridge.verifyExactRenderPublish=verify;
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','record-deploy-reconciliation']);await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,2);f.bridge.stop();
+});

@@ -60,3 +60,15 @@ test('CLI missing, missing spawn, expired token and unknown errors remain distin
  const recovered={request:async(method,p)=>{const a=p.command.slice(1);return {exitCode:0,stdout:a[0]==='help'?'--commit <COMMIT_ID>':JSON.stringify(a[0]==='whoami'?{email:'a@example.invalid'}:a[0]==='workspace'?{id:'tea-abc'}:[{id:'srv-abc',ownerId:'tea-abc'}])};}};
  Object.assign(target,{workspaceId:'tea-abc',serviceId:'srv-abc',accountEmail:'a@example.invalid'});assert.equal(await probeCli(recovered,target,config),'available');
 });
+test('deployment reconciliation requires the same workspace, service, full SHA and unique deploy ID',async()=>{
+ const f=fixture(),calls=[],d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};let status='live',actual={...d},error=false;
+ class Client{async connect(){return this}async request(method,p){calls.push({method,p});if(method==='thread/start')return {thread:{id:'fixture'}};if(p.tool==='render.get_service')return {content:[{type:'text',text:JSON.stringify({id:actual.serviceId,ownerId:actual.workspaceId,repo:'https://example.invalid/repo'})}]};return {isError:error,content:[{type:'text',text:JSON.stringify({id:actual.deployId,commit:{id:actual.commitId},status})}]};}close(){}}
+ const v=createExactRenderPublishVerifier({operatorDirectory:f.dir,workRoot:f.dir,exactRenderDeployRecovery:{workspaceId:d.workspaceId,serviceId:d.serviceId,projectKey:'meeting',repository:'https://example.invalid/repo'}},{Client,resolveExecutable:()=>''});
+ const input={...f.inspected,task:{...f.inspected.task,capabilityDependency:{eventId:eventId,sourceVersion:4,outcome:'unknown',deployment:d}}};
+ assert.deepEqual(await v.probeDeployment(f.active,input),{state:'live',status:'live'});
+ const actualCall=calls.find(x=>x.p?.tool==='render.get_deploy');assert.deepEqual(actualCall.p.arguments,{workspaceId:d.workspaceId,serviceId:d.serviceId,deployId:d.deployId});assert(!calls.some(x=>x.p?.tool==='render.trigger_deploy'));
+ status='queued';assert.deepEqual(await v.probeDeployment(f.active,input),{state:'pending'});status='build_failed';assert.deepEqual(await v.probeDeployment(f.active,input),{state:'failed',status:'build_failed'});status='deactivated';assert.deepEqual(await v.probeDeployment(f.active,input),{state:'unknown'});
+ status='live';error=true;assert.deepEqual(await v.probeDeployment(f.active,input),{state:'unknown'});error=false;
+ for(const k of ['workspaceId','serviceId','deployId','commitId']){actual={...d,[k]:k==='commitId'?'c'.repeat(40):d[k]+'z'};assert.deepEqual(await v.probeDeployment(f.active,input),{state:'unknown'},k);}
+ actual={...d};const before=calls.length;const missing=structuredClone(input);delete missing.task.capabilityDependency.deployment.deployId;assert.deepEqual(await v.probeDeployment(f.active,missing),{state:'unknown'});assert.equal(calls.length,before);
+});

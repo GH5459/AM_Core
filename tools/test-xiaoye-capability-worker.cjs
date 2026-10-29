@@ -44,3 +44,24 @@ test('complete worker: legacy marker, missing capability, paused guard, one reco
   assert.equal(question.account,'900003');assert.equal(question.expectedUserId,'U'+'b'.repeat(32));
  }finally{bridge?.stop();await a.close();}
 });
+test('complete worker reconciles an identified unknown live deploy without resending it',async()=>{
+ const a=await setup();let bridge;try{
+  a.config.autoResolutionEnabled=true;a.config.autoResolutionEpoch=op();await a.db.prepare("UPDATE documents SET value=? WHERE namespace='xiaoye-secretary' AND key='config'").bind(JSON.stringify(a.config)).run();
+  let t=await a.get((await a.ok(await a.intake({text:'隔離部署結果不明'}))).taskId);const analysis=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze'").bind(t.id).first();await wait(5300);
+  const first=(await a.ok(await a.machine('runner/event-acquire',{id:analysis.id,operationId:'acquire-'+analysis.id},true))).job;
+  t=(await a.ok(await a.machine('runner/propose',{id:t.id,version:t.version,operationId:op(),eventId:first.id,eventLease:first.lease,projectId:a.projects[3].id,category:'bug',proposal},true))).task;
+  const execution=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='execute'").bind(t.id).first();await a.ok(await a.machine('runner/event-complete',{id:first.id,lease:first.lease,operationId:op()},true));await wait(1200);
+  const job=(await a.ok(await a.machine('runner/event-acquire',{id:execution.id,operationId:'acquire-'+execution.id},true))).job,claim=await a.ok(await a.machine('runner/claim',{id:t.id,operationId:op(),eventId:job.id,eventLease:job.lease},true));
+  const d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};
+  t=(await a.ok(await a.machine('runner/fail',{id:t.id,lease:claim.lease,eventId:job.id,eventLease:job.lease,operationId:op(),result:'隔離發布回應不明',blockerInfo:{reason:'發布結果待核對',capability:'render-deploy-commit-v1',publishOutcome:'unknown',deployment:d}},true))).task;
+  const progress=JSON.parse((await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='progress' AND json_extract(value,'$.taskId')=?").bind(t.id).first()).value);assert.match(progress.message,/確認前不重送/);assert.equal(progress.expectedUserId,'U'+'b'.repeat(32));
+  await a.ok(await a.machine('runner/event-complete',{id:job.id,lease:job.lease,operationId:op()},true));t=await a.get(t.id);t.secretary.autoRecovery={sourceCount:t.secretary.sources.length,replanAttempts:3};await a.db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(t),t.id).run();
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-deploy-worker-')),run=path.join(dir,'event-runs',job.id);fs.mkdirSync(run,{recursive:true});fs.writeFileSync(path.join(dir,'runner.private.json'),JSON.stringify({key:'fixture'}));fs.writeFileSync(path.join(dir,'wrangler.json'),JSON.stringify({vars:{PUBLIC_ORIGIN:'https://fixture.invalid',LEAF_TASK_TENANT:'fixture'}}));fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+  const calls=[];let status='unknown';const fetcher=async(url,opts)=>{const action=new URL(url).pathname.split('/').at(-1);calls.push(action);return a.machine('runner/'+action,JSON.parse(opts.body),true);};const verify=async()=>false;verify.probeDeployment=async()=>status==='live'?{state:'live',status:'live'}:{state:status};
+  bridge=new EventBridge({operatorDirectory:dir,workRoot:dir},{fetcher,WebSocket:class{},verifyCaseExecutor:async()=>true,verifyExactRenderPublish:verify});
+  await bridge.recoverFailedEvents();assert.equal((await a.get(t.id)).secretary.stage,'blocked');assert(!calls.includes('auto-resume'));
+  status='pending';await bridge.recoverFailedEvents();assert(!calls.includes('auto-resume'));
+  status='live';await bridge.recoverFailedEvents();const resumed=await a.get(t.id);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(resumed.secretary.recoveryHistory.at(-1).capability.reconciliation.status,'live');assert.equal(calls.filter(c=>c==='auto-resume').length,1);assert.equal(calls.filter(c=>c==='record-deploy-reconciliation').length,1);
+  await bridge.recoverFailedEvents();assert.equal(calls.filter(c=>c==='auto-resume').length,1);
+ }finally{bridge?.stop();await a.close();}
+});
