@@ -60,7 +60,7 @@ class SandboxController {
   let r=this.read(eventId);if(!r)throw err('event missing','authority');if(r.state==='terminated')return r;
   if(!['stop_requested','stop_unknown'].includes(r.state)){if(!this.update(eventId,r.revision,{state:'stop_requested',stop_intent:crypto.randomUUID(),external_unknown:1}))throw err('event changed','race');r=this.read(eventId);}
   // Revoke broker permission before issuing any termination request.
-  let brokerConfirmed=false;try{const ack=await this.bounded(()=>this.broker.revokeEvent({eventId,sourceVersion:r.source_version,generation:r.generation}));brokerConfirmed=ack?.revoked===true;}catch{}
+  let brokerConfirmed=false;try{const ack=await this.bounded(()=>this.broker.revokeEvent({eventId,sourceVersion:r.source_version,generation:r.generation}));brokerConfirmed=ack?.revoked===true&&ack.eventId===eventId&&ack.sourceVersion===r.source_version&&ack.generation===r.generation;}catch{}
   r=this.read(eventId);if(brokerConfirmed&&!r.broker_revoked){this.update(eventId,r.revision,{broker_revoked:1});r=this.read(eventId);}
   if(!r.sandbox_id)throw err('sandbox identity unknown; termination not sent','stop_unknown');
   if(r.state==='stop_unknown'){if(!brokerConfirmed)throw err('broker revocation unconfirmed','broker_unknown');return r;} // Never repeat a potentially delivered terminate.

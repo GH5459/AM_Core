@@ -3,7 +3,7 @@ const {SandboxController}=require('./xiaoye-sandbox-controller.cjs');
 function fixture(options={}){
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-sandbox-fake-')),dbPath=path.join(folder,'case.sqlite'),resources=new Map(),calls=[];let now=1000000,seq=0;
  const provider={testOnly:true,async create(v){calls.push(['create',v]);const r={id:'sandbox-'+(++seq),intentId:v.intentId,state:'running'};resources.set(r.id,r);return r;},async start(v){calls.push(['start',v]);return {intentId:v.intentId,runId:'run-'+String(++seq).padStart(8,'0')};},async terminate(v){calls.push(['terminate',v]);const r=resources.get(v.sandboxId);if(r)r.state='terminated';return {accepted:true};},async inspect(v){calls.push(['inspect',v]);const r=resources.get(v.sandboxId);return r?{id:r.id,state:r.state,authoritative:true}:null;},async findByIntent(v){calls.push(['find',v]);return {complete:true,items:[...resources.values()].filter(r=>r.intentId===v.intentId)};}};
- const broker={async registerEvent(v){calls.push(['register',v]);return {eventId:v.eventId,sourceVersion:v.sourceVersion,generation:v.generation};},async renewEvent(v){calls.push(['renew',v]);return {eventId:v.eventId,generation:v.generation,expiresAt:v.expiresAt};},async revokeEvent(v){calls.push(['revoke',v]);return {revoked:true};}};
+ const broker={async registerEvent(v){calls.push(['register',v]);return {eventId:v.eventId,sourceVersion:v.sourceVersion,generation:v.generation};},async renewEvent(v){calls.push(['renew',v]);return {eventId:v.eventId,generation:v.generation,expiresAt:v.expiresAt};},async revokeEvent(v){calls.push(['revoke',v]);return {revoked:true,...v};}};
  const make=()=>new SandboxController({dbPath,provider,broker,clock:()=>now,requestTimeoutMs:20,maxLifetimeMs:10000,...options});
  const grant={eventId:'a'.repeat(64),sourceVersion:2,generation:4,capability:'A'.repeat(43),scopes:[{kind:'github-merge',target:{repo:'fixture/repo',number:1,base:'main',headSha:'b'.repeat(40)}}],leaseUntil:now+3000};
  return {folder,dbPath,provider,broker,resources,calls,grant,make,advance:ms=>now+=ms};
@@ -81,11 +81,11 @@ test('unconfirmed broker renewal requests revocation and termination instead of 
 });
 test('cancel during broker registration cannot mark sandbox ready or launch',async()=>{
  const f=fixture();let release,started,revoked=false;const began=new Promise(resolve=>started=resolve);
- f.broker.registerEvent=async()=>{started();await new Promise(resolve=>{release=resolve});if(revoked)throw Error('event revoked');};f.broker.revokeEvent=async()=>{revoked=true;return {revoked:true};};
+ f.broker.registerEvent=async()=>{started();await new Promise(resolve=>{release=resolve});if(revoked)throw Error('event revoked');};f.broker.revokeEvent=async v=>{revoked=true;return {revoked:true,...v};};
  const c=f.make();try{const pending=c.start(f.grant);await began;await assert.rejects(c.execute({...f.grant,operationId:'operation-111',command:'synthetic'}),{code:'expired'});await c.stop(f.grant);release();await assert.rejects(pending,{code:'broker'});assert(revoked);assert.equal(f.calls.filter(x=>x[0]==='start').length,0);assert.equal(c.read(f.grant.eventId).state,'stop_unknown');}finally{c.close();}
 });
 test('unconfirmed broker revoke still terminates, but does not certify containment',async()=>{
- const f=fixture(),c=f.make();let allowed=false;f.broker.revokeEvent=async()=>{if(!allowed)throw Error('offline');return {revoked:true};};try{
+ const f=fixture(),c=f.make();let allowed=false;f.broker.revokeEvent=async v=>{if(!allowed)throw Error('offline');return {revoked:true,...v};};try{
   await c.start(f.grant);await assert.rejects(c.stop(f.grant),{code:'broker_unknown'});assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated-broker-unconfirmed');
   await assert.rejects(c.disconnected(f.grant),{code:'broker_unknown'});assert.equal(c.read(f.grant.eventId).state,'stop_unknown');allowed=true;await c.stop(f.grant);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated');
  }finally{c.close();}
@@ -107,7 +107,7 @@ test('restart after unconfirmed create finds identity and later stops without an
  const f=fixture(),orig=f.provider.create;f.provider.create=async v=>{await orig(v);throw Error('lost');};let c=f.make();try{await assert.rejects(c.start(f.grant),{code:'create_unknown'});c.close();f.advance(3001);c=f.make();await c.recover();assert.equal(c.read(f.grant.eventId).state,'stop_requested');const page=await c.recover();assert.equal(page.results[0].observation,'terminated');assert.equal(f.calls.filter(x=>x[0]==='create').length,1);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);}finally{c.close();}
 });
 test('missing revoke acknowledgement remains unknown across restart and is retried read safely',async()=>{
- const f=fixture();let c=f.make(),confirmed=false;f.broker.revokeEvent=async()=>confirmed?{revoked:true}:{revoked:false};try{await c.start(f.grant);await assert.rejects(c.stop(f.grant),{code:'broker_unknown'});c.close();c=f.make();assert.equal((await c.recover()).results[0].observation,'terminated-broker-unconfirmed');confirmed=true;assert.equal((await c.recover()).results[0].observation,'terminated');assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);}finally{c.close();}
+ const f=fixture();let c=f.make(),confirmed=false;f.broker.revokeEvent=async v=>confirmed?{revoked:true,...v}:{revoked:false};try{await c.start(f.grant);await assert.rejects(c.stop(f.grant),{code:'broker_unknown'});c.close();c=f.make();assert.equal((await c.recover()).results[0].observation,'terminated-broker-unconfirmed');confirmed=true;assert.equal((await c.recover()).results[0].observation,'terminated');assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);}finally{c.close();}
 });
 test('recovery pagination reaches later events without starving them',async()=>{
  const f=fixture(),c=f.make();try{await c.start(f.grant);const second={...f.grant,eventId:'b'.repeat(64)};await c.start(second);const a=await c.recover({limit:1});assert.equal(a.results[0].eventId,f.grant.eventId);assert.equal(a.nextCursor,f.grant.eventId);const b=await c.recover({afterEventId:a.nextCursor,limit:1});assert.equal(b.results[0].eventId,second.eventId);assert.equal(f.calls.filter(x=>x[0]==='start').length,0);}finally{c.close();}
@@ -118,8 +118,14 @@ test('malformed registration and renewal acknowledgements cannot grant authority
 });
 
 test('disconnect during registration requests revocation and never launches guest',async()=>{
- const f=fixture();let release,entered,revoked=false;const began=new Promise(r=>entered=r);f.broker.registerEvent=async()=>{entered();await new Promise(r=>release=r);if(revoked)throw Error('revoked');};f.broker.revokeEvent=async()=>{revoked=true;return {revoked:true};};const c=f.make();try{const start=c.start(f.grant);await began;await c.disconnected(f.grant);release();await assert.rejects(start,{code:'broker'});assert(revoked);assert.equal(c.read(f.grant.eventId).state,'stop_unknown');assert.equal(f.calls.filter(x=>x[0]==='start').length,0);}finally{c.close();}
+ const f=fixture();let release,entered,revoked=false;const began=new Promise(r=>entered=r);f.broker.registerEvent=async()=>{entered();await new Promise(r=>release=r);if(revoked)throw Error('revoked');};f.broker.revokeEvent=async v=>{revoked=true;return {revoked:true,...v};};const c=f.make();try{const start=c.start(f.grant);await began;await c.disconnected(f.grant);release();await assert.rejects(start,{code:'broker'});assert(revoked);assert.equal(c.read(f.grant.eventId).state,'stop_unknown');assert.equal(f.calls.filter(x=>x[0]==='start').length,0);}finally{c.close();}
 });
 test('disconnect during creation records stop before late sandbox appears',async()=>{
  const f=fixture(),orig=f.provider.create;let release,entered;const began=new Promise(r=>entered=r);f.provider.create=async v=>{const value=await orig(v);entered();await new Promise(r=>release=r);return value;};const c=f.make();try{const start=c.start(f.grant);await began;await assert.rejects(c.disconnected(f.grant),{code:'stop_unknown'});release();await assert.rejects(start,{code:'expired'});assert.equal(f.calls.filter(x=>x[0]==='register').length,0);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated');}finally{c.close();}
+});
+
+test('wrong or incomplete revocation receipts never certify sandbox containment',async()=>{
+ for(const wrong of [{eventId:'b'.repeat(64)},{sourceVersion:3},{generation:5},{eventId:undefined}]){
+  const f=fixture(),c=f.make();f.broker.revokeEvent=async v=>({revoked:true,...v,...wrong});try{await c.start(f.grant);await assert.rejects(c.disconnected(f.grant),{code:'broker_unknown'});const status=await c.inspect(f.grant);assert.equal(status.observation,'terminated-broker-unconfirmed');assert.equal(status.record.broker_revoked,0);assert.equal(status.record.external_unknown,1);}finally{c.close();}
+ }
 });

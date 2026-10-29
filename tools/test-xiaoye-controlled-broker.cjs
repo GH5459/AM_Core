@@ -116,3 +116,9 @@ test('supervisor keeps retrying unknown reads with bounded persisted backoff and
   assert.equal(f.counts().writes,1);assert.equal(f.counts().reads,14);
  }finally{b.close();f.cleanup();}
 });
+test('revoke receipts bind the original event, source and generation including replay and tombstone',()=>{
+ const f=fixture(),v={eventId,sourceVersion,generation:1};try{
+  for(const reply of [f.broker.revokeEvent(v),f.broker.revokeEvent(v)])assert.deepEqual({revoked:reply.revoked,eventId:reply.eventId,sourceVersion:reply.sourceVersion,generation:reply.generation},{revoked:true,...v});
+  const pending={...v,eventId:'d'.repeat(64)},reply=f.broker.revokeEvent(pending);assert.deepEqual({revoked:reply.revoked,eventId:reply.eventId,sourceVersion:reply.sourceVersion,generation:reply.generation,tombstone:reply.tombstone},{revoked:true,...pending,tombstone:true});
+ }finally{f.broker.close();f.cleanup();}
+});
