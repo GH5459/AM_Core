@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.1029.30",
+  "name": "工作日誌直接返回與請求內資料共用",
+  "type": "entry performance",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "Existing DailyLog and LINE services"
+  ],
+  "requiresScripts": [
+    "tools/test-dailylog-entry-direct.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Preserve authentication and permissions",
+    "Return through native journal entry without repeated LINE fallback",
+    "Read bootstrap profile once per request",
+    "Measure task-list stages without exposing data",
+    "Verify live versions and before/after browser measurements"
+  ]
+}
