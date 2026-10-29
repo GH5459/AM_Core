@@ -24,13 +24,14 @@ function index(source) {
   source = replaceOnce(source, "personalView=personalNav.dataset.personalView;render();return", "personalView=personalNav.dataset.personalView;if(personalView==='todos')selectedDate=dateString(new Date());render();return");
   source = replaceOnce(source, "todos:['我的追蹤表','工作待辦持續追蹤，小習慣按日期記錄。','追蹤表']", "todos:['未來','未來的待辦事項。','未來']");
   source = replaceOnce(source, "todos:['工作追蹤','未完成的事，接著往前推進。']", "todos:['未來','未來的待辦事項。']");
-  source = replaceOnce(source, '<span data-icon="check"></span>追蹤表', '<span data-icon="check"></span>未來');
-  source = replaceOnce(source, '   <button data-personal-view="weekly"><span data-icon="calendar"></span>本週工作計畫</button>\n   <button data-personal-view="overview"><span data-icon="grid"></span>我的工作總覽</button>\n   <button data-personal-view="todos"><span data-icon="check"></span>未來</button>', '   <button data-personal-view="todos"><span data-icon="check"></span>未來</button>\n   <button data-personal-view="weekly"><span data-icon="calendar"></span>本週工作計畫</button>\n   <button data-personal-view="overview"><span data-icon="grid"></span>我的工作總覽</button>');
+  source = replaceOnce(source, '<span data-icon="check"></span>追蹤表', '<span data-icon="future"></span>未來');
+  source = replaceOnce(source, 'const paths={book:', "const paths={future:'M4 5h16M4 9h16M10 14h10M10 19h10M3 14h4v5H3z',book:");
+  source = replaceOnce(source, '   <button data-personal-view="weekly"><span data-icon="calendar"></span>本週工作計畫</button>\n   <button data-personal-view="overview"><span data-icon="grid"></span>我的工作總覽</button>\n   <button data-personal-view="todos"><span data-icon="future"></span>未來</button>', '   <button data-personal-view="todos"><span data-icon="future"></span>未來</button>\n   <button data-personal-view="weekly"><span data-icon="calendar"></span>本週工作計畫</button>\n   <button data-personal-view="overview"><span data-icon="grid"></span>我的工作總覽</button>');
   source = replaceOnce(source, 'document.body.dataset.mobileView=personalView;', "document.body.dataset.mobileView=personalView==='future'?'todos':personalView;");
   return source.replaceAll("personalView==='todos'", "personalView==='future'").replaceAll("personalView='todos'", "personalView='future'").replaceAll('data-personal-view="todos"', 'data-personal-view="future"').replaceAll('todos:[', 'future:[');
 }
 function mobile(source) {
-  return replaceOnce(source, "[['journals','book','今日'],['weekly','calendar','本週'],['todos','check','追蹤'],['account','people','我的']]", "[['journals','book','今日'],['future','check','未來'],['weekly','calendar','本週'],['account','people','我的']]");
+  return replaceOnce(source, "[['journals','book','今日'],['weekly','calendar','本週'],['todos','check','追蹤'],['account','people','我的']]", "[['journals','book','今日'],['future','future','未來'],['weekly','calendar','本週'],['account','people','我的']]");
 }
 export async function futureNavResponse(request,response){
   const route=new URL(request.url).pathname;if(request.method!=='GET'||response.status!==200||!['/','/index.html','/journal.js','/mobile.js'].includes(route))return response;
