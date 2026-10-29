@@ -39,27 +39,26 @@ class TerminalEvents{
  end(){this.buffer+=this.decoder.end();if(this.buffer.trim()||!this.terminal)throw Error('missing terminal response');}
 }
 class FixtureResponsesProxy extends FixtureGateway{
- constructor({upstream,clock=Date.now,timeoutMs=1000,maxResponseBytes=262144}={}){super({clock});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<10||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1)throw Error('fixture upstream required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;}
+ constructor({upstream,clock=Date.now,dbPath=':memory:',leaseVerifier,pollIntervalMs=100,timeoutMs=1000,maxResponseBytes=262144}={}){super({clock,dbPath,leaseVerifier,pollIntervalMs});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<10||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1)throw Error('fixture upstream required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;}
  async handle(req,res){
   const reject=status=>{if(!res.headersSent)res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end('{"error":"request_rejected"}');};
   if(req.method!=='POST'||req.url!=='/v1/responses')return reject(404);
   const token=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization||'')?.[1];if(!token||!this.authorize(token))return reject(401);
   const id=req.headers['x-fixture-request-id'];if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{8,80}$/.test(id))return reject(400);
-  let raw;try{raw=await this.readBody(req,this.authorize(token),65536);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
+  let raw;try{raw=await this.readBody(req,this.authorize(token),65536,token);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
   let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validBody(body))return reject(400);
-  const grant=this.authorize(token);if(!grant)return reject(401);if(grant.used>=grant.maxRequests||grant.inFlight)return reject(429);
-  const key=crypto.createHash('sha256').update(JSON.stringify([grant.eventId,grant.sourceVersion,grant.generation,id])).digest('hex');if(this.requests.has(key))return reject(409);
-  this.requests.add(key);grant.used++;grant.inFlight=true;const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});
+  const grant=this.authorize(token);if(!grant)return reject(401);const claim=this.claim(token,{mode:'responses',requestId:id,bodyHash:'responses'});if(claim.status!==200)return reject(claim.status);
+  const abort=new AbortController(),deadline=Date.now()+this.timeoutMs,untrack=this.trackStream(grant,abort,token);res.on('close',()=>abort.abort());abort.signal.addEventListener('abort',()=>{if(!res.writableEnded)res.destroy();},{once:true});
   const remaining=()=>{const ms=deadline-Date.now();if(ms<=0)throw Error('fixture total deadline');return ms;};
-  try{
+  let dispatched=false;try{
    // Only a fake injected adapter exists. No request-supplied URL, headers or
    // credential is ever handed to it; the endpoint constant is not fetched.
-   const upstream=await timeout(Promise.resolve().then(()=>{if(!this.authorize(token))throw Error('authority expired');return this.upstream.open({endpoint:FIXED_ENDPOINT,payload:body,signal:abort.signal});}),remaining());
+   const budget=remaining();const upstream=await timeout(Promise.resolve().then(()=>{if(abort.signal.aborted||!this.arm(token,claim)){this.notSent(claim);throw Object.assign(Error('not sent'),{code:'not_sent'});}dispatched=true;return this.upstream.open({endpoint:FIXED_ENDPOINT,payload:body,signal:abort.signal});}),budget);
    if(!this.authorize(token)||upstream?.status!==200||upstream.contentType!=='text/event-stream'||!upstream.body?.[Symbol.asyncIterator])return reject(502);
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});const iterator=upstream.body[Symbol.asyncIterator](),events=new TerminalEvents(body.tools?.length?{fixture_read:args=>object(args,['path'])&&typeof args.path==='string'&&/^[A-Za-z0-9._/-]{1,200}$/.test(args.path)&&!args.path.includes('..')}:[]),terminalChunks=[];let bytes=0;
    for(;;){const next=await timeout(iterator.next(),remaining());if(next.done)break;if(!this.authorize(token)||abort.signal.aborted)throw Error('authority ended');const chunk=Buffer.from(next.value);bytes+=chunk.length;if(bytes>this.maxResponseBytes)throw Error('response too large');events.feed(chunk);if(events.terminal||events.sawFunctionCall)terminalChunks.push(chunk);else if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}
-   if(!this.authorize(token))throw Error('authority ended');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('authority ended');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}res.end();
-  }catch{if(!res.headersSent&&!abort.signal.aborted)reject(502);else res.destroy();abort.abort();}finally{untrack();grant.inFlight=false;}
+   if(!this.authorize(token))throw Error('authority ended');events.end();for(const chunk of terminalChunks){if(!this.authorize(token))throw Error('authority ended');if(!res.write(chunk))await timeout(once(res,'drain'),remaining());}this.settle(claim,'terminal');res.end();
+  }catch(e){if(!dispatched)this.notSent(claim);if(!res.headersSent&&!abort.signal.aborted)reject(e.code==='not_sent'?503:502);else res.destroy();abort.abort();}finally{untrack();}
  }
 }
 module.exports={FixtureResponsesProxy,FIXED_ENDPOINT,TOOL,validBody,TerminalEvents,timeout};

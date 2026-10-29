@@ -258,7 +258,7 @@ jobs:
       - run: node --check core/xiaoye-secretary-events.mjs
       - run: node --check tools/xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-controlled-action-journal.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-sandbox-controller.cjs tools/test-xiaoye-sandbox-broker-integration.cjs tools/test-xiaoye-render-sandbox-adapter.cjs tools/test-xiaoye-sandbox-supervisor-fixture.cjs
-      - run: node --test tools/test-xiaoye-codex-proxy-fixture.cjs tools/test-xiaoye-codex-proxy-handle.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs
+      - run: node --test tools/test-xiaoye-gateway-poll-fixture.cjs tools/test-xiaoye-model-gateway-store-fixture.cjs tools/test-xiaoye-codex-proxy-fixture.cjs tools/test-xiaoye-codex-proxy-handle.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs
       # This Windows-only local Codex probe explicitly skips without a supplied executable; it never calls a real API.
       - run: node --test tools/test-xiaoye-codex-live-fixture.cjs
       - run: node --test tools/test-xiaoye-event-bridge.cjs
