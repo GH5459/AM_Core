@@ -52,7 +52,17 @@ test('a completed blocked execution creates one new analysis after a prior tool 
   assert((await a.db.prepare("SELECT COUNT(*) AS n FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze'").bind(t.id).first()).n>=2);
   const next=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,analysisRow.id).first();await wait(5300);
   const nextJob=await a.ok(await a.machine('runner/event-acquire',{id:next.id,operationId:'acquire-'+next.id},true));
-  const asked=await a.ok(await a.machine('runner/clarify',{id:t.id,version:saved.version,eventId:nextJob.job.id,eventLease:nextJob.job.lease,operationId:op(),question:'請問是在什麼畫面看到問題？'},true));assert.equal(asked.task.secretary.waitingForReporter,true);
+  const replanned=(await a.ok(await a.machine('runner/propose',{id:t.id,version:saved.version,operationId:op(),eventId:nextJob.job.id,eventLease:nextJob.job.lease,projectId:a.projects[1].id,category:'bug',proposal},true))).task;
+  await a.ok(await a.machine('runner/event-complete',{id:nextJob.job.id,lease:nextJob.job.lease,operationId:op()},true));await wait(1200);
+  const nextExecution=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='execute' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,executeRow.id).first();
+  const failedJob=await a.ok(await a.machine('runner/event-acquire',{id:nextExecution.id,operationId:'acquire-'+nextExecution.id},true));
+  await a.ok(await a.machine('runner/event-fail',{id:failedJob.job.id,lease:failedJob.job.lease,operationId:op(),reason:'隔離工具短暫中斷',nextStep:'恢復後接續'},true));
+  const blocked=await a.get(t.id),retryCheck=await a.ok(await a.machine('runner/event-inspect',{id:t.id,eventId:failedJob.job.id},true));assert.equal(retryCheck.autoResumeEligible,true);
+  await a.ok(await a.machine('runner/auto-resume',{id:t.id,version:blocked.version,eventId:failedJob.job.id,operationId:'auto-resume-event-'+failedJob.job.id},true));
+  const afterRetry=await a.get(t.id);assert.equal(afterRetry.secretary.autoRecovery.failureAfterReplan,1);assert.equal(afterRetry.secretary.caseChat.threadId,threadId);
+  const third=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,analysisRow.id,next.id).first();await wait(5300);
+  const thirdJob=await a.ok(await a.machine('runner/event-acquire',{id:third.id,operationId:'acquire-'+third.id},true));
+  const asked=await a.ok(await a.machine('runner/clarify',{id:t.id,version:afterRetry.version,eventId:thirdJob.job.id,eventLease:thirdJob.job.lease,operationId:op(),question:'請問是在什麼畫面看到問題？'},true));assert.equal(asked.task.secretary.waitingForReporter,true);
   const question=await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='question' AND json_extract(value,'$.taskId')=?").bind(t.id).first();
   assert.equal(JSON.parse(question.value).expectedUserId,'U'+'b'.repeat(32));
  }finally{await a.close();}

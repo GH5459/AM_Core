@@ -166,6 +166,15 @@ test('a blocked completed execution may replan within its own bounded budget',()
  task.secretary.autoRecovery.replanAttempts=3;assert.equal(canAutoResume(c,task,e,false),false);
 });
 
+test('a new plan gets its own bounded tool-recovery attempt',()=>{
+ const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='c'.repeat(64);
+ const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:6,sources:[{}],recovery:{reason:'temporary tool outage'},lease:null,leaseUntil:0,autoRecovery:{sourceCount:1,attempts:1,replanAttempts:1}}};
+ const e={id,taskId:task.id,state:'failed',kind:'execute',sourceVersion:6,leaseActive:false};
+ assert.equal(canAutoResume(c,task,e,false),true);
+ task.secretary.autoRecovery.failureAfterReplan=1;assert.equal(canAutoResume(c,task,e,false),false);
+ task.secretary.stage='paused';assert.equal(canAutoResume(c,task,e,false),false);
+});
+
 test('event inspect returns one event without exposing its lease and marks expired lease inactive',async()=>{
  const id='a'.repeat(64),event={id,taskId:caseId(1),kind:'analyze',state:'failed',version:4,sourceVersion:2,lease:'secret-lease',leaseUntil:Date.now()-1000};
  const ctx={storage:{async get(key){return key==='event:'+id?event:null;}}};const instance=new XiaoyeEvents(ctx,{});
