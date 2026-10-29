@@ -1,5 +1,6 @@
 const assert=require('node:assert/strict');
 function once(s,a,b){assert.equal(s.split(a).length,2,'Live source changed: '+a.slice(0,100));return s.replace(a,b);}
+exports.patchFixed=s=>once(s," '/auth-client.js','/private-data.js','/private-vault-shell.js',"," '/multilingual.js','/dailylog-meetings-client.js',\n '/auth-client.js','/private-data.js','/private-vault-shell.js',");
 exports.patchWorker=function(s){
  s=once(s,`if (session3.user && !session3.management) await register(session3.user);
           return send(json3({ authenticated: !!session3.user, csrfToken: session3.csrf, configured: true, ...session3.user ? await profile(env, session3.user, state2) : {} }));`,
