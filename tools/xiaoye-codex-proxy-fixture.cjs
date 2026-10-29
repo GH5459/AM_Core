@@ -24,26 +24,26 @@ function validToolArguments(schema,value,depth=0){
   default:return false;
  }
 }
-function validInput(x){
+function validInput(x,hashes){
  if(x?.type==='message')return only(x,['type','id','role','content'])&&id(x.id)&&['developer','user','assistant'].includes(x.role)&&Array.isArray(x.content)&&x.content.length>0&&x.content.length<=12&&x.content.every(p=>only(p,['type','text'])&&['input_text','output_text'].includes(p.type)&&text(p.text,65536));
- if(x?.type==='function_call')return only(x,['type','id','status','call_id','name','arguments'])&&id(x.id)&&id(x.call_id)&&typeof x.call_id==='string'&&typeof x.name==='string'&&Object.hasOwn(toolHashes,x.name)&&text(x.arguments,32768)&&(x.status===undefined||x.status===null||x.status==='completed');
+ if(x?.type==='function_call')return only(x,['type','id','status','call_id','name','arguments'])&&id(x.id)&&id(x.call_id)&&typeof x.call_id==='string'&&typeof x.name==='string'&&Object.hasOwn(hashes,x.name)&&text(x.arguments,32768)&&(x.status===undefined||x.status===null||x.status==='completed');
  if(x?.type==='function_call_output')return only(x,['type','id','call_id','output'])&&id(x.id)&&typeof x.call_id==='string'&&id(x.call_id)&&text(x.output,32768);
  if(x?.type==='reasoning')return only(x,['type','id','summary','encrypted_content'])&&id(x.id)&&Array.isArray(x.summary)&&x.summary.length===0&&text(x.encrypted_content,32768);
  return false;
 }
-function validCodex(v){
+function validCodex(v,hashes=toolHashes){
  const metadata=['root_turn_id','session_id','thread_id','turn_id','x-codex-installation-id','x-codex-turn-metadata','x-codex-window-id'];
- if(!only(v,['client_metadata','include','input','model','parallel_tool_calls','prompt_cache_key','reasoning','store','stream','tool_choice','tools'])||v.model!=='fixture-codex'||v.stream!==true||v.store!==false||v.tool_choice!=='auto'||typeof v.parallel_tool_calls!=='boolean'||!text(v.prompt_cache_key,256)||!only(v.reasoning,['summary','effort'])||!['auto','concise','detailed'].includes(v.reasoning.summary)||v.reasoning.effort!==undefined&&!['low','medium','high','xhigh'].includes(v.reasoning.effort)||!Array.isArray(v.include)||v.include.length!==1||v.include[0]!=='reasoning.encrypted_content'||!only(v.client_metadata,metadata)||!Object.values(v.client_metadata).every(s=>text(s,1024))||!Array.isArray(v.input)||v.input.length<1||v.input.length>64||!v.input.every(validInput)||!Array.isArray(v.tools)||v.tools.length!==Object.keys(toolHashes).length)return false;
- const names=new Set();for(const t of v.tools){if(!only(t,['type','name','description','parameters','strict'])||t.type!=='function'||!Object.hasOwn(toolHashes,t.name)||names.has(t.name)||digest(JSON.stringify(canonical(t)))!==toolHashes[t.name])return false;names.add(t.name);}return true;
+ if(!only(v,['client_metadata','include','input','model','parallel_tool_calls','prompt_cache_key','reasoning','store','stream','tool_choice','tools'])||v.model!=='fixture-codex'||v.stream!==true||v.store!==false||v.tool_choice!=='auto'||typeof v.parallel_tool_calls!=='boolean'||!text(v.prompt_cache_key,256)||!only(v.reasoning,['summary','effort'])||!['auto','concise','detailed'].includes(v.reasoning.summary)||v.reasoning.effort!==undefined&&!['low','medium','high','xhigh'].includes(v.reasoning.effort)||!Array.isArray(v.include)||v.include.length!==1||v.include[0]!=='reasoning.encrypted_content'||!only(v.client_metadata,metadata)||!Object.values(v.client_metadata).every(s=>text(s,1024))||!Array.isArray(v.input)||v.input.length<1||v.input.length>64||!v.input.every(x=>validInput(x,hashes))||!Array.isArray(v.tools)||v.tools.length!==Object.keys(hashes).length)return false;
+ const names=new Set();for(const t of v.tools){if(!only(t,['type','name','description','parameters','strict'])||t.type!=='function'||!Object.hasOwn(hashes,t.name)||names.has(t.name)||digest(JSON.stringify(canonical(t)))!==hashes[t.name])return false;names.add(t.name);}return true;
 }
 class FixtureCodexProxy extends FixtureGateway{
- constructor({upstream,clock=Date.now,timeoutMs=5000,maxResponseBytes=262144}={}){super({clock});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function')throw Error('fake upstream required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.inference=new Map();}
+ constructor({upstream,clock=Date.now,timeoutMs=5000,maxResponseBytes=262144,fixtureToolHashes=toolHashes}={}){super({clock});if(upstream?.fixtureOnly!==true||typeof upstream.open!=='function'||!fixtureToolHashes||typeof fixtureToolHashes!=='object'||!Object.entries(fixtureToolHashes).every(([k,v])=>/^[a-z_]{1,100}$/.test(k)&&/^[a-f0-9]{64}$/.test(v)))throw Error('fake upstream and fixture policy required');this.upstream=upstream;this.timeoutMs=timeoutMs;this.maxResponseBytes=maxResponseBytes;this.toolHashes={...fixtureToolHashes};this.inference=new Map();}
  async handle(req,res){
   const reject=status=>{if(!res.headersSent)res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end('{"error":"fixture_rejected"}');};
   if(req.method!=='POST'||req.url!=='/v1/responses')return reject(404);
   const token=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization||'')?.[1],requestId=req.headers['x-client-request-id'];if(!token||!this.authorize(token))return reject(401);if(typeof requestId!=='string'||!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId))return reject(400);
   let raw;try{raw=await this.readBody(req,this.authorize(token),262144);}catch(e){if(!res.destroyed)return reject(e.status||408);return;}
-  let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validCodex(body))return reject(400);
+  let body;try{body=JSON.parse(raw.toString('utf8'));}catch{return reject(400);}if(!validCodex(body,this.toolHashes))return reject(400);
   const grant=this.authorize(token);if(!grant)return reject(401);if(grant.inFlight||grant.used>=grant.maxRequests)return reject(429);
   const bodyHash=digest(JSON.stringify(canonical(body))),key=digest(JSON.stringify([grant.eventId,grant.sourceVersion,grant.generation,requestId,bodyHash])),entry=this.inference.get(key);
   if(entry&&!(entry.state==='prestream-503'&&entry.attempts<2))return reject(409);

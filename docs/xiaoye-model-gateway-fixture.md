@@ -53,4 +53,4 @@ node --test tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-mode
 
 工具 schema 僅限制資料形狀，不限制 `exec_command` 可執行的命令或任何副作用，模型工具輸出也不等於可信動作證據。正式需求仍是獨立執行隔離、可信事件與工具授權、受控外部操作 broker、持久資料與費用上限。由於尚未接真 API、密鑰保管、真實憑證／工具或正式案件，此原型不可啟用。
 
-本機 Windows 可由呼叫者明確提供 Codex 程式位置後執行 `tools/test-xiaoye-codex-live-fixture.cjs`；其他環境會跳過，不應將跳過當成通過。另可執行 `node --test tools/test-xiaoye-codex-proxy-fixture.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs`。所有上游均為假資料。
+本機 Windows 可由呼叫者明確提供 Codex 程式位置後執行 `tools/test-xiaoye-codex-live-fixture.cjs`；其他環境會跳過，不應將跳過當成通過。CI 另用單一虛構工具政策，透過真實 fixture proxy 的 HTTP handler 與假上游測試 503 重試、工具續回、未知結果不重送及撤權中止，不依賴本機 Codex 或真 API。另可執行 `node --test tools/test-xiaoye-codex-proxy-fixture.cjs tools/test-xiaoye-codex-proxy-handle.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs`。所有上游均為假資料。
