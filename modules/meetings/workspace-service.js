@@ -33,7 +33,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  const hub=meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request,publicationReader:publication.reader});
  const taskDispatch=meetingTaskDispatch({pool,store,botId,platform,conversation,assertMember,link,logger});
  const taskProgress=meetingTaskProgress({pool,platform});
- const caseEvidence=createMeetingCaseEvidence({pool,store,platform,env,conversation,assertRead});
+ const caseEvidence=createMeetingCaseEvidence({pool,store,platform,env,conversation,assertRead,original});
  const revisionJobs=workspaceRevisions({pool,store,conversation,assertMember,validateAssignees,platform,request,link,logger,taskDispatch});
  const audioAccess=()=>audioTickets(platform.publicLinkSecret||env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY||'');
  function loginPage(row,id){

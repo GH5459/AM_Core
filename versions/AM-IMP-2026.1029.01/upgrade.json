@@ -1,0 +1,13 @@
+{
+  "id":"AM-IMP-2026.1029.01",
+  "name":"未發布會議單案整理查核",
+  "type":"meeting case evidence",
+  "portable":true,
+  "status":"Ready",
+  "requiresDatabases":[],
+  "requiresEnv":["Existing meeting management service identity and case evidence connection"],
+  "requiresScripts":["modules/meetings/case-evidence.js","modules/meetings/workspace-service.js","tools/test-xiaoye-case-evidence.mjs"],
+  "installTargets":["Original AM Platform service"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Only current authorized case and reporter access can read generation metadata","Prepublication states do not expose drafts or read dispatch data","Revocation and version or state changes reject the response","Reviewed exact-source CI and production readback precede a deployed claim"]
+}
