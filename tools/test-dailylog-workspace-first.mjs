@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {JSDOM} from 'jsdom';
+import {workspaceFirstClient,workspaceFirstAssets} from '../versions/AM-IMP-2026.1029.40/workspace-first.mjs';
+const tick=()=>new Promise(r=>setTimeout(r,90));
+function fixture(query=''){
+ const dom=new JSDOM('<div id="personalWorkspace"><div id="upper"></div><div class="journal-tabs" aria-label="工作類型"><button data-work-tab="journal">日誌</button></div><button id="addTodayTask">新增任務</button></div>',{url:'https://dailylog.test/'+query,runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
+ let y=0,docY=600,resize;const calls=[];Object.defineProperty(w,'scrollY',{get:()=>y});w.ResizeObserver=class{constructor(fn){resize=fn;}observe(){}};
+ const tab=w.document.querySelector('.journal-tabs');tab.getBoundingClientRect=()=>({top:docY-y});tab.scrollIntoView=()=>{calls.push('initial');y=docY-12;};w.scrollBy=({top})=>{calls.push(top);y+=top;};
+ w.eval('('+workspaceFirstClient.toString()+')()');return {dom,w,calls,userScroll(v){y=v;w.dispatchEvent(new w.Event('scroll'));},resize(v){docY=v;resize?.();},get y(){return y;}};
+}
+test('work controls position once, upper work waits for tasks, failures can still release it',async()=>{const f=fixture();try{let started=0;f.w.dailylogWorkspaceFirst.deferUpper(()=>started++);await tick();assert.equal(f.w.document.documentElement.dataset.dailylogWorkspaceReady,'true');assert.deepEqual(f.calls,['initial']);assert.equal(started,0);f.w.dispatchEvent(new f.w.Event('dailylog:initial-tasks-settled'));assert.equal(started,1);f.w.dispatchEvent(new f.w.Event('dailylog:initial-tasks-settled'));assert.equal(started,1);f.w.document.getElementById('upper').append('loaded');await tick();assert.equal(f.calls.filter(v=>v==='initial').length,1);}finally{f.dom.window.close();}});
+test('upper growth keeps the work viewport stable; user can freely scroll up without being pulled back',async()=>{const f=fixture();try{await tick();assert.equal(f.y,588);f.resize(900);await tick();assert.equal(f.y,888);assert.equal(900-f.y,12);f.userScroll(200);f.resize(1000);await tick();assert.equal(f.y,200);assert(f.w.dailylogWorkspaceFirst.released);assert.equal(f.calls.filter(v=>v==='initial').length,1);}finally{f.dom.window.close();}});
+test('user input before first paint cancels the automatic positioning',async()=>{const f=fixture();try{f.w.dispatchEvent(new f.w.Event('wheel'));await tick();assert.equal(f.calls.length,0);assert.equal(f.y,0);}finally{f.dom.window.close();}});
+test('leaving the work area for account settings releases the original private initialization',async()=>{const f=fixture();try{let started=0;f.w.dailylogWorkspaceFirst.deferUpper(()=>started++);await tick();f.w.document.querySelector('.journal-tabs').remove();await tick();assert.equal(started,1);assert.equal(f.calls.filter(v=>v==='initial').length,1);}finally{f.dom.window.close();}});
+test('meeting, case, routine and explicit fragment entries retain their own navigation',async()=>{for(const query of ['?workTab=meetings','?task=work-fixture','?issue=fixture','#routine']){const f=fixture(query);try{await tick();assert.equal(f.w.dailylogWorkspaceFirst,undefined);assert.equal(f.calls.length,0);}finally{f.dom.window.close();}}});
+test('only original successful HTML and exact public assets are transformed; errors and auth gates remain untouched',async()=>{
+ const origin='https://dailylog.test',html='<html><head></head><main id="personalWorkspace"></main></html>';
+ let r=await workspaceFirstAssets(new Request(origin+'/'),new Response(html,{headers:{'Content-Type':'text/html','Set-Cookie':'original'}}));assert.equal(r.headers.get('Set-Cookie'),'original');assert.match(await r.text(),/dailylog:workspace-ready/);
+ for(const status of [401,403,503]){r=await workspaceFirstAssets(new Request(origin+'/'),new Response('denied',{status}));assert.equal(r.status,status);assert.equal(await r.text(),'denied');}
+ r=await workspaceFirstAssets(new Request(origin+'/'),new Response('<form>login</form>',{headers:{'Content-Type':'text/html'}}));assert.equal(await r.text(),'<form>login</form>');
+ for(const [path,source,expected]of [['/private-vault-shell.js','function mount(){original();}','deferUpper(mount)'],['/calendar.js','async function loadCalendarEvents(force=false){original();}\nfunction restorePersonalCalendarConnection(){original();}','deferUpper(restorePersonalCalendarConnection)'],['/tasks.js',"await reload();const id=new URL(location.href).searchParams.get('task');",'dailylog:initial-tasks-settled']]){r=await workspaceFirstAssets(new Request(origin+path),new Response(source,{headers:{'Content-Type':'text/javascript',ETag:'old'}}));assert.match(await r.text(),new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));assert(!r.headers.has('ETag'));}
+});
