@@ -33,7 +33,7 @@ class SandboxController {
   catch(e){const r=this.read(eventId);if(r?.state==='creating')this.update(eventId,r.revision,{state:'create_unknown'});throw err('sandbox creation outcome unknown','create_unknown');}
   const r=this.read(eventId);if(!sandbox||!idOk(sandbox.id)||sandbox.intentId!==createIntent){if(r?.state==='creating')this.update(eventId,r.revision,{state:'create_unknown'});throw err('sandbox creation identity unconfirmed','create_unknown');}
   if(!r||!['creating','stop_requested','stop_unknown'].includes(r.state)||!this.update(eventId,r.revision,{sandbox_id:sandbox.id,state:r.state==='creating'?'registering':r.state}))throw err('concurrent sandbox state changed','unknown');
-  const saved=this.read(eventId);if(saved.state!=='registering'||saved.lease_until<=this.clock()||saved.deadline<=this.clock())throw err('sandbox recorded but authority ended; stop and reconcile','expired');
+  const saved=this.read(eventId);if(saved.state!=='registering'||saved.lease_until<=this.clock()||saved.deadline<=this.clock()){await this.stopRecord(eventId).catch(()=>{});throw err('sandbox recorded but authority ended; stop and reconcile','expired');}
   try{const ack=await this.bounded(()=>this.broker.registerEvent({eventId,sourceVersion,generation,leaseId,capability,scopes:clone(scopes),expiresAt:lease,maxExpiresAt:deadline}));if(!ack||ack.eventId!==eventId||ack.sourceVersion!==sourceVersion||ack.generation!==generation)throw Error('registration unconfirmed');}catch{await this.stop({eventId,sourceVersion,generation,capability}).catch(()=>{});throw err('broker registration failed','broker');}
   const afterRegistration=this.read(eventId);if(afterRegistration?.state!=='registering'||afterRegistration.lease_until<=this.clock()||afterRegistration.deadline<=this.clock()||!this.update(eventId,afterRegistration.revision,{state:'ready'})){await this.bounded(()=>this.broker.revokeEvent({eventId,sourceVersion,generation})).catch(()=>{});throw err('authority changed during broker registration','expired');}
   return this.read(eventId);
@@ -51,7 +51,7 @@ class SandboxController {
   if(!x||!['starting','stop_requested','stop_unknown'].includes(x.state)||!this.update(v.eventId,x.revision,{run_id:reply.runId,state:x.state==='starting'?'running':x.state}))throw err('event changed after dispatch','unknown');
   const saved=this.read(v.eventId);if(saved.state!=='running'||saved.lease_until<=this.clock()||saved.deadline<=this.clock())throw err('work may have started after authority ended','unknown');return saved;
  }
- async disconnected(v){const r=this.read(v.eventId);this.assertIdentity(r,v,{lease:false});if(!['ready','starting','running'].includes(r.state))return r;if(!this.update(v.eventId,r.revision,{state:'connection_unknown'}))throw err('event changed','race');return this.read(v.eventId);}
+ async disconnected(v){const r=this.read(v.eventId);this.assertIdentity(r,v,{lease:false});if(r.state==='terminated')return r;return this.stopRecord(v.eventId);}
  async stop(v){
   const r=this.read(v.eventId);this.assertIdentity(r,v,{lease:false});return this.stopRecord(r.event_id);
  }

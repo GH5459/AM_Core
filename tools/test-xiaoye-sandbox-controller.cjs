@@ -36,11 +36,10 @@ test('lost work response is unknown and cannot be resent across controller resta
   await assert.rejects(c.execute({...f.grant,operationId:'operation-111',command:'synthetic'}),{code:'expired'});assert.equal(f.calls.filter(x=>x[0]==='start').length,1);
  }finally{c.close();}
 });
-test('disconnect is not exit; expiry revokes before stop and preserves unknown effects',async()=>{
+test('disconnect revokes before stopping; neither request alone proves exit or effects',async()=>{
  const f=fixture(),c=f.make();try{
-  await c.start(f.grant);await c.execute({...f.grant,operationId:'operation-111',command:'synthetic'});await c.disconnected(f.grant);
-  assert.equal((await c.inspect(f.grant)).observation,'running');assert.equal(f.calls.filter(x=>x[0]==='terminate').length,0);
-  f.advance(3001);const stopped=await c.expire(f.grant);assert.equal(stopped.state,'stop_unknown');assert.equal(stopped.external_unknown,1);
+  await c.start(f.grant);await c.execute({...f.grant,operationId:'operation-111',command:'synthetic'});const stopped=await c.disconnected(f.grant);
+  assert.equal(stopped.state,'stop_unknown');assert.equal(stopped.external_unknown,1);
   assert(f.calls.findIndex(x=>x[0]==='revoke')<f.calls.findIndex(x=>x[0]==='terminate'));
   const status=await c.inspect(f.grant);assert.equal(status.observation,'terminated');assert.equal(status.record.external_unknown,1);await c.stop(f.grant);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);
  }finally{c.close();}
@@ -88,7 +87,7 @@ test('cancel during broker registration cannot mark sandbox ready or launch',asy
 test('unconfirmed broker revoke still terminates, but does not certify containment',async()=>{
  const f=fixture(),c=f.make();let allowed=false;f.broker.revokeEvent=async()=>{if(!allowed)throw Error('offline');return {revoked:true};};try{
   await c.start(f.grant);await assert.rejects(c.stop(f.grant),{code:'broker_unknown'});assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated-broker-unconfirmed');
-  await c.disconnected(f.grant);assert.equal(c.read(f.grant.eventId).state,'stop_unknown');allowed=true;await c.stop(f.grant);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated');
+  await assert.rejects(c.disconnected(f.grant),{code:'broker_unknown'});assert.equal(c.read(f.grant.eventId).state,'stop_unknown');allowed=true;await c.stop(f.grant);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated');
  }finally{c.close();}
 });
 test('concurrent dispatches from two controllers launch only once',async()=>{
@@ -116,4 +115,11 @@ test('recovery pagination reaches later events without starving them',async()=>{
 test('malformed registration and renewal acknowledgements cannot grant authority',async()=>{
  {const f=fixture(),c=f.make();f.broker.registerEvent=async()=>({});try{await assert.rejects(c.start(f.grant),{code:'broker'});assert.equal(c.read(f.grant.eventId).state,'stop_unknown');}finally{c.close();}}
  {const f=fixture(),c=f.make();try{await c.start(f.grant);f.broker.renewEvent=async()=>({});await assert.rejects(c.renew({...f.grant,leaseUntil:1005000}),{code:'broker_unknown'});assert.equal(c.read(f.grant.eventId).state,'stop_unknown');}finally{c.close();}}
+});
+
+test('disconnect during registration requests revocation and never launches guest',async()=>{
+ const f=fixture();let release,entered,revoked=false;const began=new Promise(r=>entered=r);f.broker.registerEvent=async()=>{entered();await new Promise(r=>release=r);if(revoked)throw Error('revoked');};f.broker.revokeEvent=async()=>{revoked=true;return {revoked:true};};const c=f.make();try{const start=c.start(f.grant);await began;await c.disconnected(f.grant);release();await assert.rejects(start,{code:'broker'});assert(revoked);assert.equal(c.read(f.grant.eventId).state,'stop_unknown');assert.equal(f.calls.filter(x=>x[0]==='start').length,0);}finally{c.close();}
+});
+test('disconnect during creation records stop before late sandbox appears',async()=>{
+ const f=fixture(),orig=f.provider.create;let release,entered;const began=new Promise(r=>entered=r);f.provider.create=async v=>{const value=await orig(v);entered();await new Promise(r=>release=r);return value;};const c=f.make();try{const start=c.start(f.grant);await began;await assert.rejects(c.disconnected(f.grant),{code:'stop_unknown'});release();await assert.rejects(start,{code:'expired'});assert.equal(f.calls.filter(x=>x[0]==='register').length,0);assert.equal(f.calls.filter(x=>x[0]==='terminate').length,1);assert.equal((await c.inspect(f.grant)).observation,'terminated');}finally{c.close();}
 });

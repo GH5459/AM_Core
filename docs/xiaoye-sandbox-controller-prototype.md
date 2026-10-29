@@ -12,8 +12,9 @@ The SQLite controller stores event/source/generation, a hash of a scoped
 capability, event lease, an absolute deadline, creation/launch/stop intents,
 provider identities and an external-outcome-unknown marker. It persists an
 intent before each simulated mutation. Lost replies never cause automatic
-re-creation, re-launch or re-termination. Restart scanning reads provider
-state and requests revocation/stopping after expiry; external effects stay
+re-creation, re-launch or re-termination. Disconnect immediately requests broker revocation and sandbox stopping. If the
+request is lost, restart scanning keeps retrying revocation and observing state;
+it also requests revocation/stopping after expiry; external effects stay
 unknown even when the sandbox is observed stopped. The short-lived capability
 is deliberately passed to the simulated guest; broad credentials and the host
 environment are not. Scope validation belongs to the separately configured
@@ -32,7 +33,8 @@ running and monitored supervisor there is no timely expiry guarantee. Existing
 records need a reviewed schema and migration strategy before any deployment.
 
 The controller and broker have independent stores. A broker operation already
-in flight can complete after revocation; neither a timeout nor a sandbox stop
+in flight can complete after revocation; and when the broker cannot be reached,
+the capability may still be usable until revocation or expiry; neither a timeout nor a sandbox stop
 proves absence of external effects. Concurrent process launch and revoke are not
 atomic. The broker's result observations do not prove a complete inventory of
 side effects, and this prototype never clears the unknown marker or automatically
