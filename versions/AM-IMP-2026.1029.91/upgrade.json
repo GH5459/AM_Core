@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.1029.91",
+  "name": "會議整理送出提示與安全狀態查核",
+  "type": "meeting start feedback",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "modules/meetings/workspace-start-feedback.js",
+    "modules/meetings/workspace-client.js",
+    "modules/meetings/workspace-ui.js",
+    "modules/meetings/hub-ui.js",
+    "tools/test-meeting-start-feedback.mjs"
+  ],
+  "installTargets": [
+    "Original AM Platform service"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Start progress and blocked preconditions are visible beside the button",
+    "Unknown write results only permit a read before an explicit retry",
+    "No original meeting is started by tests",
+    "Reviewed exact-source CI and production readback precede a deployed claim"
+  ]
+}
