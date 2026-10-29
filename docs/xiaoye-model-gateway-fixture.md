@@ -91,3 +91,7 @@ node --test tools/test-xiaoye-model-gateway-store-fixture.cjs tools/test-xiaoye-
 代次及 lease ID 完全相符時寫永久撤銷墓碑；`unavailable`、錯置
 回覆及查詢錯誤只拒絕當次使用，之後可再次核對。假驗證器和
 短間隔輪詢不構成可信服務，也無法跨獨立 SQLite 保證同步。
+
+令牌一旦經本機時鐘觀察到到期，會持久標記撤銷，時鐘回撥或
+重啟不會使它復活；尚未觀察到期前的時鐘回撥，仍需要可信時間
+來源和跨節點一致時鐘，本模擬尚無法保證。
