@@ -27,7 +27,7 @@ function failedEventCandidatePage(folder,{limit=32,offset=0}={}){
     // Older receivers incorrectly marked a current, blocked completed
     // execution as case-changed when its retry budget was exhausted. Recheck
     // that legacy marker against the server once; do not discard real replies.
-    const legacySkip=response?.skipped===true&&response.reason==='case-changed';
+    const legacySkip=response?.skipped===true&&['case-changed','confirmed-deploy-failed'].includes(response.reason);
     if((completed?.state!=='failed'&&!failedPreflight&&!completedExecution)||acquired?.id!==dir.id||!TASK_ID.test(acquired.taskId||'')||
        !Number.isSafeInteger(acquired.sourceVersion)||!acquired.lease||
        fs.existsSync(responsePath)&&!legacySkip)continue;

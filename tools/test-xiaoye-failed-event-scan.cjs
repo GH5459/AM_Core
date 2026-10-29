@@ -32,6 +32,8 @@ test('legacy skipped marker is rechecked; a verified stale marker remains termin
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xiaoye-legacy-scan-')),run=record(dir,id1,task,Date.now());
  fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'case-changed'}));
  assert.deepEqual(failedEventCandidates(dir).map(x=>x.id),[id1]);
+ fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'confirmed-deploy-failed'}));
+ assert.deepEqual(failedEventCandidates(dir).map(x=>x.id),[id1]);
  fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'confirmed-case-changed'}));
  assert.deepEqual(failedEventCandidates(dir),[]);
 });

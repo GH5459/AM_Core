@@ -79,15 +79,15 @@ export function canAutoResume(c,t,e,ownerDraft,capability){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
  const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
  const terminal=e?.state==='failed'||replan;
- const dep=s?.recovery?.capability,reconciled=capability==='render-deploy-reconciled-v1'&&dep?.outcome==='reconciled-live'&&dep?.reconciliation?.status==='live';
- if(replan&&dep&&(dep.eventId!==e.id||dep.sourceVersion!==e.sourceVersion||dep.outcome==='unknown'||(!reconciled&&capability!==dep.name)))return false;
+ const dep=s?.recovery?.capability,reconciled=capability==='render-deploy-reconciled-v1'&&dep?.outcome==='reconciled-live'&&dep?.reconciliation?.status==='live'&&validDeployment(dep.deployment),failedAnalysis=capability==='render-deploy-failure-analysis-v1'&&dep?.outcome==='reconciled-failed'&&validDeployment(dep.deployment)&&['build_failed','update_failed','pre_deploy_failed','canceled'].includes(dep?.reconciliation?.status);
+ if(replan&&dep&&(dep.eventId!==e.id||dep.sourceVersion!==e.sourceVersion||dep.outcome==='unknown'||(!reconciled&&!failedAnalysis&&capability!==dep.name)))return false;
  let exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
  // The same runner credential records the dependency and asks to resume; this
  // is an identity/version guard, not independent proof of tool authorization.
  const history=already?.sourceCount===sourceCount&&Array.isArray(already?.capabilityEvents)?already.capabilityEvents:[];
  const recent=history.filter(x=>x?.name===capability&&Number.isFinite(x.at)&&x.at>Date.now()-86400000);
- if(capability&&!(replan&&dep?.name==='render-deploy-commit-v1'&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion&&(capability===dep.name||reconciled)))return false;
- if(replan&&capability&&(capability===dep?.name||reconciled))exhausted=!(reconciled||['not-started','rejected'].includes(dep.outcome))||history.some(x=>x?.name===capability&&x.eventId===e.id)||recent.length>=3;
+ if(capability&&!(replan&&dep?.name==='render-deploy-commit-v1'&&dep.eventId===e.id&&dep.sourceVersion===e.sourceVersion&&(capability===dep.name||reconciled||failedAnalysis)))return false;
+ if(replan&&capability&&(capability===dep?.name||reconciled||failedAnalysis))exhausted=!(reconciled||failedAnalysis||['not-started','rejected'].includes(dep.outcome))||history.some(x=>x?.name===capability&&x.eventId===e.id)||recent.length>=3;
  return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
@@ -103,7 +103,7 @@ async function inspectEvent(env,c,v){
 async function autoResume(env,c,v){
  if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);
  if(!Number.isSafeInteger(v.version)||typeof v.operationId!=='string'||v.operationId.length<8||v.operationId.length>180)throw fail('案件版本或操作識別無效。',400);
- if(v.capability!==undefined&&!['render-deploy-commit-v1','render-deploy-reconciled-v1'].includes(v.capability))throw fail('不支援的工具能力。',400);
+ if(v.capability!==undefined&&!['render-deploy-commit-v1','render-deploy-reconciled-v1','render-deploy-failure-analysis-v1'].includes(v.capability))throw fail('不支援的工具能力。',400);
  const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'resume',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId,...v.capability?{capability:v.capability}:{}};
  const prior=await replay(env,v.id,v.operationId,input,actor);
  if(prior)return {ok:true,replayed:true,taskId:prior.id,version:prior.version,stage:prior.secretary.stage};
@@ -112,8 +112,9 @@ async function autoResume(env,c,v){
  if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
  const sourceCount=s.sources?.length||0,previous=s.autoRecovery?.sourceCount===sourceCount?s.autoRecovery:null;
  const replan=inspected.event.state==='done'&&inspected.event.kind==='execute';
- const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0;
+ const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0,failedDeployment=v.capability==='render-deploy-failure-analysis-v1'?structuredClone(s.recovery.capability):null;
  restartAnalysis(t,retireProposal);
+ if(failedDeployment)s.deploymentReview={state:'pending',originalEventId:v.eventId,originalSourceVersion:failedDeployment.sourceVersion,deployment:failedDeployment.deployment,status:failedDeployment.reconciliation.status};
  const capabilityEvents=[...(previous?.capabilityEvents||[]).filter(x=>Number.isFinite(x?.at)&&x.at>Date.now()-86400000),...v.capability?[{name:v.capability,eventId:v.eventId,at:Date.now()}]:[]];
  s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},...capabilityEvents.length?{capabilityEvents}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},...capabilityEvents.length?{capabilityEvents}:{},at:new Date().toISOString(),eventId:v.eventId};
  s.recoveryHistory.at(-1).automatic=true;
@@ -320,7 +321,7 @@ async function runner(env,c,base,authority,action,v,preview){
  const old=await load(env.DB,v.id);if(!old?.task.secretary)throw fail('找不到問題。',404);const t=structuredClone(old.task),s=t.secretary,actor={account:AI,name:c.account.name,team:'AI 秘書'};
  if(action==='attachments')return {ok:true,attachments:(await env.DB.prepare("SELECT id,name,mime,size,digest FROM task_attachments WHERE scope='normal' AND target_id=? AND removed_at IS NULL ORDER BY created_at LIMIT 20").bind(t.id).all()).results};
  const image=action.match(/^attachment\/(att-[a-f0-9-]{36})$/);if(image){const file=await env.DB.prepare("SELECT id,mime,size FROM task_attachments WHERE scope='normal' AND target_id=? AND id=? AND removed_at IS NULL").bind(t.id,image[1]).first();if(!file||!['image/png','image/jpeg','image/webp'].includes(file.mime)||file.size>10*1024*1024)throw fail('找不到可查看的問題截圖。',404);const chunks=(await env.DB.prepare('SELECT content FROM task_attachment_chunks WHERE attachment_id=? ORDER BY part').bind(file.id).all()).results,bytes=new Uint8Array(file.size);let offset=0;for(const part of chunks){const b=new Uint8Array(part.content);bytes.set(b,offset);offset+=b.length;}if(offset!==file.size)throw fail('截圖尚未完整保存。',503);return new Response(bytes,{headers:{'Content-Type':file.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
- if(['propose','clarify','answer','finish','fail'].includes(action)){const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};}
+ if(['propose','clarify','answer','finish','fail','deploy-effects-check'].includes(action)){const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};}
  if(action==='bind-chat'){
   const previous=await replay(env,t.id,v.operationId,{...v,action},actor);if(previous)return {ok:true,task:previous,replayed:true};
   if(!env.XIAOYE_EVENTS||v.version!==t.version||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.threadId||'')||!/^([a-f0-9]{8}-){1}[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.projectId||'')||v.hostId!=='local')throw fail('案件聊天資料或版本無效。',400);
@@ -339,11 +340,19 @@ async function runner(env,c,base,authority,action,v,preview){
   }
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已連結此案件的 Codex 聊天。')};
  }
- if(env.XIAOYE_EVENTS&&['propose','clarify','answer','claim','check','finish','fail'].includes(action)){
+ if(env.XIAOYE_EVENTS&&['propose','clarify','answer','claim','check','finish','fail','deploy-effects-check'].includes(action)){
   const execution=s.executionEvent||{},id=v.eventId||execution.id,lease=v.eventLease||execution.lease;
   const r=await eventCall(env,'check',{id,lease});if(!r.ok)throw fail('事件已變更或失效，請停止處理。',403);const e=(await r.json()).job;
-  if(e.taskId!==t.id||e.sourceVersion!==s.sourceVersion||(['claim','check','finish','fail'].includes(action)&&e.kind!=='execute')||(['propose','clarify','answer'].includes(action)&&e.kind!=='analyze'))throw fail('事件與案件或核准範圍不符。',403);
+  if(e.taskId!==t.id||e.sourceVersion!==s.sourceVersion||(['claim','check','finish','fail'].includes(action)&&e.kind!=='execute')||(['propose','clarify','answer','deploy-effects-check'].includes(action)&&e.kind!=='analyze'))throw fail('事件與案件或核准範圍不符。',403);
   if(action==='claim')s.executionEvent={id,lease};
+ }
+ if(action==='deploy-effects-check'){
+  const review=s.deploymentReview;
+  if(!env.XIAOYE_EVENTS||v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter||s.sourceWithdrawn||review?.state!=='pending'||v.originalEventId!==review.originalEventId||v.deployId!==review.deployment?.deployId)throw fail('發布副作用查核的案件、事件或版本已變更。');
+  if(!['none','identified'].includes(v.effectsStatus)||!Array.isArray(v.evidence)||!v.evidence.length||v.evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>2000))throw fail('請提供已核對的副作用及依據；不明時不可視為已核對。',400);
+  if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
+  s.deploymentReview={...review,state:'reviewed',effectsStatus:v.effectsStatus,summary:text(v.summary,2000),evidence:v.evidence,reviewedAt:new Date().toISOString(),reviewEventId:v.eventId};
+  return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已保存原發布副作用的查核依據；後續仍須依新方案與事件資格處理。')};
  }
  if(action==='clarify'){
   if(v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter)throw fail('此問題已有更新或正在等待同仁補充。');const question=text(v.question,2000);s.waitingForReporter=true;s.question=question;
@@ -351,6 +360,7 @@ async function runner(env,c,base,authority,action,v,preview){
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'向原回報人釐清：'+question,extra)};
  }
  if(action==='answer'){
+  if(s.deploymentReview?.state==='pending')throw fail('請先核對先前發布的副作用並保存具體依據，再提供完成說明。');
   if(!env.XIAOYE_EVENTS||v.version!==t.version||s.stage!=='clarifying'||s.waitingForReporter||s.sourceWithdrawn)throw fail('此問題已有更新或等待同仁補充。');
   await membership(env,c,v.projectId);
   if(!Array.isArray(v.evidence)||!v.evidence.length||v.evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>2000))throw fail('請附上這次說明的查核依據。',400);
@@ -361,6 +371,7 @@ async function runner(env,c,base,authority,action,v,preview){
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已提供查核後的操作說明，等待原回報人確認。',extras)};
  }
  if(action==='propose'){
+  if(s.deploymentReview?.state==='pending')throw fail('請先核對先前發布的副作用並保存具體依據，再提出方案。');
   if(v.version!==t.version)throw fail('問題已有補充，請重新檢查。');if(s.sourceWithdrawn)throw fail('原來源已撤回，請等待同仁重新補充。');if(s.waitingForReporter)throw fail('正在等待原同仁補充，請先保留問題。');if(['executing','awaiting_confirmation','closed','duplicate'].includes(s.stage))throw fail('請先停止或重新開啟原工作。');
   const p=v.proposal||{};if(!validPlanSummary(p.summary))throw fail('處理方案請用100字以內的一段白話，說清楚要改什麼、改完會怎樣；不要列步驟。',400);for(const k of ['summary','reason','steps','validation','rollback'])text(p[k],8000);if(!Array.isArray(p.systems)||!p.systems.length||p.systems.some(x=>!['am','dailylog','uof'].includes(x))||typeof p.deploy!=='boolean')throw fail('請清楚指定影響系統與是否發布。',400);
   await membership(env,c,v.projectId);if(!['help','bug','improvement'].includes(v.category))throw fail('請指定問題類型。',400);
@@ -381,7 +392,7 @@ async function runner(env,c,base,authority,action,v,preview){
    if(typeof v.deployed!=='boolean'||v.deployed!==s.proposal.deploy)throw fail('結果與核准的發布範圍不符。');
    s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:v.deployed,at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
    for(const p of s.reporters)extras.push(notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
-  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);if(v.blockerInfo?.capability==='render-deploy-commit-v1'&&s.executionEvent?.id){const d=v.blockerInfo.deployment;s.recovery.capability={name:v.blockerInfo.capability,outcome:['not-started','rejected'].includes(v.blockerInfo?.publishOutcome)?v.blockerInfo.publishOutcome:'unknown',eventId:s.executionEvent.id,sourceVersion:s.sourceVersion,evidence:'runner-asserted',...validDeployment(d)?{deployment:{workspaceId:d.workspaceId,serviceId:d.serviceId,deployId:d.deployId,commitId:d.commitId}}:{}};}t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。'+(s.recovery.capability?.outcome==='unknown'?'發布結果尚未確認，系統會核對，確認前不重送。':'若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。')+'\n'+link(env,t.id),p.source));}
+  }else{s.stage='blocked';s.blocker=result;s.recovery=recoveryDetails(v.blockerInfo?.reason||result,v.blockerInfo?.nextStep,await digest(v.operationId+':resume:'+t.id),c.autoResolutionEnabled===true);if(v.blockerInfo?.capability==='render-deploy-commit-v1'&&s.executionEvent?.id){const d=v.blockerInfo.deployment;s.recovery.capability={name:v.blockerInfo.capability,outcome:['not-started','rejected'].includes(v.blockerInfo?.publishOutcome)?v.blockerInfo.publishOutcome:'unknown',eventId:s.executionEvent.id,sourceVersion:s.sourceVersion,evidence:'runner-asserted',...validDeployment(d)?{deployment:{workspaceId:d.workspaceId,serviceId:d.serviceId,deployId:d.deployId,commitId:d.commitId}}:{}};}t.status='blocked';extras.push(notification(env,t,c.ownerAccount,'blocked','葉小蝸處理受阻：'+t.title+'\n原因：'+s.recovery.reason+'\n下一步：'+s.recovery.nextStep+'\n'+link(env,t.id),null,recoveryCard(env.PUBLIC_ORIGIN,t,c.autoResolutionEnabled===true)));for(const p of s.reporters)extras.push(notification(env,t,p.account,'progress','葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。'+(s.recovery.capability?.outcome==='unknown'?(s.recovery.capability.deployment?'發布結果尚未確認，系統會核對，確認前不重送。':'發布識別資料不足，目前無法確認是否已發布；確認前不重送。'):'若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。')+'\n'+link(env,t.id),p.source));}
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,result,extras)};
  }
  if(action==='claim'){
