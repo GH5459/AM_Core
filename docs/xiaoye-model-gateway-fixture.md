@@ -32,3 +32,15 @@ node --test tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-contro
 4. **完成可信服務及傳輸**：將模型呼叫與動作 broker 部署到 sandbox 無法讀其憑證、不能更改程式的可信服務；限定可呼叫的操作及目的地，保護 TLS 與服務端身分，驗證 sandbox 網路出口、程序及既有桌面／MCP 等其他工具不能繞過。不能讓未受限程式直接使用正式 GitHub、Render 或應用 key。
 5. **持久化租約、撤銷和副作用證據**：以持久儲存與原案件的事件、版本及代次綁定執行資格、撤銷、用量及已送請求；處理跨服務同步失敗、重啟、併發、延遲回覆和重試。證據不足時維持結果不明與同資源防重；唯讀觀察到效果不等於已證明原請求結束。必須另外驗證執行程序及外部動作邊界，才能安全判斷能否接續。
 6. **限制使用量並驗收**：設定每案／每帳戶請求、並行數、輸入輸出、時間及費用上限，確認系統重啟或重新簽發無法重設上限；測試上限、流量攻擊、撤銷中請求及供應商故障。以測試環境確認實際用量及帳單，不依假資料推算費用。
+
+## Responses 串流與工具的受限假轉接
+
+`xiaoye-responses-proxy-fixture.cjs` 增加只連 loopback 的測試轉接器，提供固定的假模型、指定純文字／function call／function output／推理項目子集，以及一個固定的假工具定義。假上游收到的目標值固定為 `https://api.openai.com/v1/responses`，但**沒有實際網路客戶端，也不會連往該網址**；測試以虛構上游逐塊返回 SSE，檢查工具呼叫輸出可在下一次假請求附上、字節不被修改。請求只允許 `POST /v1/responses`，不轉交來路 header、任意 URL 或不允許的工具；還有假事件 token、次數、一次一個請求、輸入字節、輸出 token、輸出字節及總時間限制。異常／撤銷中斷串流且不自動重試，不自行補造完成事件；未收到結束事件的截斷串流視為結果不明，明確失敗事件原樣交還，由呼叫端判斷失敗。
+
+```sh
+node --test tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs
+```
+
+此處借用 [Responses function calling](https://developers.openai.com/api/docs/guides/function-calling) 的 function call／output 形狀及 [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events) 的事件名稱來製作假資料，並非真實 Codex 相容測試。尚未使用真正 Codex app-server 產生協議 trace，假 schema 只接受很小子集；例如更多工具、歷史、圖片、錯誤、推理內容或模型協議都可能被拒絕。沒有證據證明此程式可直接供完整 Codex 使用。
+
+本地測試用記憶體 token／請求數沒有跨重啟持久性，亦無 TLS、真實 upstream、真正 key 的安全保管、完整費用計量、實際身份或隔離。輸入字節上限不能精算 token 用量或費用；串流逾時送出中止信號也不保證上游已停止或不計費。未證實任何模型可用、API 授權或實際費率。真實轉接器必須另行實作只連固定 OpenAI endpoint、不跟隨任意重導、受控外部密鑰、可靠撤銷與用量，以及用真正 Codex 和供應商進行端到端測試；目前沒有這些功能，也不能推送或啟用正式模型連線。
