@@ -41,7 +41,13 @@ class ControlledBroker{
   // Reduces the revocation window but cannot cancel a request already in flight.
   try{this.authorize(i,capability,leaseId);}catch{return {operationId:i.operationId,state:'unknown'};}
   try{
-   const result=await bounded(()=>i.kind==='github-merge'?this.providers.merge({...i.target}):this.providers.deploy({...i.target}),this.writeTimeoutMs);
+   const result=await bounded(()=>{
+    // bounded schedules this callback in a later microtask; authorization may
+    // have expired or been revoked after the earlier check but before entry.
+    // Check again synchronously at the last point before invoking the adapter.
+    this.authorize(i,capability,leaseId);
+    return i.kind==='github-merge'?this.providers.merge({...i.target}):this.providers.deploy({...i.target});
+   },this.writeTimeoutMs);
    const receipt=i.kind==='github-merge'?{operationId:i.operationId,mergeSha:result?.mergeSha}:{operationId:i.operationId,deployId:result?.deployId};
    this.journal.receipt(i,receipt);return {operationId:i.operationId,state:'receipt-recorded'};
   }catch{return {operationId:i.operationId,state:'unknown'};}
@@ -54,14 +60,14 @@ class ControlledBroker{
  // the old guest any authority or changing the old source version.
  async reconcilePending(operationId){const row=this.journal.get(operationId);assert(row,'Unknown operation');return this.readObservation(normalized(row.intent));}
  async readObservation(i){
-  const old=this.journal.get(i.operationId);if(old.state==='observed')return {operationId:i.operationId,state:'observed',observation:old.observation};
+  const old=this.journal.get(i.operationId);if(old.state==='observed')return {operationId:i.operationId,state:'observed',observation:old.observation,requestTerminal:true};
   if(!['dispatching','receipt-recorded'].includes(old.state))return {operationId:i.operationId,state:'unknown'};
   // Persist the next eligible read time before calling any provider. This is
   // a bounded-rate read-only retry, not a retry of the external write.
   const retry=this.journal.tx(()=>{const now=this.clock(),row=this.journal.db.prepare('SELECT * FROM broker_rechecks WHERE operation_id=?').get(i.operationId);if(row&&row.next_at>now)return {deferred:true,retryAt:row.next_at};const attempts=(row?.attempts||0)+1,nextAt=now+Math.min(900000,5000*2**Math.min(attempts-1,8));this.journal.db.prepare('INSERT INTO broker_rechecks VALUES(?,?,?) ON CONFLICT(operation_id) DO UPDATE SET attempts=excluded.attempts,next_at=excluded.next_at').run(i.operationId,attempts,nextAt);return {deferred:false,retryAt:nextAt};});
   if(retry.deferred)return {operationId:i.operationId,state:'deferred',retryAt:retry.retryAt};
   let result;try{result=await bounded(()=>i.kind==='github-merge'?this.providers.readPull({...i.target}):this.providers.readDeploy({...i.target,deployId:old.receipt?.deployId||null}),this.readTimeoutMs);}catch{return {operationId:i.operationId,state:'unknown',retryAt:retry.retryAt};}
-  const out=this.journal.reconcile(i,result);return {operationId:i.operationId,state:out.observation.state,observation:out.observation,...out.observation.state==='unknown'?{retryAt:retry.retryAt}:{}};
+  const out=this.journal.reconcile(i,result),requestTerminal=out.action.state==='observed',state=requestTerminal?out.observation.state:'unknown';return {operationId:i.operationId,state,observation:out.observation,requestTerminal,...state==='unknown'?{retryAt:retry.retryAt}:{}};
  }
 }
 module.exports={ControlledBroker};

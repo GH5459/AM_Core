@@ -6,7 +6,7 @@ const allowlist={githubRepos:['fixture/repo'],renderServices:[{workspaceId:'tea-
 const req=(kind,target,operationId,extra={})=>({eventId,sourceVersion,generation:1,leaseId,capability,operationId,kind,target,...extra});
 function fixture(){const parent=fs.realpathSync(os.tmpdir()),dir=fs.mkdtempSync(path.join(parent,'xiaoye-broker-test-')),file=path.join(dir,'journal.sqlite');let writes=0,reads=0,loss=false,bad=false;
  const providers={async merge(t){writes++;if(loss)throw Error('reply lost');return {mergeSha}},async deploy(t){writes++;if(loss)throw Error('reply lost');return {deployId:'dep-abc'}},async readPull(t){reads++;return {available:true,...t,state:bad?'open':'closed',merged:!bad,mergeSha}},async readDeploy(t){reads++;return {available:true,...t,status:bad?'build_in_progress':'live'}}};
- const open=()=>new ControlledBroker({dbPath:file,allowlist,providers});const broker=open();const reg=broker.registerEvent({eventId,sourceVersion,generation:1,leaseId,capability,expiresAt:Date.now()+60000,maxExpiresAt:Date.now()+120000,scopes:[{kind:'github-merge',target:pull},{kind:'render-deploy',target:deployment}]});return {broker,open,providers,reg,setLoss:x=>loss=x,setBad:x=>bad=x,counts:()=>({writes,reads}),cleanup(){const p=fs.realpathSync(dir);if(path.dirname(p)!==parent||!path.basename(p).startsWith('xiaoye-broker-test-'))throw Error('Invalid cleanup path');fs.rmSync(p,{recursive:true,force:true});}};}
+ const open=()=>new ControlledBroker({dbPath:file,allowlist,providers});const broker=open();const reg=broker.registerEvent({eventId,sourceVersion,generation:1,leaseId,capability,expiresAt:Date.now()+60000,maxExpiresAt:Date.now()+120000,scopes:[{kind:'github-merge',target:pull},{kind:'github-merge',target:{...pull,headSha:'d'.repeat(40)}},{kind:'render-deploy',target:deployment}]});return {broker,open,providers,reg,setLoss:x=>loss=x,setBad:x=>bad=x,counts:()=>({writes,reads}),cleanup(){const p=fs.realpathSync(dir);if(path.dirname(p)!==parent||!path.basename(p).startsWith('xiaoye-broker-test-'))throw Error('Invalid cleanup path');fs.rmSync(p,{recursive:true,force:true});}};}
 test('fixed actions record receipts and only provider read establishes narrow current state',async()=>{
  const f=fixture();try{
   const a=req('github-merge',pull,'fixture-merge-1'),b=req('render-deploy',deployment,'fixture-deploy-1');
@@ -23,7 +23,7 @@ test('unknown result survives restart, blocks a different ID and only accepts or
 });
 test('stale generation, expired capability, source change and forged scope cannot dispatch',async()=>{
  const f=fixture();try{
-  const q=req('github-merge',pull,'fixture-merge-1');for(const bad of [{...q,generation:2},{...q,sourceVersion:3},{...q,capability:crypto.randomBytes(32).toString('base64url')},{...q,target:{...pull,headSha:'d'.repeat(40)}},{...q,target:{...pull,url:'https://example.invalid'}},{...q,url:'https://example.invalid'},{...q,kind:'proxy'}])await assert.rejects(f.broker.dispatch(bad));
+  const q=req('github-merge',pull,'fixture-merge-1');for(const bad of [{...q,generation:2},{...q,sourceVersion:3},{...q,capability:crypto.randomBytes(32).toString('base64url')},{...q,target:{...pull,headSha:'e'.repeat(40)}},{...q,target:{...pull,url:'https://example.invalid'}},{...q,url:'https://example.invalid'},{...q,kind:'proxy'}])await assert.rejects(f.broker.dispatch(bad));
   assert.equal(f.counts().writes,0);assert(f.broker.revokeEvent({eventId,sourceVersion,generation:1}).revoked);await assert.rejects(f.broker.dispatch(q));
   const cap2=crypto.randomBytes(32).toString('base64url');assert.throws(()=>f.broker.registerEvent({eventId,sourceVersion,generation:2,leaseId,capability:cap2,expiresAt:Date.now()+60000,maxExpiresAt:Date.now()+120000,scopes:[{kind:'github-merge',target:pull}]}));await assert.rejects(f.broker.dispatch(q));
  }finally{f.broker.close();f.cleanup();}
@@ -32,6 +32,47 @@ test('provider request in flight may finish after revoke but is recorded and nev
  const f=fixture();try{
   let resolve,started;const entered=new Promise(r=>started=r);f.providers.merge=async()=>{started();return new Promise(r=>resolve=r)};
   const q=req('github-merge',pull,'fixture-merge-1'),p=f.broker.dispatch(q);await entered;assert(f.broker.revokeEvent({eventId,sourceVersion,generation:1}).revoked);resolve({mergeSha});assert.equal((await p).state,'receipt-recorded');await assert.rejects(f.broker.dispatch(q));assert.equal((await f.broker.reconcilePending(q.operationId)).state,'effect-present');
+ }finally{f.broker.close();f.cleanup();}
+});
+test('revocation between dispatch and provider callback prevents the write',async()=>{
+ const f=fixture();try{
+  const q=req('github-merge',pull,'fixture-before-callback'),p=f.broker.dispatch(q);
+  assert(f.broker.revokeEvent({eventId,sourceVersion,generation:1}).revoked);
+  assert.equal((await p).state,'unknown');assert.equal(f.counts().writes,0);
+  await assert.rejects(f.broker.dispatch(q));
+  assert.equal(f.broker.journal.get(q.operationId).state,'dispatching');
+ }finally{f.broker.close();f.cleanup();}
+});
+test('expiry between dispatch and provider callback prevents the write',async()=>{
+ const f=fixture();try{
+  const q=req('render-deploy',deployment,'fixture-expired-callback');
+  const expiresAt=f.broker.journal.db.prepare('SELECT expires_at FROM broker_events WHERE event_id=?').get(eventId).expires_at;
+  const p=f.broker.dispatch(q);f.broker.clock=()=>expiresAt;
+  assert.equal((await p).state,'unknown');assert.equal(f.counts().writes,0);
+  await assert.rejects(f.broker.dispatch(q));
+  assert.equal(f.broker.journal.get(q.operationId).state,'dispatching');
+ }finally{f.broker.close();f.cleanup();}
+});
+test('an observed effect does not unlock a resource while the original request is in flight',async()=>{
+ const f=fixture();try{
+  let resolve,started,writes=0;const entered=new Promise(r=>started=r);
+  f.providers.merge=()=>{writes++;if(writes===1){started();return new Promise(r=>resolve=r);}return Promise.resolve({mergeSha});};
+  const first=req('github-merge',pull,'fixture-merge-first'),second=req('github-merge',{...pull,headSha:'d'.repeat(40)},'fixture-merge-second');
+  const pending=f.broker.dispatch(first);await entered;
+  const seen=await f.broker.reconcilePending(first.operationId);assert.equal(seen.state,'unknown');assert.equal(seen.observation.state,'effect-present');assert.equal(seen.requestTerminal,false);
+  assert.equal(f.broker.journal.get(first.operationId).state,'dispatching');await assert.rejects(f.broker.dispatch(second));assert.equal(writes,1);
+  resolve({mergeSha});assert.equal((await pending).state,'receipt-recorded');assert.equal(f.broker.journal.get(first.operationId).state,'observed');
+  assert.equal((await f.broker.dispatch(second)).state,'receipt-recorded');assert.equal(writes,2);
+ }finally{f.broker.close();f.cleanup();}
+});
+test('a conflicting late receipt never releases the resource based on the earlier observation',async()=>{
+ const f=fixture();try{
+  let resolve,started;const entered=new Promise(r=>started=r);f.providers.merge=()=>{started();return new Promise(r=>resolve=r)};
+  const first=req('github-merge',pull,'fixture-mismatch-first'),second=req('github-merge',{...pull,headSha:'d'.repeat(40)},'fixture-mismatch-second');
+  const pending=f.broker.dispatch(first);await entered;const seen=await f.broker.reconcilePending(first.operationId);assert.equal(seen.state,'unknown');assert.equal(seen.observation.state,'effect-present');
+  resolve({mergeSha:'e'.repeat(40)});assert.equal((await pending).state,'receipt-recorded');
+  assert.equal(f.broker.journal.get(first.operationId).state,'receipt-recorded');assert.equal(f.broker.journal.get(first.operationId).observation,null);
+  await assert.rejects(f.broker.dispatch(second));
  }finally{f.broker.close();f.cleanup();}
 });
 test('provider error or mismatch stays unknown; repeated same operation dispatches once',async()=>{
@@ -61,7 +102,7 @@ test('timed-out write never resends; low-frequency read retry persists across re
   b.writeTimeoutMs=20;b.clock=()=>clock;f.providers.merge=async()=>new Promise(()=>{});const q=req('github-merge',pull,'fixture-merge-1');assert.equal((await b.dispatch(q)).state,'unknown');
   f.setBad(true);const first=await b.reconcilePending(q.operationId);assert.equal(first.state,'unknown');assert.equal(first.retryAt,clock+5000);const reads=f.counts().reads;
   b.close();b=f.open();b.clock=()=>clock;assert.equal((await b.reconcilePending(q.operationId)).state,'deferred');assert.equal(f.counts().reads,reads);
-  clock+=5000;f.setBad(false);const recovered=await b.reconcilePending(q.operationId);assert.equal(recovered.state,'effect-present');assert.equal(recovered.observation.attribution,'current-state-only');
+  clock+=5000;f.setBad(false);const recovered=await b.reconcilePending(q.operationId);assert.equal(recovered.state,'unknown');assert.equal(recovered.requestTerminal,false);assert.equal(recovered.observation.state,'effect-present');assert.equal(recovered.observation.attribution,'current-state-only');
   await assert.rejects(b.dispatch(q));
  }finally{b.close();f.cleanup();}
 });

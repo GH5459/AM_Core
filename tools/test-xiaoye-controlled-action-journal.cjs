@@ -27,6 +27,16 @@ test('receipt, reconciliation and recovery require exact event and an independen
   assert.equal((await assessRecovery({event:{...e,sourceVersion:3},actions,boundaryReceipt:{},verifyBoundaryReceipt:verify})).allowed,false);
  }finally{db.close();t.close();}
 });
+test('read-only GitHub observation cannot establish request termination or permit recovery',async()=>{
+ const t=temp();let db=new ActionJournal(t.file);try{
+  db.prepare(gh);db.fence(gh);const seen=db.reconcile(gh,pr);assert.equal(seen.observation.state,'effect-present');assert.equal(seen.action.state,'dispatching');
+  db.close();db=new ActionJournal(t.file);assert.equal(db.get(gh.operationId).observation.state,'effect-present');
+  const boundary={kind:'independent-enforced-boundary-v1',eventId:event,sourceVersion:version,processTreeTerminated:true,externalActionsComplete:true,operationIds:[gh.operationId]};
+  assert.deepEqual(await assessRecovery({event:{id:event,sourceVersion:version},actions:db.list(event,version),verifyBoundaryReceipt:async()=>boundary}),{allowed:false,reason:'unknown-action'});
+  assert.throws(()=>db.prepare({...gh,operationId:'github-operation-2',target:{...gh.target,headSha:'d'.repeat(40)}}));
+  assert.equal(db.receipt(gh,{operationId:gh.operationId,mergeSha:merge}).state,'observed');
+ }finally{db.close();t.close();}
+});
 
 test('a new operation ID cannot bypass an unresolved action on the same PR or service',()=>{
  const t=temp(),db=new ActionJournal(t.file);try{

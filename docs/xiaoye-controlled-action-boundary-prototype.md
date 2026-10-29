@@ -43,6 +43,8 @@
 - `renewEvent({eventId,sourceVersion,generation,leaseId,expectedExpiresAt,expiresAt})`：比對原期限、事件代次、lease、未逾期狀態及最大期限；不能復活已逾期或撤銷的事件。主控還須獨立確認真正事件租約，這裡的 SQLite 和原事件服務並非同一交易。
 - `revokeEvent({eventId,sourceVersion,generation})`：若事件尚未註冊也持久保存撤銷紀錄，避免晚到註冊復活。撤銷不能取消已交給外部提供者的請求；晚到結果保留，仍須核對。
 - 受限端 `dispatch({eventId,sourceVersion,generation,leaseId,capability,operationId,kind,target})`：核對本地事件期限與精確範圍，使用同一 SQLite 交易保存派送保護，再呼叫事先注入的固定 provider 方法。超時、錯誤或未取得有效回執都保留 unknown，禁止重送；同資源 unknown 不能透過更換操作 ID／版本繞過。
+- 寫入 provider 的延後 callback 入口會再次核對資格，避免 callback 執行前已撤銷或到期卻仍呼叫 provider；該情形保守保留 unknown。這並非跨程序原子撤銷：另一程序仍可能在最後核對與呼叫間撤銷，而且 adapter 內部可能延後送出。已交給 provider 的請求也不能撤回，必須保留與查核結果，不能重送。
+- 查到當前效果只代表目前的觀察，不能證明原請求已結束；若原請求尚未有有效回執，仍鎖住同一資源，對外 `state` 為 `unknown`、`requestTerminal` 為 false，即使 `observation.state` 是 effect-present。下游不可只看 observation；完成判斷還需 `requestTerminal` 為 true、帳本狀態為 observed，及獨立可信邊界證據。GitHub 的晚到回執只有與觀察的合併版本吻合才解除；不吻合、逾時或缺少回執仍持續阻擋。有效回執可靠與否取決於受控 adapter 的真實實作，假資料測試不能證明正式環境。
 - 受限端 `reconcile({eventId,sourceVersion,generation,leaseId,capability,operationId})` 只接受仍有效的原事件；主控可在撤銷後用 `reconcilePending(operationId)` 唯讀查原記錄。查核失敗以 SQLite 保存下次時間，5 秒起逐次退避、最高 15 分鐘，外層主控必須依 `retryAt` 繼續排程。此處不自動寫入、不重送原動作。
 
 執行 `node --test tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs` 使用虛構來源與模擬 provider，測同資源防重、逾期／代次、撤銷晚到註冊、逾時、重啟及只讀退避。GitHub 觀察只證明目前 PR 狀態，Render 需原 deployment ID；兩者都不能單憑此判定原問題已解決。
