@@ -7,6 +7,7 @@ class EventBridge {
   constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory,verifyCaseExecutor}={}) {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(codexExecutable(config.codexExecutable),args,options));this.fetcher=fetcher;this.clock=clock;
     this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;
+    this.failedRecoveryTimer=null;this.failedRecoveryAttempts=0;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -59,7 +60,9 @@ class EventBridge {
   }
   async recoverFailedEvents(){
     if(this.failedRecoveryRunning||this.running||this.pending.size||!this.verifyCaseExecutor)return;
+    clearTimeout(this.failedRecoveryTimer);this.failedRecoveryTimer=null;
     this.failedRecoveryRunning=true;
+    let retryNeeded=false;
     try{
       for(const active of failedEventCandidates(this.folder)){
         if(this.running||this.pending.size||this.stopped)break;
@@ -70,13 +73,23 @@ class EventBridge {
             this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'case-changed'});
           continue;
         }
+        let executorReady=false;
         const result=await reconcileInterruptedEvent({active,inspectEvent:async()=>inspected,
-          evidence:{executorReady:this.verifyCaseExecutor,failureBudgetAvailable:(a,v)=>this.failedRetryBudget(a,v,rel)},
+          evidence:{executorReady:async(a,v)=>{executorReady=await this.verifyCaseExecutor(a,v);return executorReady;},failureBudgetAvailable:(a,v)=>this.failedRetryBudget(a,v,rel)},
           autoResume:async input=>this.call('auto-resume',input,rel+'/auto-resume.input.private.json')});
-        this.save(rel+'/auto-resume.decision.private.json',{decision:result.decision,at:new Date(this.clock()).toISOString()});
+        const needsRetry=result.decision==='failed-needs-reconciliation'&&!executorReady;
+        if(needsRetry)retryNeeded=true;
+        this.save(rel+'/auto-resume.decision.private.json',{decision:result.decision,retryScheduled:needsRetry,at:new Date(this.clock()).toISOString()});
         if(result.decision==='auto-resumed')this.save(rel+'/auto-resume.response.private.json',result.result);
       }
-    }finally{this.failedRecoveryRunning=false;}
+    }finally{
+      this.failedRecoveryRunning=false;
+      if(retryNeeded&&!this.stopped){
+        const delay=Math.min(300000,30000*2**Math.min(this.failedRecoveryAttempts++,4));
+        this.failedRecoveryTimer=setTimeout(()=>{this.failedRecoveryTimer=null;this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));},delay);
+        this.failedRecoveryTimer.unref?.();
+      }else this.failedRecoveryAttempts=0;
+    }
   }
   connect() {
     if(this.stopped)return;
@@ -194,7 +207,7 @@ class EventBridge {
       else if(this.ws?.readyState===1)this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));
     }
   }
-  stop() {this.stopped=true;clearTimeout(this.reconnect);clearInterval(this.pingTimer);clearTimeout(this.pongTimeout);this.ws?.close();this.running?.child?.kill();this.status('stopped');}
+  stop() {this.stopped=true;clearTimeout(this.reconnect);clearTimeout(this.failedRecoveryTimer);clearInterval(this.pingTimer);clearTimeout(this.pongTimeout);this.ws?.close();this.running?.child?.kill();this.status('stopped');}
 }
 module.exports={EventBridge};
 if(require.main===module){

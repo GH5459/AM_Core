@@ -52,3 +52,19 @@ test('connection recovery scans a bounded local failed event and never resends C
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
  await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,2);
 });
+test('temporarily unavailable desktop tools schedule another check and then resume the same failed case',async()=>{
+ let ready=false;
+ const f=fixture(async(action,input)=>action==='event-inspect'?{...inspection('failed','blocked'),autoResumeEligible:true}:(assert.equal(action,'auto-resume'),assert.equal(input.eventId,id),{stage:'clarifying'}),'finished',async()=>ready);
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a'}}));
+ fs.writeFileSync(path.join(run,'tools-failed.input.private.json'),JSON.stringify({id,lease:'lease-a',operationId:'fixture-tool-failure'}));
+ await f.bridge.recoverFailedEvents();
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);
+ assert(f.bridge.failedRecoveryTimer);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.decision.private.json'))).retryScheduled,true);
+ ready=true;await f.bridge.recoverFailedEvents();
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect','auto-resume']);
+ assert.equal(f.bridge.failedRecoveryTimer,null);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
+ f.bridge.stop();
+});
