@@ -11,8 +11,9 @@ export function workspaceFirstClient(){
  function check(){
   const tab=tabs(),add=document.getElementById('addTodayTask');if(!tab)return;
   if(!ready&&add&&!add.disabled){ready=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{
-   if(!cancelled&&!positioned){positioned=true;tab.style.scrollMarginTop='12px';tab.scrollIntoView({block:'start',behavior:'instant'});}
-   positionDone=true;anchorY=tabs()?.getBoundingClientRect().top+window.scrollY;
+   const current=tabs();if(!current){ready=false;schedule();return;}
+   if(!cancelled&&!positioned){positioned=true;current.style.scrollMarginTop='12px';current.scrollIntoView({block:'start',behavior:'instant'});}
+   positionDone=true;anchorY=current.getBoundingClientRect().top+window.scrollY;
    document.documentElement.dataset.dailylogWorkspaceReady='true';window.dispatchEvent(new Event('dailylog:workspace-ready'));
    if(cancelled&&upperVisible())release();
   }));return;}
