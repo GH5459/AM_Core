@@ -27,9 +27,9 @@ class FixtureSupervisor {
    if(row.lease_until<=this.clock()||row.deadline<=this.clock()||stopStates.includes(row.state))return {active:false};
    if(!auth||auth.eventId!==eventId||auth.sourceVersion!==row.source_version||auth.generation!==row.generation)return {active:false,failed:true};
    if(auth.status!=='active')return {active:false};
-   // In-flight lifecycle phases need independent evidence that the original
-   // owner still exists. The fixture can model this; production has no issuer.
-   if(auth.ownerAlive===false||(['creating','registering','starting'].includes(row.state)&&auth.ownerAlive!==true))return {active:false,failed:true};
+   // Every phase requires independent positive evidence that its owner is
+   // still alive. The fixture can model this; production has no issuer.
+   if(auth.ownerAlive!==true)return {active:false,failed:true};
    if(before.source_version!==row.source_version||before.generation!==row.generation||before.lease_until!==row.lease_until||auth.leaseUntil!==row.lease_until){if(attempt<3)continue;return {active:false,failed:true};}
    return {active:true};
   }
