@@ -1,0 +1,325 @@
+{
+  "source": "DailyLog Worker e3bed555-613e-4897-ac7b-4affed8b81f1; schema only, no production records",
+  "objects": [
+    {
+      "type": "table",
+      "name": "directory_members",
+      "sql": "CREATE TABLE directory_members (account TEXT PRIMARY KEY, user_id TEXT NOT NULL, value TEXT NOT NULL CHECK(json_valid(value)), revision INTEGER NOT NULL)"
+    },
+    {
+      "type": "table",
+      "name": "directory_state",
+      "sql": "CREATE TABLE directory_state (id INTEGER PRIMARY KEY CHECK(id=1), source_revision INTEGER NOT NULL DEFAULT 0)"
+    },
+    {
+      "type": "table",
+      "name": "documents",
+      "sql": "CREATE TABLE documents (\n  namespace TEXT NOT NULL,\n  key TEXT NOT NULL,\n  value TEXT NOT NULL CHECK(json_valid(value)),\n  revision INTEGER NOT NULL DEFAULT 0,\n  PRIMARY KEY(namespace, key)\n)"
+    },
+    {
+      "type": "table",
+      "name": "employees",
+      "sql": "CREATE TABLE employees (\n  account TEXT PRIMARY KEY,\n  user_id TEXT NOT NULL UNIQUE,\n  value TEXT NOT NULL CHECK(json_valid(value)),\n  verified_at INTEGER\n)"
+    },
+    {
+      "type": "table",
+      "name": "line_assignment_intake",
+      "sql": "CREATE TABLE line_assignment_intake (\n id TEXT PRIMARY KEY, tenant TEXT NOT NULL, input_hash TEXT NOT NULL, input TEXT NOT NULL CHECK(json_valid(input)),\n state TEXT NOT NULL DEFAULT 'queued', result TEXT CHECK(result IS NULL OR json_valid(result)),\n created_at INTEGER NOT NULL, next_attempt INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0,\n lease_token TEXT, lease_until INTEGER NOT NULL DEFAULT 0, notified INTEGER NOT NULL DEFAULT 0\n)"
+    },
+    {
+      "type": "table",
+      "name": "login_attempts",
+      "sql": "CREATE TABLE login_attempts (\n  key TEXT PRIMARY KEY,\n  count INTEGER NOT NULL,\n  expires_at INTEGER NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "meeting_task_receipts",
+      "sql": "CREATE TABLE meeting_task_receipts (\n id TEXT PRIMARY KEY, tenant TEXT NOT NULL, input_hash TEXT NOT NULL,\n result TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+    },
+    {
+      "type": "table",
+      "name": "notion_jobs",
+      "sql": "CREATE TABLE notion_jobs (\n  user_id TEXT PRIMARY KEY,\n  record TEXT NOT NULL CHECK(json_valid(record)),\n  lease_token TEXT,\n  lease_until INTEGER NOT NULL DEFAULT 0,\n  attempt_at INTEGER NOT NULL DEFAULT 0\n)"
+    },
+    {
+      "type": "table",
+      "name": "project_aliases",
+      "sql": "CREATE TABLE project_aliases (\n old_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL, operation_id TEXT NOT NULL,\n created_at TEXT NOT NULL, CHECK(old_id<>canonical_id)\n)"
+    },
+    {
+      "type": "table",
+      "name": "project_merge_operations",
+      "sql": "CREATE TABLE project_merge_operations (\n id TEXT PRIMARY KEY, value TEXT NOT NULL CHECK(json_valid(value)),\n guard INTEGER NOT NULL CHECK(guard=1)\n)"
+    },
+    {
+      "type": "table",
+      "name": "project_sources",
+      "sql": "CREATE TABLE project_sources (\n system TEXT NOT NULL, source_id TEXT NOT NULL, work_id TEXT NOT NULL,\n PRIMARY KEY(system,source_id)\n)"
+    },
+    {
+      "type": "table",
+      "name": "sessions",
+      "sql": "CREATE TABLE sessions (\n  token_hash TEXT PRIMARY KEY,\n  csrf TEXT NOT NULL,\n  user_json TEXT,\n  expires_at INTEGER NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "task_attachment_chunks",
+      "sql": "CREATE TABLE task_attachment_chunks (\n attachment_id TEXT NOT NULL REFERENCES task_attachments(id), part INTEGER NOT NULL,\n content BLOB NOT NULL, PRIMARY KEY(attachment_id,part)\n)"
+    },
+    {
+      "type": "table",
+      "name": "task_attachments",
+      "sql": "CREATE TABLE task_attachments (\n id TEXT PRIMARY KEY, scope TEXT NOT NULL, target_id TEXT NOT NULL,\n name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL,\n digest TEXT NOT NULL, actor TEXT NOT NULL, actor_name TEXT NOT NULL,\n created_at TEXT NOT NULL, removed_at TEXT, removed_by TEXT\n)"
+    },
+    {
+      "type": "table",
+      "name": "work_daily_summaries",
+      "sql": "CREATE TABLE work_daily_summaries (user_id TEXT NOT NULL, date TEXT NOT NULL, source_revision INTEGER NOT NULL, value TEXT NOT NULL CHECK(json_valid(value)), PRIMARY KEY(user_id,date))"
+    },
+    {
+      "type": "table",
+      "name": "work_items",
+      "sql": "CREATE TABLE work_items (\n id TEXT PRIMARY KEY, level INTEGER NOT NULL DEFAULT 1 CHECK(level BETWEEN 1 AND 5),\n parent_id TEXT REFERENCES work_items(id) DEFERRABLE INITIALLY DEFERRED,\n department TEXT NOT NULL DEFAULT '', department_id TEXT NOT NULL DEFAULT '',\n value TEXT NOT NULL CHECK(json_valid(value)), revision INTEGER NOT NULL DEFAULT 1\n)"
+    },
+    {
+      "type": "table",
+      "name": "work_notion_jobs",
+      "sql": "CREATE TABLE work_notion_jobs(id TEXT PRIMARY KEY, version INTEGER NOT NULL, synced_version INTEGER NOT NULL DEFAULT 0, page_id TEXT, next_attempt INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',lease_until INTEGER NOT NULL DEFAULT 0,lease_token TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "work_summary_sources",
+      "sql": "CREATE TABLE work_summary_sources (user_id TEXT PRIMARY KEY, source_revision INTEGER NOT NULL, value TEXT NOT NULL CHECK(json_valid(value)), updated_at TEXT NOT NULL)"
+    },
+    {
+      "type": "table",
+      "name": "work_summary_state",
+      "sql": "CREATE TABLE work_summary_state (user_id TEXT PRIMARY KEY, source_revision INTEGER NOT NULL DEFAULT 1, built_revision INTEGER NOT NULL DEFAULT 0)"
+    },
+    {
+      "type": "table",
+      "name": "xiaoye_draft_image_chunks",
+      "sql": "CREATE TABLE xiaoye_draft_image_chunks (\n draft_key TEXT NOT NULL,\n image_id TEXT NOT NULL,\n part INTEGER NOT NULL,\n content BLOB NOT NULL,\n PRIMARY KEY(draft_key,image_id,part)\n)"
+    },
+    {
+      "type": "table",
+      "name": "xiaoye_draft_operations",
+      "sql": "CREATE TABLE xiaoye_draft_operations (\n id TEXT PRIMARY KEY,\n guard INTEGER NOT NULL CHECK(guard=1)\n)"
+    },
+    {
+      "type": "table",
+      "name": "xiaoye_event_outbox",
+      "sql": "CREATE TABLE xiaoye_event_outbox (\n id TEXT PRIMARY KEY,\n task_id TEXT NOT NULL,\n version INTEGER NOT NULL,\n kind TEXT NOT NULL CHECK(kind IN ('analyze','execute','invalidate')),\n created_at INTEGER NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "xiaoye_operations",
+      "sql": "CREATE TABLE xiaoye_operations (\n id TEXT PRIMARY KEY,\n guard INTEGER NOT NULL CHECK(guard=1),\n fingerprint TEXT NOT NULL,\n task_id TEXT NOT NULL REFERENCES work_items(id)\n DEFERRABLE INITIALLY DEFERRED\n)"
+    },
+    {
+      "type": "index",
+      "name": "directory_members_user",
+      "sql": "CREATE INDEX directory_members_user ON directory_members(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "line_assignment_pending",
+      "sql": "CREATE INDEX line_assignment_pending ON line_assignment_intake(tenant,state,next_attempt,lease_until,created_at)"
+    },
+    {
+      "type": "index",
+      "name": "notion_account_unique_person",
+      "sql": "CREATE UNIQUE INDEX notion_account_unique_person\nON documents(json_extract(value,'$.active.id'))\nWHERE namespace='notion-account-links' AND json_extract(value,'$.active.id') IS NOT NULL"
+    },
+    {
+      "type": "index",
+      "name": "project_alias_target",
+      "sql": "CREATE INDEX project_alias_target ON project_aliases(canonical_id)"
+    },
+    {
+      "type": "index",
+      "name": "project_source_target",
+      "sql": "CREATE INDEX project_source_target ON project_sources(work_id)"
+    },
+    {
+      "type": "index",
+      "name": "sessions_expiry",
+      "sql": "CREATE INDEX sessions_expiry ON sessions(expires_at)"
+    },
+    {
+      "type": "index",
+      "name": "task_attachments_target",
+      "sql": "CREATE INDEX task_attachments_target ON task_attachments(scope,target_id,created_at)"
+    },
+    {
+      "type": "index",
+      "name": "work_items_department",
+      "sql": "CREATE INDEX work_items_department ON work_items(department)"
+    },
+    {
+      "type": "index",
+      "name": "work_items_hr_account",
+      "sql": "CREATE INDEX work_items_hr_account ON work_items(json_extract(value,'$.lead.account'),json_extract(value,'$.updatedAt')) WHERE json_extract(value,'$.workScope')='hr'"
+    },
+    {
+      "type": "index",
+      "name": "work_items_parent",
+      "sql": "CREATE INDEX work_items_parent ON work_items(parent_id)"
+    },
+    {
+      "type": "index",
+      "name": "work_items_source",
+      "sql": "CREATE UNIQUE INDEX work_items_source ON work_items(json_extract(value,'$.requester.account'),json_extract(value,'$.sourceTodoId')) WHERE json_extract(value,'$.sourceTodoId') IS NOT NULL"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_employee_delete",
+      "sql": "CREATE TRIGGER directory_employee_delete AFTER DELETE ON employees BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_employee_insert",
+      "sql": "CREATE TRIGGER directory_employee_insert AFTER INSERT ON employees BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_employee_update",
+      "sql": "CREATE TRIGGER directory_employee_update AFTER UPDATE OF value,user_id ON employees WHEN OLD.value<>NEW.value OR OLD.user_id<>NEW.user_id BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_settings_delete",
+      "sql": "CREATE TRIGGER directory_settings_delete AFTER DELETE ON documents WHEN OLD.namespace='settings' AND OLD.key IN ('access','organization','additional-supervisors') BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_settings_insert",
+      "sql": "CREATE TRIGGER directory_settings_insert AFTER INSERT ON documents WHEN NEW.namespace='settings' AND NEW.key IN ('access','organization','additional-supervisors') BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_settings_update",
+      "sql": "CREATE TRIGGER directory_settings_update AFTER UPDATE OF value ON documents WHEN NEW.namespace='settings' AND NEW.key IN ('access','organization','additional-supervisors') AND OLD.value<>NEW.value BEGIN UPDATE directory_state SET source_revision=source_revision+1 WHERE id=1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "project_duplicate_insert",
+      "sql": "CREATE TRIGGER project_duplicate_insert BEFORE INSERT ON work_items\nWHEN NEW.level>1 AND COALESCE(json_extract(NEW.value,'$.workScope'),'normal')='normal'\n AND json_extract(NEW.value,'$.mergedInto') IS NULL\nBEGIN\n SELECT RAISE(ABORT,'project_duplicate') WHERE EXISTS(\n SELECT 1 FROM work_items w WHERE w.id<>NEW.id AND w.level>1\n AND COALESCE(json_extract(w.value,'$.workScope'),'normal')='normal'\n AND json_extract(w.value,'$.mergedInto') IS NULL\n AND lower(replace(replace(replace(replace(replace(json_extract(w.value,'$.title'),' ',''),char(12288),''),char(9),''),char(10),''),char(13),''))=lower(replace(replace(replace(replace(replace(json_extract(NEW.value,'$.title'),' ',''),char(12288),''),char(9),''),char(10),''),char(13),''))\n AND json_extract(w.value,'$.lead.account')=json_extract(NEW.value,'$.lead.account')\n AND COALESCE(w.parent_id,'')=COALESCE(NEW.parent_id,''));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "project_duplicate_update",
+      "sql": "CREATE TRIGGER project_duplicate_update BEFORE UPDATE ON work_items\nWHEN NEW.level>1 AND COALESCE(json_extract(NEW.value,'$.workScope'),'normal')='normal'\n AND json_extract(NEW.value,'$.mergedInto') IS NULL\n AND NOT (json_extract(OLD.value,'$.mergedInto') IS NOT NULL AND EXISTS(SELECT 1 FROM project_merge_operations op WHERE op.id=json_extract(OLD.value,'$.mergeOperationId') AND json_extract(op.value,'$.undoState')='restored' AND json_extract(op.value,'$.sourceId')=NEW.id))\n AND (OLD.level<=1 OR json_extract(OLD.value,'$.mergedInto') IS NOT NULL\n OR json_extract(OLD.value,'$.title')<>json_extract(NEW.value,'$.title')\n OR json_extract(OLD.value,'$.lead.account')<>json_extract(NEW.value,'$.lead.account')\n OR COALESCE(OLD.parent_id,'')<>COALESCE(NEW.parent_id,''))\nBEGIN\n SELECT RAISE(ABORT,'project_duplicate') WHERE EXISTS(\n SELECT 1 FROM work_items w WHERE w.id<>NEW.id AND w.level>1\n AND COALESCE(json_extract(w.value,'$.workScope'),'normal')='normal'\n AND json_extract(w.value,'$.mergedInto') IS NULL\n AND lower(replace(replace(replace(replace(replace(json_extract(w.value,'$.title'),' ',''),char(12288),''),char(9),''),char(10),''),char(13),''))=lower(replace(replace(replace(replace(replace(json_extract(NEW.value,'$.title'),' ',''),char(12288),''),char(9),''),char(10),''),char(13),''))\n AND json_extract(w.value,'$.lead.account')=json_extract(NEW.value,'$.lead.account')\n AND COALESCE(w.parent_id,'')=COALESCE(NEW.parent_id,''));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "project_merged_reference_insert",
+      "sql": "CREATE TRIGGER project_merged_reference_insert BEFORE INSERT ON work_items\nBEGIN\n SELECT RAISE(ABORT,'project_merged_reference') WHERE EXISTS(SELECT 1 FROM project_aliases a WHERE a.old_id=NEW.parent_id OR a.old_id IN (SELECT value FROM json_each(json_extract(NEW.value,'$.relatedProjectIds'))) OR a.old_id IN (SELECT value FROM json_each(json_extract(NEW.value,'$.dependencyIds'))));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "project_merged_reference_update",
+      "sql": "CREATE TRIGGER project_merged_reference_update BEFORE UPDATE ON work_items\nWHEN json_extract(NEW.value,'$.mergedInto') IS NULL\nBEGIN\n SELECT RAISE(ABORT,'project_merged_reference') WHERE EXISTS(SELECT 1 FROM project_aliases a WHERE a.old_id=NEW.parent_id OR a.old_id IN (SELECT value FROM json_each(json_extract(NEW.value,'$.relatedProjectIds'))) OR a.old_id IN (SELECT value FROM json_each(json_extract(NEW.value,'$.dependencyIds'))));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_journal_delete",
+      "sql": "CREATE TRIGGER summary_journal_delete AFTER DELETE ON documents WHEN OLD.namespace='journal-sync' BEGIN INSERT INTO work_summary_state(user_id) VALUES(OLD.key) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_journal_insert",
+      "sql": "CREATE TRIGGER summary_journal_insert AFTER INSERT ON documents WHEN NEW.namespace='journal-sync' BEGIN INSERT INTO work_summary_state(user_id) VALUES(NEW.key) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_journal_update",
+      "sql": "CREATE TRIGGER summary_journal_update AFTER UPDATE OF value ON documents WHEN NEW.namespace='journal-sync' AND (COALESCE(json_extract(OLD.value,'$.hash'),'')<>COALESCE(json_extract(NEW.value,'$.hash'),'') OR COALESCE(json_extract(OLD.value,'$.revision'),0)<>COALESCE(json_extract(NEW.value,'$.revision'),0) OR COALESCE(json_extract(OLD.value,'$.snapshot'),'')<>COALESCE(json_extract(NEW.value,'$.snapshot'),'')) BEGIN INSERT INTO work_summary_state(user_id) VALUES(NEW.key) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_task_delete",
+      "sql": "CREATE TRIGGER summary_task_delete AFTER DELETE ON documents WHEN OLD.namespace='shared-tasks' BEGIN INSERT INTO work_summary_state(user_id) SELECT user_id FROM employees WHERE account IN (SELECT value FROM json_each(json_extract(OLD.value,'$.notionAccounts'))) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_task_insert",
+      "sql": "CREATE TRIGGER summary_task_insert AFTER INSERT ON documents WHEN NEW.namespace='shared-tasks' BEGIN INSERT INTO work_summary_state(user_id) SELECT user_id FROM employees WHERE account IN (SELECT value FROM json_each(json_extract(NEW.value,'$.notionAccounts'))) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "summary_task_update",
+      "sql": "CREATE TRIGGER summary_task_update AFTER UPDATE OF value ON documents WHEN NEW.namespace='shared-tasks' AND OLD.value<>NEW.value BEGIN INSERT INTO work_summary_state(user_id) SELECT user_id FROM employees WHERE account IN (SELECT value FROM json_each(json_extract(OLD.value,'$.notionAccounts')) UNION SELECT value FROM json_each(json_extract(NEW.value,'$.notionAccounts'))) ON CONFLICT(user_id) DO UPDATE SET source_revision=source_revision+1; END"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_completion_guard",
+      "sql": "CREATE TRIGGER work_items_completion_guard BEFORE UPDATE OF value ON work_items WHEN json_extract(NEW.value,'$.status')='done' AND json_extract(OLD.value,'$.status')<>'done' BEGIN\n SELECT RAISE(ABORT,'WORK_CHILD_UNFINISHED') WHERE EXISTS(SELECT 1 FROM work_items WHERE parent_id=NEW.id AND json_extract(value,'$.status') NOT IN ('done','cancelled'));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_cycle_insert",
+      "sql": "CREATE TRIGGER work_items_cycle_insert BEFORE INSERT ON work_items WHEN NEW.parent_id IS NOT NULL BEGIN\n SELECT RAISE(ABORT,'WORK_PARENT_CYCLE') WHERE NEW.parent_id=NEW.id OR EXISTS(WITH RECURSIVE ancestors(id,parent_id) AS (SELECT id,parent_id FROM work_items WHERE id=NEW.parent_id UNION ALL SELECT w.id,w.parent_id FROM work_items w JOIN ancestors a ON w.id=a.parent_id) SELECT 1 FROM ancestors WHERE id=NEW.id);\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_cycle_update",
+      "sql": "CREATE TRIGGER work_items_cycle_update BEFORE UPDATE OF parent_id ON work_items WHEN NEW.parent_id IS NOT NULL BEGIN\n SELECT RAISE(ABORT,'WORK_PARENT_CYCLE') WHERE NEW.parent_id=NEW.id OR EXISTS(WITH RECURSIVE ancestors(id,parent_id) AS (SELECT id,parent_id FROM work_items WHERE id=NEW.parent_id UNION ALL SELECT w.id,w.parent_id FROM work_items w JOIN ancestors a ON w.id=a.parent_id) SELECT 1 FROM ancestors WHERE id=NEW.id);\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_dependencies_insert",
+      "sql": "CREATE TRIGGER work_items_dependencies_insert BEFORE INSERT ON work_items BEGIN\n SELECT RAISE(ABORT,'WORK_DEPENDENCY_CYCLE') WHERE EXISTS(WITH RECURSIVE dependencies(id) AS (SELECT value FROM json_each(json_extract(NEW.value,'$.dependencyIds')) UNION SELECT d.value FROM work_items w JOIN dependencies p ON w.id=p.id JOIN json_each(json_extract(w.value,'$.dependencyIds')) d) SELECT 1 FROM dependencies WHERE id=NEW.id);\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_dependencies_update",
+      "sql": "CREATE TRIGGER work_items_dependencies_update BEFORE UPDATE OF value ON work_items BEGIN\n SELECT RAISE(ABORT,'WORK_DEPENDENCY_CYCLE') WHERE EXISTS(WITH RECURSIVE dependencies(id) AS (SELECT value FROM json_each(json_extract(NEW.value,'$.dependencyIds')) UNION SELECT d.value FROM work_items w JOIN dependencies p ON w.id=p.id JOIN json_each(json_extract(w.value,'$.dependencyIds')) d) SELECT 1 FROM dependencies WHERE id=NEW.id);\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_legacy_insert",
+      "sql": "CREATE TRIGGER work_items_legacy_insert AFTER INSERT ON documents WHEN NEW.namespace='shared-tasks' AND NOT EXISTS(SELECT 1 FROM work_items WHERE id=NEW.key) BEGIN\n INSERT INTO work_items(id,level,department,value,revision) VALUES(NEW.key,1,COALESCE(json_extract(NEW.value,'$.lead.team'),''),json_set(NEW.value,'$.level',1,'$.kind','task','$.workSchema',1,'$.department',COALESCE(json_extract(NEW.value,'$.lead.team'),''),'$.relatedProjectIds',json('[]'),'$.dependencyIds',json('[]'),'$.projectFields',json('{}')),COALESCE(json_extract(NEW.value,'$.version'),1));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_legacy_update",
+      "sql": "CREATE TRIGGER work_items_legacy_update AFTER UPDATE OF value ON documents WHEN NEW.namespace='shared-tasks' AND COALESCE(json_extract(NEW.value,'$.version'),0)>(SELECT COALESCE(json_extract(value,'$.version'),0) FROM work_items WHERE id=NEW.key) BEGIN\n UPDATE work_items SET value=NEW.value,revision=json_extract(NEW.value,'$.version'),level=COALESCE(json_extract(NEW.value,'$.level'),1),parent_id=json_extract(NEW.value,'$.primaryParentId'),department=COALESCE(json_extract(NEW.value,'$.department'),json_extract(NEW.value,'$.lead.team'),'') WHERE id=NEW.key;\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_parent_open_insert",
+      "sql": "CREATE TRIGGER work_items_parent_open_insert BEFORE INSERT ON work_items WHEN NEW.parent_id IS NOT NULL BEGIN\n SELECT RAISE(ABORT,'WORK_PARENT_CLOSED') WHERE EXISTS(SELECT 1 FROM work_items WHERE id=NEW.parent_id AND json_extract(value,'$.status') IN ('done','cancelled'));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_parent_open_move",
+      "sql": "CREATE TRIGGER work_items_parent_open_move BEFORE UPDATE OF parent_id ON work_items WHEN NEW.parent_id IS NOT NULL AND NEW.parent_id IS NOT OLD.parent_id BEGIN\n SELECT RAISE(ABORT,'WORK_PARENT_CLOSED') WHERE EXISTS(SELECT 1 FROM work_items WHERE id=NEW.parent_id AND json_extract(value,'$.status') IN ('done','cancelled'));\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_parent_progress",
+      "sql": "CREATE TRIGGER work_items_parent_progress AFTER UPDATE OF value ON work_items WHEN NEW.parent_id IS NOT NULL AND json_extract(NEW.value,'$.status') IN ('in_progress','blocked','done') AND json_extract(NEW.value,'$.status')<>json_extract(OLD.value,'$.status') BEGIN\n UPDATE work_items SET revision=revision+1,value=json_set(value,'$.status','in_progress','$.version',json_extract(value,'$.version')+1,'$.updatedAt',json_extract(NEW.value,'$.updatedAt'),'$.history',json_insert(json_extract(value,'$.history'),'$[#]',json_object('id','activity-'||NEW.id||'-'||NEW.revision,'kind','status','actor',json_extract(NEW.value,'$.history[#-1].actor'),'at',json_extract(NEW.value,'$.updatedAt'),'from','pending','to','in_progress','text','子工作已有進展，專案進行中','mentions',json('[]'),'targets',json('[]')))) WHERE id IN (WITH RECURSIVE ancestors(id,parent_id) AS (SELECT id,parent_id FROM work_items WHERE id=NEW.parent_id UNION ALL SELECT w.id,w.parent_id FROM work_items w JOIN ancestors a ON w.id=a.parent_id) SELECT id FROM ancestors) AND json_extract(value,'$.status')='pending';\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_project_insert",
+      "sql": "CREATE TRIGGER work_items_project_insert AFTER INSERT ON work_items WHEN NEW.parent_id IS NOT NULL BEGIN\n UPDATE work_items SET level=2,revision=revision+1,value=json_set(value,'$.level',2,'$.kind','project','$.version',json_extract(value,'$.version')+1,'$.updatedAt',json_extract(NEW.value,'$.updatedAt'),'$.history',json_insert(json_extract(value,'$.history'),'$[#]',json_object('id','promotion-'||NEW.id,'kind','promoted','actor',json_extract(NEW.value,'$.requester'),'at',json_extract(NEW.value,'$.updatedAt'),'text','新增第一個子工作，升級為小專案','mentions',json('[]'),'targets',json('[]')))) WHERE id=NEW.parent_id AND level=1;\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_project_move",
+      "sql": "CREATE TRIGGER work_items_project_move AFTER UPDATE OF parent_id ON work_items WHEN NEW.parent_id IS NOT NULL AND NEW.parent_id IS NOT OLD.parent_id BEGIN\n UPDATE work_items SET level=2,revision=revision+1,value=json_set(value,'$.level',2,'$.kind','project','$.version',json_extract(value,'$.version')+1,'$.updatedAt',json_extract(NEW.value,'$.updatedAt'),'$.history',json_insert(json_extract(value,'$.history'),'$[#]',json_object('id','promotion-'||NEW.id||'-'||NEW.revision,'kind','promoted','actor',json_extract(NEW.value,'$.requester'),'at',json_extract(NEW.value,'$.updatedAt'),'text','接入第一個子工作，升級為小專案','mentions',json('[]'),'targets',json('[]')))) WHERE id=NEW.parent_id AND level=1;\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_projection_insert",
+      "sql": "CREATE TRIGGER work_items_projection_insert AFTER INSERT ON work_items BEGIN\n INSERT INTO documents(namespace,key,value) VALUES('shared-tasks',NEW.id,NEW.value) ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value,revision=documents.revision+1;\n INSERT INTO work_notion_jobs(id,version) SELECT NEW.id,json_extract(NEW.value,'$.version') WHERE COALESCE(json_extract(NEW.value,'$.workScope'),'normal')<>'hr' ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_attempt=0;\nEND"
+    },
+    {
+      "type": "trigger",
+      "name": "work_items_projection_update",
+      "sql": "CREATE TRIGGER work_items_projection_update AFTER UPDATE OF value ON work_items BEGIN\n INSERT INTO documents(namespace,key,value) VALUES('shared-tasks',NEW.id,NEW.value) ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value,revision=documents.revision+1;\n INSERT INTO work_notion_jobs(id,version) SELECT NEW.id,json_extract(NEW.value,'$.version') WHERE COALESCE(json_extract(NEW.value,'$.workScope'),'normal')<>'hr' ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_attempt=0;\nEND"
+    }
+  ]
+}

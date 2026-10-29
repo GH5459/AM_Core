@@ -1,0 +1,13 @@
+{
+  "name": "xiaoye-isolated-worker-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "miniflare": "5.20261001.0-alpha"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.30.1"
+  }
+}
