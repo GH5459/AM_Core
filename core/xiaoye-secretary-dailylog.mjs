@@ -74,11 +74,14 @@ function imageBytes(image){
  return {bytes,mime:png?'image/png':jpg?'image/jpeg':'image/webp',name:'問題截圖.'+(png?'png':jpg?'jpg':'webp')};
 }
 function draftState(session){const d=session?.value,active=d?.mode==='draft'&&d.until>Date.now(),pending=d?.mode==='conversation-pending'&&d.until>Date.now();const entries=active?d.entries.filter(e=>!e.withdrawn):[];return {draft:active,...active?{draftId:d.id,texts:entries.filter(e=>e.text).length,images:entries.filter(e=>e.image).length}:pending?{conversational:true,awaitingFirstMessage:true,until:d.until}:d?.taskId?{taskId:d.taskId}:{}};}
-export function canAutoResume(c,t,e,ownerDraft){
+export function canAutoResume(c,t,e,ownerDraft,capability){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
  const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
  const terminal=e?.state==='failed'||replan;
- const exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
+ let exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
+ // Only the trusted receiver may signal a verified exact-commit deployment
+ // capability; each source set may use that new capability once.
+ if(exhausted&&replan&&capability==='render-deploy-commit-v1'&&!already?.capabilities?.includes(capability))exhausted=false;
  return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
@@ -89,22 +92,24 @@ async function inspectEvent(env,c,v){
  if(!s)throw fail('找不到原案件。',404);
  const draft=await ownerDraftActive(env,t.id);
  const notification=await env.DB.prepare("SELECT json_extract(value,'$.state') AS state,json_extract(value,'$.attempts') AS attempts FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.kind')='result' AND json_extract(value,'$.sourceVersion')=? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 1").bind(t.id,s.sourceVersion).first();
- return {ok:true,event:e,task:{id:t.id,primaryParentId:t.primaryParentId||null,stage:s.stage,version:t.version,sourceVersion:s.sourceVersion,waitingForReporter:!!s.waitingForReporter,leasePresent:!!s.lease,leaseActive:!!s.lease&&s.leaseUntil>Date.now()},projects:c.projects.map(p=>({id:p.id,key:p.key})),autoResumeEligible:canAutoResume(c,t,e,draft),resultNotification:notification?{state:notification.state,attempts:notification.attempts}:null};
+ return {ok:true,event:e,task:{id:t.id,primaryParentId:t.primaryParentId||null,stage:s.stage,version:t.version,sourceVersion:s.sourceVersion,waitingForReporter:!!s.waitingForReporter,leasePresent:!!s.lease,leaseActive:!!s.lease&&s.leaseUntil>Date.now()},projects:c.projects.map(p=>({id:p.id,key:p.key})),autoResumeEligible:canAutoResume(c,t,e,draft),capabilityResumeEligible:canAutoResume(c,t,e,draft,v.capability),resultNotification:notification?{state:notification.state,attempts:notification.attempts}:null};
 }
 async function autoResume(env,c,v){
  if(!env.XIAOYE_EVENTS)throw fail('事件服務尚未啟用。',503);
  if(!Number.isSafeInteger(v.version)||typeof v.operationId!=='string'||v.operationId.length<8||v.operationId.length>180)throw fail('案件版本或操作識別無效。',400);
- const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'resume',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId};
+ if(v.capability!==undefined&&v.capability!=='render-deploy-commit-v1')throw fail('不支援的工具能力。',400);
+ const actor={account:AI,name:c.account.name,team:'AI 秘書'},input={action:'resume',id:v.id,version:v.version,eventId:v.eventId,operationId:v.operationId,...v.capability?{capability:v.capability}:{}};
  const prior=await replay(env,v.id,v.operationId,input,actor);
  if(prior)return {ok:true,replayed:true,taskId:prior.id,version:prior.version,stage:prior.secretary.stage};
  const inspected=await inspectEvent(env,c,v),old=await load(env.DB,v.id),t=structuredClone(old.task),s=t.secretary;
- if(v.version!==t.version||!inspected.autoResumeEligible)throw fail('案件已有更新或尚不符合自動接續條件。');
+ if(v.version!==t.version||!(v.capability?inspected.capabilityResumeEligible:inspected.autoResumeEligible))throw fail('案件已有更新或尚不符合自動接續條件。');
  if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
  const sourceCount=s.sources?.length||0,previous=s.autoRecovery?.sourceCount===sourceCount?s.autoRecovery:null;
  const replan=inspected.event.state==='done'&&inspected.event.kind==='execute';
  const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0;
  restartAnalysis(t,retireProposal);
- s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},at:new Date().toISOString(),eventId:v.eventId};
+ const capabilities=[...new Set([...(previous?.capabilities||[]),...v.capability?[v.capability]:[]])];
+ s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},...capabilities.length?{capabilities}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},...capabilities.length?{capabilities}:{},at:new Date().toISOString(),eventId:v.eventId};
  s.recoveryHistory.at(-1).automatic=true;
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
  const saved=await transaction(env,old,t,v.operationId,input,actor,'系統確認工具恢復後，沿原案件自動接續查核；已完成的動作先核對，不重做。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);

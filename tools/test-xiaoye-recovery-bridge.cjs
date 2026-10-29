@@ -78,3 +78,54 @@ test('completed execution blocked on new scope is rechecked and starts a new ana
  assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).stage,'clarifying');
  f.bridge.stop();
 });
+test('an exhausted completed blocked execution with a legacy skipped marker remains pending and is rechecked',async()=>{
+ const f=fixture(async action=>{assert.equal(action,'event-inspect');return {...inspection('done','blocked'),event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:false};},'finished',async()=>{throw Error('must not dispatch or bypass the budget');});
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'case-changed'}));
+ await f.bridge.recoverFailedEvents();
+ assert.deepEqual(f.calls.map(c=>c.action),['event-inspect']);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).reason,'case-changed');
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.decision.private.json'))).decision,'waiting-for-eligibility');
+ assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
+});
+test('a paused case is confirmed changed and cannot be resumed or polled',async()=>{
+ const f=fixture(async action=>{assert.equal(action,'event-inspect');return {...inspection('done','paused'),event:{...inspection('done','paused').event,kind:'execute',leaseActive:false},autoResumeEligible:false};},'finished',async()=>{throw Error('paused case cannot execute');});
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'case-changed'}));
+ await f.bridge.recoverFailedEvents();
+ assert.equal(JSON.parse(fs.readFileSync(path.join(run,'auto-resume.response.private.json'))).reason,'confirmed-case-changed');
+ assert.equal(f.bridge.failedRecoveryTimer,null);
+ await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,1);f.bridge.stop();
+});
+test('an uncertain inspection does not erase the candidate and schedules a read-only retry',async()=>{
+ const f=fixture(async()=>{throw Error('temporary service outage');},'finished',async()=>true);
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ await assert.rejects(f.bridge.recoverFailedEvents());
+ assert(f.bridge.failedRecoveryTimer);assert.equal(fs.existsSync(path.join(run,'auto-resume.response.private.json')),false);f.bridge.stop();
+});
+test('newly verified exact-commit capability causes one version-guarded analysis, not a repeated execution',async()=>{
+ const f=fixture(async(action,input)=>{
+  if(action==='event-inspect')return {...inspection('done','blocked'),event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:false,capabilityResumeEligible:input.capability==='render-deploy-commit-v1'};
+  assert.equal(action,'auto-resume');assert.equal(input.capability,'render-deploy-commit-v1');assert.equal(input.version,10);assert.equal(input.eventId,id);return {stage:'clarifying'};
+ },'finished',async()=>true);
+ f.bridge.verifyExactRenderPublish=async()=>true;
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));
+ fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ fs.writeFileSync(path.join(run,'auto-resume.response.private.json'),JSON.stringify({skipped:true,reason:'case-changed'}));
+ await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect','auto-resume']);
+ await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,3);assert.equal(f.bridge.failedRecoveryTimer,null);f.bridge.stop();
+});
+test('new deployment capability does not bypass a server-side eligibility refusal',async()=>{
+ const f=fixture(async action=>{assert.equal(action,'event-inspect');return {...inspection('done','blocked'),event:{...inspection('done','blocked').event,kind:'execute',leaseActive:false},autoResumeEligible:false,capabilityResumeEligible:false};},'finished',async()=>{throw Error('no executor when server denies');});
+ f.bridge.verifyExactRenderPublish=async()=>true;
+ const run=path.join(f.dir,'event-runs',id);fs.mkdirSync(run,{recursive:true});
+ fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect']);assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
+});

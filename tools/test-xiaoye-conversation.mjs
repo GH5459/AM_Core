@@ -166,6 +166,19 @@ test('a blocked completed execution may replan within its own bounded budget',()
  task.secretary.autoRecovery.replanAttempts=3;assert.equal(canAutoResume(c,task,e,false),false);
 });
 
+test('an exact commit deployment capability permits only one guarded retry per source set',()=>{
+ const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='b'.repeat(64),capability='render-deploy-commit-v1';
+ const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:5,sources:[{}],recovery:{reason:'publisher unavailable'},lease:null,leaseUntil:0,executionEvent:{id},autoRecovery:{sourceCount:1,attempts:1,replanAttempts:3}}};
+ const e={id,taskId:task.id,state:'done',kind:'execute',sourceVersion:5,leaseActive:false};
+ assert.equal(canAutoResume(c,task,e,false),false);
+ assert.equal(canAutoResume(c,task,e,false,'render-read-v1'),false);
+ assert.equal(canAutoResume(c,task,e,false,capability),true);
+ assert.equal(canAutoResume(c,task,{...e,id:'c'.repeat(64)},false,capability),false);
+ assert.equal(canAutoResume(c,task,e,true,capability),false);
+ task.secretary.stage='paused';assert.equal(canAutoResume(c,task,e,false,capability),false);
+ task.secretary.stage='blocked';task.secretary.autoRecovery.capabilities=[capability];assert.equal(canAutoResume(c,task,e,false,capability),false);
+});
+
 test('a new plan gets its own bounded tool-recovery attempt',()=>{
  const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='c'.repeat(64);
  const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:6,sources:[{}],recovery:{reason:'temporary tool outage'},lease:null,leaseUntil:0,autoRecovery:{sourceCount:1,attempts:1,replanAttempts:1}}};
@@ -215,5 +228,25 @@ test('legacy blocked case resumes once into a new analyze event, then idempotent
  assert.equal(f.sql.prepare('SELECT kind FROM xiaoye_event_outbox').get().kind,'analyze');
  assert.ok(calls.includes('/prepare'));assert.ok(calls.includes('/commit'));
  const replay=await call();assert.equal(replay.status,200);assert.equal((await replay.json()).replayed,true);
+ assert.equal(f.sql.prepare('SELECT count(*) AS n FROM xiaoye_event_outbox').get().n,1);
+});
+
+test('exact-commit recovery consumes its one capability retry in the guarded transaction',async()=>{
+ const f=fixture(),taskId=f.addCase(1,{stage:'blocked',waiting:false,version:16,sourceVersion:6,recovery:{reason:'publisher unavailable'}}),eventId='a'.repeat(64),capability='render-deploy-commit-v1';
+ const task=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);
+ task.secretary.executionEvent={id:eventId};task.secretary.autoRecovery={sourceCount:task.secretary.sources.length,attempts:1,replanAttempts:3};
+ f.sql.prepare('UPDATE work_items SET value=? WHERE id=?').run(JSON.stringify(task),taskId);
+ const event={id:eventId,taskId,kind:'execute',state:'done',version:15,sourceVersion:6,leaseActive:false};
+ f.c.runnerHash=await digest('Bearer runner-key');
+ f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('xiaoye-secretary','config',JSON.stringify(f.c));
+ f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('service-accounts','ai-xiaoye',JSON.stringify({id:f.c.account.id,active:true,type:'ai'}));
+ f.env.XIAOYE_EVENTS={idFromName:()=>1,get:()=>({fetch:async request=>request.url.endsWith('/inspect')?Response.json({ok:true,event}):Response.json({ok:true})})};
+ const body={tenantKey:'test',id:taskId,version:16,eventId,operationId:'capability-resume-event-'+eventId,capability};
+ const call=async b=>xiaoyeFetch(new Request('https://example.invalid/api/integrations/leaf-snail/tasks/secretary/runner/auto-resume',{method:'POST',headers:{Authorization:'Bearer runner-key'},body:JSON.stringify(b)}),f.env,{});
+ assert.equal((await call({...body,version:15})).status,409);
+ const response=await call(body);assert.equal(response.status,200);
+ const saved=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);
+ assert.deepEqual(saved.secretary.autoRecovery.capabilities,[capability]);assert.equal(saved.secretary.stage,'clarifying');
+ assert.equal((await (await call(body)).json()).replayed,true);
  assert.equal(f.sql.prepare('SELECT count(*) AS n FROM xiaoye_event_outbox').get().n,1);
 });

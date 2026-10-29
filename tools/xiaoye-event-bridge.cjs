@@ -2,12 +2,12 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const runtimeTools=require('./xiaoye-runtime-tools.cjs');
 const {codexExecutable}=require('./xiaoye-runtime-paths.cjs');
 const {reconcileInterruptedEvent,nextFailure}=require('./xiaoye-event-recovery.cjs');
-const {failedEventCandidates}=require('./xiaoye-failed-event-scan.cjs');
+const {failedEventCandidatePage}=require('./xiaoye-failed-event-scan.cjs');
 class EventBridge {
-  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory,verifyCaseExecutor}={}) {
+  constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory,verifyCaseExecutor,verifyExactRenderPublish}={}) {
     this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(codexExecutable(config.codexExecutable),args,options));this.fetcher=fetcher;this.clock=clock;
-    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;
-    this.failedRecoveryTimer=null;this.failedRecoveryAttempts=0;
+    this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;this.verifyExactRenderPublish=verifyExactRenderPublish;
+    this.failedRecoveryTimer=null;this.failedRecoveryAttempts=0;this.failedRecoveryOffset=0;this.failedRecoverySweepPending=false;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
     this.worker=JSON.parse(fs.readFileSync(path.join(this.folder,'wrangler.json')));
@@ -65,15 +65,32 @@ class EventBridge {
     if(this.failedRecoveryRunning||this.running||this.pending.size||!this.verifyCaseExecutor)return;
     clearTimeout(this.failedRecoveryTimer);this.failedRecoveryTimer=null;
     this.failedRecoveryRunning=true;
-    let retryNeeded=false;
+    let retryNeeded=false,more=false;
     try{
-      for(const active of failedEventCandidates(this.folder)){
-        if(this.running||this.pending.size||this.stopped)break;
+      const page=failedEventCandidatePage(this.folder,{offset:this.failedRecoveryOffset});more=page.more;
+      this.failedRecoveryOffset=page.nextOffset;
+      for(const active of page.candidates){
+        if(this.running||this.pending.size||this.stopped){this.failedRecoveryOffset=0;retryNeeded=true;more=false;break;}
         const rel='event-runs/'+active.id;
         const inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
         if(inspected.autoResumeEligible!==true){
-          if(inspected.event?.state!=='failed'||inspected.task?.sourceVersion!==active.sourceVersion||inspected.task?.stage!=='blocked')
-            this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'case-changed'});
+          if(inspected.event?.id!==active.id||inspected.event?.taskId!==active.taskId||inspected.task?.id!==active.taskId)
+            throw Error('原案件事件識別未確認，暫不變更重查紀錄');
+          const terminal=inspected.event?.state==='failed'||inspected.event?.state==='done'&&inspected.event?.kind==='execute';
+          const current=terminal&&inspected.event.sourceVersion===active.sourceVersion&&inspected.task.sourceVersion===active.sourceVersion&&inspected.task.stage==='blocked';
+          if(!current)this.save(rel+'/auto-resume.response.private.json',{skipped:true,reason:'confirmed-case-changed'});
+          else {
+            const capability='render-deploy-commit-v1';
+            if(inspected.event.state==='done'&&typeof this.verifyExactRenderPublish==='function'&&await this.verifyExactRenderPublish(active,inspected)){
+              const fresh=await this.call('event-inspect',{id:active.taskId,eventId:active.id,capability});
+              if(fresh.capabilityResumeEligible===true&&fresh.event?.id===active.id&&fresh.event?.taskId===active.taskId&&fresh.event?.sourceVersion===active.sourceVersion&&fresh.task?.id===active.taskId&&fresh.task?.sourceVersion===active.sourceVersion&&Number.isSafeInteger(fresh.task?.version)&&await this.verifyCaseExecutor(active,fresh)){
+                const result=await this.call('auto-resume',{id:active.taskId,version:fresh.task.version,eventId:active.id,operationId:'capability-resume-event-'+active.id,capability},rel+'/auto-resume.input.private.json');
+                this.save(rel+'/auto-resume.response.private.json',result);
+                continue;
+              }
+            }
+            retryNeeded=true;this.save(rel+'/auto-resume.decision.private.json',{decision:'waiting-for-eligibility',retryScheduled:true,at:new Date(this.clock()).toISOString()});
+          }
           continue;
         }
         let executorReady=false;
@@ -85,13 +102,20 @@ class EventBridge {
         this.save(rel+'/auto-resume.decision.private.json',{decision:result.decision,retryScheduled:needsRetry,at:new Date(this.clock()).toISOString()});
         if(result.decision==='auto-resumed')this.save(rel+'/auto-resume.response.private.json',result.result);
       }
+    }catch(error){
+      // A transient inspection failure is not proof that an event changed.
+      // Keep the original record and retry the read-only check with backoff.
+      this.failedRecoveryOffset=0;more=false;retryNeeded=true;
+      throw error;
     }finally{
       this.failedRecoveryRunning=false;
-      if(retryNeeded&&!this.stopped){
-        const delay=Math.min(300000,30000*2**Math.min(this.failedRecoveryAttempts++,4));
+      this.failedRecoverySweepPending=this.failedRecoverySweepPending||retryNeeded;
+      if((more||this.failedRecoverySweepPending)&&!this.stopped){
+        const delay=more?1000:Math.min(300000,30000*2**Math.min(this.failedRecoveryAttempts++,4));
+        if(!more)this.failedRecoverySweepPending=false;
         this.failedRecoveryTimer=setTimeout(()=>{this.failedRecoveryTimer=null;this.recoverFailedEvents().catch(()=>this.status('reconciliation-required'));},delay);
         this.failedRecoveryTimer.unref?.();
-      }else this.failedRecoveryAttempts=0;
+      }else {this.failedRecoveryAttempts=0;this.failedRecoverySweepPending=false;}
     }
   }
   connect() {
@@ -164,7 +188,8 @@ class EventBridge {
         try {
           const checked=await this.call('event-check',checkInput);
           if(preflightRoute){const fresh=require('./xiaoye-visible-chats.cjs').selectRoute(routes,checked);if(fresh.id!==preflightRoute.id||fresh.workRoot!==preflightRoute.workRoot)throw Error('案件專案在工具檢查後已變更，停止派送');}
-          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable}}:{}});
+          const renderTarget=this.config.exactRenderDeployRecovery,renderProjectKeys=renderTarget?.projectKeys||[renderTarget?.projectKey].filter(Boolean),renderTools=renderTarget&&renderProjectKeys.includes(preflightRoute?.key)?{renderExecutable:renderTarget.cliExecutable,renderWorkspaceId:renderTarget.workspaceId,renderServiceId:renderTarget.serviceId}:{};
+          const prompt=fs.readFileSync(this.config.promptFile,'utf8')+(this.toolWarning?'\n\n本次背景工具檢查結果：'+this.toolWarning+'。請在查核結果中說明，不可假稱工具正常。':'')+'\n\n本次由本人指定的Codex專用聊天接續。請在這個聊天顯示實際查核、修改、驗證及受阻進度。只處理下列原事件；先用原API重核，不查queue，不傳送其他聊天。analyze僅准寫operatorDirectory私人證據，不准改程式或業務資料。只有原API確認目前方案具有有效處理授權，且claim取得有效lease的execute才可修改；授權可依本人設定自動產生，所有副作用前再次event-check及check，失效立即停止。若確定受阻於無法指定受測 commit 發布 Render，請在本事件資料夾 fail.input.private.json 的 blockerInfo 加入 capability: "render-deploy-commit-v1"；不得用讀取能力取代精準發布。使用已設定的 Render CLI 前重新確認登入、工作區、服務與指定版本能力。不要在本聊天等待新事件，提出方案、釐清、完成或受阻後立即結束。\n可信啟動資料：\n'+JSON.stringify({eventKind:job.kind,eventCheckInputFile:checkFile,operatorDirectory:this.folder,workRoot:this.config.workRoot,...this.toolContext?{tools:{gitExecutable:this.toolContext.gitExecutable,ghExecutable:this.toolContext.ghExecutable,...renderTools}}:{}});
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
           const saveEvent=(file,v)=>this.save(rel+'/'+file,v);
@@ -178,6 +203,16 @@ class EventBridge {
           }else await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:saveEvent,check:eventCheck});
           const result=await this.call('event-complete',{...checkInput,operationId:'event-complete-'+job.id},rel+'/event-complete.input.private.json');
           this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
+          // Record a real unavailable capability only after the execution
+          // itself identifies that blocker and a separate read-only probe.
+          try{
+            const fail=JSON.parse(fs.readFileSync(path.join(this.folder,rel,'fail.input.private.json')));
+            if(job.kind==='execute'&&fail.id===job.taskId&&fail.blockerInfo?.capability==='render-deploy-commit-v1'&&typeof this.verifyExactRenderPublish?.probe==='function'){
+              const inspected=await this.call('event-inspect',{id:job.taskId,eventId:job.id});
+              if(inspected.event?.id===job.id&&inspected.event?.taskId===job.taskId&&inspected.event?.sourceVersion===job.sourceVersion&&inspected.task?.id===job.taskId&&inspected.task?.stage==='blocked'&&await this.verifyExactRenderPublish.probe(active,inspected)==='unavailable')
+                this.save(rel+'/capability-blocked.private.json',{id:job.id,taskId:job.taskId,sourceVersion:job.sourceVersion,capability:'render-deploy-commit-v1',state:'unavailable',at:new Date(this.clock()).toISOString()});
+            }
+          }catch{}
         } finally {client.close();}
         return;
       }
@@ -221,7 +256,8 @@ if(require.main===module){
  if(fs.existsSync(lock)){const previous=JSON.parse(fs.readFileSync(lock));try{process.kill(previous.pid,0);process.exit(0);}catch{fs.unlinkSync(lock);}}
  fs.writeFileSync(lock,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}),{flag:'wx'});
  const {createCaseExecutorVerifier}=require('./xiaoye-app-server-client.cjs');
- const bridge=new EventBridge(config,{verifyCaseExecutor:createCaseExecutorVerifier(config)});
+ const {createExactRenderPublishVerifier}=require('./xiaoye-render-publish-recovery.cjs');
+ const bridge=new EventBridge(config,{verifyCaseExecutor:createCaseExecutorVerifier(config),verifyExactRenderPublish:createExactRenderPublishVerifier(config)});
  process.on('exit',()=>{try{if(JSON.parse(fs.readFileSync(lock)).pid===process.pid)fs.unlinkSync(lock);}catch{}});
  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{bridge.stop();process.exit(0);});
  bridge.recover().then(()=>bridge.connect()).catch(()=>{bridge.status('blocked');process.exitCode=1;});
