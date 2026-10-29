@@ -3,6 +3,7 @@ import {digest} from './central-archive/store.js';
 import {createGroupStore} from './leaf-groups-store.js';
 import {mentionCandidate} from './leaf-tasks.js';
 import {extractEvents,prepareEvent,preview,supplementRequest} from './leaf-calendar/extract.js';
+import {explicitCalendarRequest} from './leaf-calendar/date-intent.js';
 import {parseAttachmentRequest} from './attachment-retrieval.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,assignmentSchema,TASK_SPEED_POLICY} from './task-judgment.js';
@@ -13,7 +14,7 @@ export const GROUP_MENTION_CONTRACT='line-group-mention-meetings-tasks-v1';
 const user=/^U[a-f0-9]{32}$/i,group=/^C[a-f0-9]{32}$/i;
 const command=e=>String(e.postback?.data||'').match(/^(?:groupcal|grouptask):(confirm|cancel):([a-f0-9]{48}):(\d{1,8})$/u);
 const peers=(e,bot)=>[...new Set([e.source.userId,...e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&m.userId!==bot&&user.test(m.userId||'')).map(m=>m.userId)])];
-const explicitActivity=e=>{let text=e.message?.text||'';for(const m of [...(e.message?.mention?.mentionees||[])].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);return /^活動/u.test(text.normalize('NFKC').trim());};
+const explicitActivity=e=>{let text=e.message?.text||'';for(const m of [...(e.message?.mention?.mentionees||[])].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);return explicitCalendarRequest(text);};
 const retryKey=value=>{const h=digest(value);return [h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20,32)].join('-');};
 export function createLeafGroups({env=process.env,platform,line,tasks,calendar,store:injected,llm,logger=console,now=Date.now}){
   const enabled=env.AMCORE_LEAF_GROUPS_ENABLED!=='0'&&Boolean(env.LINE_CHANNEL_SECRET)&&user.test(env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID||'');
@@ -47,7 +48,8 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       if((!quick&&!mentionCandidate(e))||parseAttachmentRequest(e)?.explicitSelf)continue;
       const mentions=e.message.mention.mentionees;
       if(mentions.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!user.test(m.userId||''))||peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>21||e.message.text.length>10000)continue;
-      await store.insert(e,'message',{...(quick?{quickKind:quick.kind,directSelfTask:quick.direct===true}:{}),...(explicitActivity(e)?{activityResultsV2:true}:{})});claimed.push(e);
+      const explicitMeeting=explicitActivity(e);
+      await store.insert(e,'message',{...(quick?{quickKind:quick.kind,directSelfTask:quick.direct===true}:explicitMeeting?{quickKind:'meeting'}:{}),...(explicitMeeting?{activityResultsV2:true}:{})});claimed.push(e);
     }return claimed;
   }
   async function classify(event,engine){
@@ -134,7 +136,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     let services;if(p.phase==='queued'){services=await tasks.groupServices();const engine=platform.llmForTenant?.(services[0])||llm,started=now(),decision=p.quickKind?{kind:p.quickKind}:await classify(row.event,engine);p.mode=decision.kind;logger.info?.('[leaf-groups] decision timing',{mode:p.mode,durationMs:now()-started,combinedTaskJudgment:Boolean(decision.assignments)});
       if(decision.assignments)p.taskJudgment={policy:TASK_SPEED_POLICY,assignments:decision.assignments};
       if(p.mode==='none'){p.phase='ignored';return store.save(row,p);}
-      if(p.mode==='meeting'){const events=await extractEvents({text:row.event.message.text,at:row.event.timestamp,llm:engine,groupInvitation:true});
+      if(p.mode==='meeting'){let events;try{events=await extractEvents({text:row.event.message.text,at:row.event.timestamp,llm:engine,groupInvitation:true});}catch{await notify(row,p,'小葉暫時無法整理活動資料，尚未建立行事曆活動。請稍後重新傳送，並註明活動名稱、日期、時間與地點。','calendar-extraction-unavailable');p.phase='ignored';return store.save(row,p);}
         if(events.length!==1){await notify(row,p,'請一次提供一場會議／活動，並註明日期與時間。','one-event');p.phase='ignored';return store.save(row,p);}
         p.prepared=prepareEvent(events[0],'groupcal:'+p.id,{requiredLocation:p.activityResultsV2===true});p.phase='preview';
       }else if(p.mode==='selftask'||p.mode==='directtask'){p.prepared=p.directSelfTask?await extractDirectSelfTask({text:row.event.message.text,at:row.event.timestamp,llm:engine,group:p.mode==='directtask'}):await extractSelfTask({text:row.event.message.text,at:row.event.timestamp,llm:engine});p.phase='preview';}else p.phase='task';

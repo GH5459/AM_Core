@@ -1,6 +1,6 @@
 import lunar from './lunar.cjs';
 export const normalizedDateText=text=>String(text).normalize('NFKC').replace(/(\d)\s*(年|月|日|號|号|[/.:-])\s*(?=\d)/gu,'$1$2').replace(/(\d)\s*(日|號|号)/gu,'$1$2');
-export function explicitCalendarRequest(text){const value=String(text).normalize('NFKC').trim();if(/^活動/u.test(value)&&!/^活動名稱\s*[：:]/u.test(value))return !/^活動[：:\s]*(?:如何|怎麼|能不能|可不可以|可以嗎|查詢|清單|列表|列出|查看)/u.test(value)&&!/[?？]$/u.test(value);return /(?:請|幫我|我要|替我|協助)?\s*(?:建立|新增|設定|安排|排|加|建)(?:一個|一筆|個)?\s*(?:固定)?(?:活動|行程|紀念日|生日|忌日|會議)|(?:活動名稱|時間設定)\s*[：:]/u.test(value);}
+export function explicitCalendarRequest(text){const value=String(text).normalize('NFKC').trim();if((/^活動/u.test(value)&&!/^活動名稱\s*[：:]/u.test(value))||/^會議(?:[：:\s]|$)/u.test(value))return !/^(?:活動|會議)[：:\s]*(?:如何|怎麼|能不能|可不可以|可以嗎|查詢|清單|列表|列出|查看)/u.test(value)&&!/[?？]$/u.test(value);return /(?:請|幫我|我要|替我|協助)?\s*(?:建立|新增|設定|安排|排|加|建)(?:一個|一筆|個)?\s*(?:固定)?(?:活動|行程|紀念日|生日|忌日|會議)|(?:活動名稱|時間設定)\s*[：:]/u.test(value);}
 function chineseNumber(s){if(/^\d+$/.test(s))return Number(s);s=s.replace(/^初/u,'').replace(/^廿/u,'二十').replace(/^卅/u,'三十');if(s==='正')return 1;if(s==='冬')return 11;if(/^[臘腊]$/u.test(s))return 12;
  const digits='零一二三四五六七八九';if(s==='十')return 10;if(s.includes('十')){const [a,b]=s.split('十');return (a?digits.indexOf(a):1)*10+(b?digits.indexOf(b):0);}return digits.indexOf(s);}
 export function lunarTextEvent(text,at,existing){if(!/農曆|农历|陰曆|阴历/u.test(text)){

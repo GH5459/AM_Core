@@ -37,6 +37,17 @@ export async function fixture(){
  const rows=async()=> (await db.query("SELECT payload->'groupDispatch' AS p FROM central_archive.jobs WHERE payload ? 'groupDispatch' ORDER BY event_at,key")).rows.map(r=>r.p);
  return {db,store,archive,options,identities,names,pushes,submissions,selfSubmissions,updates,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:(ms=61000)=>clock+=ms,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
 }
+test('活動 and 會議 commands skip classification, preserve participants and require confirmation',async()=>{for(const word of ['活動','會議']){const f=await fixture();try{
+ let classifications=0;const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>{if(input.schema.properties.kind){classifications++;throw Error('should not classify');}return original(input);};
+ const text='@甲 '+word+' 明天15:00';const e=f.message(text,[a]);e.message.mention.mentionees[0].index=0;e.message.mention.mentionees[0].length=2;
+ await f.capture(e);await f.drain();const p=(await f.rows())[0];assert.equal(p.mode,'meeting');assert.equal(p.phase,'confirmation');assert.equal(p.activityResultsV2,true);assert.equal(classifications,0);assert.equal(f.writes.size,0);
+ await f.capture(f.button(p.id,1,a));await f.drain();assert.equal(f.writes.size,2);
+ }finally{await f.close();}}});
+test('activity extraction timeout tells the group and never creates a calendar event',async()=>{const f=await fixture();try{
+ f.options.llm.completeJson=async()=>{throw Error('timeout');};const e=f.message('@甲 活動 明天15:00',[a]);e.message.mention.mentionees[0].index=0;e.message.mention.mentionees[0].length=2;
+ await f.capture(e);await f.drain();assert.equal((await f.rows())[0].phase,'ignored');assert.equal(f.writes.size,0);assert.match(f.pushes[0].message,/暫時無法整理活動資料.*尚未建立/s);
+ f.restart();await f.capture(e);await f.drain();assert.equal(f.pushes.length,1);
+}finally{await f.close();}});
 test('replied-image explanation reaches task submission even when semantic model would return none, with original quote and replay preserved',async()=>{const f=await fixture();try{
  const e=f.message('@同仁甲 請說明這張圖片的目的',[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();
  const p=(await f.rows())[0];assert.equal(p.mode,'task');assert.equal(p.phase,'done');assert.equal(f.submissions.length,1);assert.equal(f.submissions[0].e.message.quotedMessageId,e.message.quotedMessageId);assert.equal(f.writes.size,0);
