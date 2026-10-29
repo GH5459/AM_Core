@@ -5,8 +5,8 @@ const {fixture}=require(process.env.DAILYLOG_XIAOYE_FIXTURE||path.join(dailylog,
 const key='fixture-xiaoye-existing-service-key-0001',runnerKey='fixture-xiaoye-runner-key-000000000001',tenant='fixture',bot='U'+'a'.repeat(32),user='U'+'b'.repeat(32),owner='140901';
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex'),op=()=>crypto.randomUUID();
 const proposal={summary:'修正隔離示例顯示問題',reason:'隔離資料可重現；尚無真人影響證據。',steps:'修改示例畫面並驗證',systems:['dailylog'],deploy:false,validation:'隔離完整 Worker 與畫面驗證',rollback:'還原本次示例變更'};
-async function setup(){
- const a=await fixture({extraBindings:{LEAF_TASK_SERVICE_KEY:key,LEAF_TASK_TENANT:tenant}});
+async function setup(extraBindings={}){
+ const a=await fixture({extraBindings:{...extraBindings,LEAF_TASK_SERVICE_KEY:key,LEAF_TASK_TENANT:tenant}});
  for(const sql of fs.readFileSync(path.join(__dirname,'../core/xiaoye-secretary.sql'),'utf8').split(';').filter(s=>s.trim()))await a.db.prepare(sql).run();
  const projects=[];for(let i=0;i<4;i++){const r=await a.send(owner,'/api/tasks',{id:'work-'+op(),title:['AI 助手','日誌','簽核','會議'][i],description:'隔離試行專案',leadAccount:owner,collaboratorAccounts:[],level:2,sourceDate:'2026-10-22',startDate:'2026-10-22',workSchema:2});assert.equal(r.status,201,await r.clone().text());const t=(await r.json()).task;t.collaborators.push({account:'ai-xiaoye',name:'小葉（AI）',team:'AI 秘書'});await a.db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(t),t.id).run();projects.push({id:t.id,key:['am','dailylog','uof','meeting'][i],label:t.title});}
  const config={contract:'xiaoye-secretary-pilot-v1',enabled:true,ownerAccount:owner,account:{account:'ai-xiaoye',id:'service:xiaoye',name:'小葉（AI）',type:'ai'},runnerHash:sha('Bearer '+runnerKey),projects};
