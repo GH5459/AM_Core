@@ -18,12 +18,21 @@ function appToolsDirectory(configured) {
 function codexExecutable(configured, { localAppData = process.env.LOCALAPPDATA, locate = () => cp.spawnSync('where.exe', ['codex'], { encoding: 'utf8', windowsHide: true, timeout: 5000 }) } = {}) {
   if (configured && fs.existsSync(configured)) return configured;
   if (!localAppData) throw Error('Codex installation directory unavailable');
-  const trusted = path.resolve(localAppData, 'OpenAI', 'Codex', 'bin').toLowerCase() + path.sep;
+  const bin = path.resolve(localAppData, 'OpenAI', 'Codex', 'bin');
+  const trusted = bin.toLowerCase() + path.sep;
   const result = locate();
   for (const line of String(result.stdout || '').split(/\r?\n/)) {
     const file = line.trim();
     if (path.basename(file).toLowerCase() === 'codex.exe' && path.resolve(file).toLowerCase().startsWith(trusted) && fs.existsSync(file)) return file;
   }
+  // Scheduled tasks may have an older PATH than the desktop application.
+  // Search only the installed Codex directory when PATH cannot locate it.
+  const candidates = fs.existsSync(bin) ? fs.readdirSync(bin, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => path.join(bin, entry.name, 'codex.exe'))
+    .filter(file => fs.existsSync(file))
+    .sort((a,b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs) : [];
+  if (candidates.length) return candidates[0];
   throw Error('Codex executable unavailable');
 }
 

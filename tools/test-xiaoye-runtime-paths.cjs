@@ -20,6 +20,8 @@ test('a removed Codex executable resolves only inside the installed Codex direct
  const installed=path.join(root,'OpenAI','Codex','bin','current','codex.exe');fs.mkdirSync(path.dirname(installed),{recursive:true});fs.writeFileSync(installed,'');
  const outside=path.join(root,'other','codex.exe');fs.mkdirSync(path.dirname(outside));fs.writeFileSync(outside,'');
  assert.equal(codexExecutable(path.join(root,'gone.exe'),{localAppData:root,locate:()=>({stdout:outside+'\n'+installed+'\n'})}),installed);
+ assert.equal(codexExecutable(path.join(root,'gone.exe'),{localAppData:root,locate:()=>({stdout:outside+'\n'})}),installed);
+ fs.unlinkSync(installed);
  assert.throws(()=>codexExecutable(path.join(root,'gone.exe'),{localAppData:root,locate:()=>({stdout:outside+'\n'})}),/unavailable/);
 });
 
