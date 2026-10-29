@@ -58,7 +58,7 @@ async function transaction(env,old,next,op,input,actor,note,extra=[],guard='1',g
  if(event)try{await eventCall(env,'commit',{id:event.id});}catch{}
  return next;
 }
-function notification(env,t,account,kind,message,source=null,lineMessage=null){const s=t.secretary;const key=t.id+':'+kind+':'+s.sourceVersion+':'+(s.proposal?.hash||'')+':'+account;return docsInsert(env.DB,'xiaoye-notifications',key,{id:key,taskId:t.id,account,kind,message,...lineMessage?{lineMessage}:{},sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:source?.userId||null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()});}
+function notification(env,t,account,kind,message,source=null,lineMessage=null,context=null){const s=t.secretary;const key=t.id+':'+kind+':'+s.sourceVersion+':'+(s.proposal?.hash||'')+':'+account;return docsInsert(env.DB,'xiaoye-notifications',key,{id:key,taskId:t.id,account,kind,message,...lineMessage?{lineMessage}:{},...context?{context}:{},sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:source?.userId||null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()});}
 const entryVersion=s=>s.ownerFeedback?.at(-1)?.proposalVersion||s.proposalSequence||1;
 function retireProposal(s){if(s.approval){s.approvalHistory=[...(s.approvalHistory||[]),{...s.approval,retiredAt:new Date().toISOString()}];}if(s.autoAuthorization){s.autoAuthorizationHistory=[...(s.autoAuthorizationHistory||[]),{...s.autoAuthorization,retiredAt:new Date().toISOString()}];}if(s.proposal){s.proposalSequence=Math.max(s.proposalSequence||0,s.proposal.version);s.proposalHistory=[...(s.proposalHistory||[]),{...s.proposal,retiredAt:new Date().toISOString()}];}s.proposal=null;s.approval=null;s.autoAuthorization=null;s.lease=null;s.leaseUntil=0;s.recovery=null;s.recoveryRequested=false;}
 function retireResult(s){if(s.result){s.resultHistory=[...(s.resultHistory||[]),{...s.result,retiredAt:new Date().toISOString()}];s.result=null;}}
@@ -151,7 +151,7 @@ async function recordDeployReconciliation(env,c,v){
  if(t.primaryParentId)await membership(env,c,t.primaryParentId);else for(const project of c.projects)await membership(env,c,project.id);
  dep.outcome=v.status==='live'?'reconciled-live':'reconciled-failed';dep.reconciliation={status:v.status,at:new Date().toISOString(),evidence:'runner-asserted-read-only'};
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
- const extras=v.status==='live'?[]:s.reporters.map(p=>notification(env,t,p.account,'deploy-reconciliation','葉小蝸已核對發布狀態：這次發布未成功，目前問題尚未完成，系統會保留原案件進一步查核。\n'+link(env,t.id),p.source));
+ const extras=v.status==='live'?[]:s.reporters.map(p=>notification(env,t,p.account,'deploy-reconciliation','葉小蝸已核對發布狀態：這次發布未成功，目前問題尚未完成，系統會保留原案件進一步查核。\n'+link(env,t.id),p.source,null,{eventId:v.eventId,botUserId:p.source?.botUserId||null}));
  const saved=await transaction(env,old,t,v.operationId,input,actor,v.status==='live'?'接收器核對原發布已上線，仍需查核原問題，不重送原發布。':'接收器核對原發布未成功，保留案件及執行證據，不重送原發布。',extras,guard,[t.id,Date.now(),c.autoResolutionEpoch]);
  return {ok:true,version:saved.version};
 }
@@ -402,7 +402,17 @@ async function runner(env,c,base,authority,action,v,preview){
  }
  throw fail('不支援此操作。',400);
 }
-function notificationCurrent(n,t){if(!t?.secretary)return false;if(n.kind==='receipt')return !t.secretary.sourceWithdrawn&&t.secretary.reporters.some(p=>p.account===n.account);if(n.sourceVersion!==t.secretary.sourceVersion||n.proposalHash!==(t.secretary.proposal?.hash||null))return false;if(n.kind==='event-blocked')return !['closed','duplicate'].includes(t.secretary.stage);return n.kind==='approval'?t.secretary.stage==='awaiting_approval':n.kind==='result'?t.secretary.stage==='awaiting_confirmation':n.kind==='question'?t.secretary.stage==='clarifying'&&t.secretary.waitingForReporter:t.secretary.stage==='blocked';}
+export function notificationCurrent(n,t){
+ if(!t?.secretary)return false;const s=t.secretary;
+ if(n.kind==='receipt')return !s.sourceWithdrawn&&s.reporters.some(p=>p.account===n.account);
+ if(n.kind==='deploy-reconciliation'){
+  if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!n.context?.eventId||!n.context.botUserId||!n.expectedUserId||!s.reporters?.some(p=>p.account===n.account&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===n.context.botUserId))return false;
+  const dep=s.recovery?.capability,review=s.deploymentReview;
+  if(s.stage==='blocked')return n.sourceVersion===s.sourceVersion&&n.proposalHash===(s.proposal?.hash||null)&&dep?.eventId===n.context.eventId&&dep.outcome==='reconciled-failed';
+  return s.stage==='clarifying'&&review?.state==='pending'&&review.originalEventId===n.context.eventId&&review.originalSourceVersion===n.sourceVersion&&s.sourceVersion===n.sourceVersion+1&&!s.proposal;
+ }
+ if(n.sourceVersion!==s.sourceVersion||n.proposalHash!==(s.proposal?.hash||null))return false;if(n.kind==='event-blocked')return !['closed','duplicate'].includes(s.stage);return n.kind==='approval'?s.stage==='awaiting_approval':n.kind==='result'?s.stage==='awaiting_confirmation':n.kind==='question'?s.stage==='clarifying'&&s.waitingForReporter:s.stage==='blocked';
+}
 async function approvalDeferred(env,c,n){if(n.kind!=='approval')return false;return !!await env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-intake-sessions' AND json_extract(value,'$.mode')='draft' AND json_extract(value,'$.until')>? AND json_extract(value,'$.actor.account')=? AND (? IS NULL OR json_extract(value,'$.source.botUserId')=?) LIMIT 1").bind(Date.now(),n.account,c.oaBotUserId||null,c.oaBotUserId||null).first();}
 async function notifications(env,c,action,v){
  if(action==='claim'){

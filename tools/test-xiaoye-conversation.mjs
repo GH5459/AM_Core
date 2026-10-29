@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {waitingCases,canAutoResume,intake,digest,xiaoyeFetch} from '../core/xiaoye-secretary-dailylog.mjs';
+import {waitingCases,canAutoResume,intake,digest,xiaoyeFetch,notificationCurrent} from '../core/xiaoye-secretary-dailylog.mjs';
 import {XiaoyeEvents} from '../core/xiaoye-secretary-events.mjs';
 import {resultRequest} from '../core/xiaoye-result-actions.mjs';
 
 const BOT='U'+'b'.repeat(32),PERSON='U'+'a'.repeat(32),OTHER='U'+'c'.repeat(32),ACCOUNT='reporter';
 const caseId=n=>'work-'+String(n).padStart(8,'0')+'-1111-4111-8111-111111111111';
 const source=(userId=PERSON,eventId='event-1')=>({type:'user',userId,conversationId:userId,botUserId:BOT,eventId,timestamp:Date.now()});
+test('a failed-deploy notice survives only the exact same-case automatic transition',()=>{
+ const id='a'.repeat(64),n={kind:'deploy-reconciliation',account:ACCOUNT,expectedUserId:PERSON,sourceVersion:4,proposalHash:'old',context:{eventId:id,botUserId:BOT}},t={secretary:{stage:'blocked',sourceVersion:4,proposal:{hash:'old'},reporters:[{account:ACCOUNT,source:source()}],recovery:{capability:{eventId:id,outcome:'reconciled-failed'}}}};
+ assert.equal(notificationCurrent(n,t),true);
+ t.secretary.stage='clarifying';t.secretary.sourceVersion=5;t.secretary.proposal=null;t.secretary.deploymentReview={state:'pending',originalEventId:id,originalSourceVersion:4};assert.equal(notificationCurrent(n,t),true);
+ for(const alteration of [x=>{x.secretary.sourceWithdrawn=true},x=>{x.secretary.stage='paused'},x=>{x.secretary.sourceVersion++},x=>{x.secretary.deploymentReview.originalEventId='b'.repeat(64)},x=>{x.secretary.deploymentReview.state='reviewed'},x=>{x.secretary.reporters[0].source.userId=OTHER},x=>{x.secretary.reporters[0].source.botUserId=OTHER},x=>{x.deletedAt='now'},x=>{x.status='cancelled'}]){const x=structuredClone(t);alteration(x);assert.equal(notificationCurrent(n,x),false);}
+});
 function fixture(){
  const sql=new DatabaseSync(':memory:');
  sql.exec('CREATE TABLE work_items(id TEXT PRIMARY KEY,level INTEGER,parent_id TEXT,department TEXT,department_id TEXT,value TEXT,revision INTEGER); CREATE TABLE documents(namespace TEXT,key TEXT,value TEXT,revision INTEGER,PRIMARY KEY(namespace,key)); CREATE TABLE xiaoye_operations(id TEXT PRIMARY KEY,guard INTEGER CHECK(guard=1),fingerprint TEXT,task_id TEXT); CREATE TABLE xiaoye_draft_operations(id TEXT PRIMARY KEY,guard INTEGER CHECK(guard=1)); CREATE TABLE work_notion_jobs(id TEXT PRIMARY KEY,version INTEGER); CREATE TABLE xiaoye_event_outbox(id TEXT PRIMARY KEY,task_id TEXT,version INTEGER,kind TEXT,created_at INTEGER); CREATE TABLE task_attachments(id TEXT PRIMARY KEY,scope TEXT,target_id TEXT,name TEXT,mime TEXT,size INTEGER,digest TEXT,actor TEXT,actor_name TEXT,created_at TEXT); CREATE TABLE task_attachment_chunks(attachment_id TEXT,part INTEGER,content BLOB);');
