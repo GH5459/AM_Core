@@ -1,10 +1,8 @@
-// Run only against an explicitly supplied, local prototype broker module.
 // All providers are fictional and make no external calls.
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {SandboxController}=require('./xiaoye-sandbox-controller.cjs');
-if(!process.argv[2])throw Error('Pass an absolute path to the local prototype broker module');
-const {ControlledBroker}=require(path.resolve(process.argv[2]));
+const {ControlledBroker}=require('./xiaoye-controlled-broker.cjs');
 test('controller and durable fake broker coordinate renewal, unknown actions, restart and revocation',async()=>{
  const parent=fs.realpathSync(os.tmpdir()),dir=fs.mkdtempSync(path.join(parent,'xiaoye-sandbox-broker-'));let now=1000000,writes=0,reads=0;
  const eventId='a'.repeat(64),target={repo:'fixture/repo',number:5,base:'main',headSha:'b'.repeat(40)},capability=crypto.randomBytes(32).toString('base64url');

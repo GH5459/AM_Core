@@ -44,10 +44,10 @@ unknown cases therefore remains unfinished.
 Local tests with fake providers:
 
 ```
-node --test tools/test-xiaoye-sandbox-controller.cjs
-node tools/test-xiaoye-sandbox-broker-integration.cjs <absolute-path-to-local-xiaoye-controlled-broker.cjs>
+node --test tools/test-xiaoye-sandbox-controller.cjs tools/test-xiaoye-sandbox-broker-integration.cjs
+node --test tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs
 ```
 
-The second command tests against the sibling broker prototype; it must not be
-pointed at any production module or credentials. No tests connect to Render,
+Both commands run only the included prototype against fictional providers.
+No tests connect to Render,
 GitHub, LINE, actual employee cases, or any other external service.
