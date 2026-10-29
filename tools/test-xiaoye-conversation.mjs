@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {waitingCases,canAutoResume,intake,digest,xiaoyeFetch} from '../core/xiaoye-secretary-dailylog.mjs';
+import {waitingCases,canAutoResume,intake,digest,xiaoyeFetch,notificationCurrent} from '../core/xiaoye-secretary-dailylog.mjs';
 import {XiaoyeEvents} from '../core/xiaoye-secretary-events.mjs';
 import {resultRequest} from '../core/xiaoye-result-actions.mjs';
 
 const BOT='U'+'b'.repeat(32),PERSON='U'+'a'.repeat(32),OTHER='U'+'c'.repeat(32),ACCOUNT='reporter';
 const caseId=n=>'work-'+String(n).padStart(8,'0')+'-1111-4111-8111-111111111111';
 const source=(userId=PERSON,eventId='event-1')=>({type:'user',userId,conversationId:userId,botUserId:BOT,eventId,timestamp:Date.now()});
+test('a failed-deploy notice survives only the exact same-case automatic transition',()=>{
+ const id='a'.repeat(64),n={kind:'deploy-reconciliation',account:ACCOUNT,expectedUserId:PERSON,sourceVersion:4,proposalHash:'old',context:{eventId:id,botUserId:BOT}},t={secretary:{stage:'blocked',sourceVersion:4,proposal:{hash:'old'},reporters:[{account:ACCOUNT,source:source()}],recovery:{capability:{eventId:id,outcome:'reconciled-failed'}}}};
+ assert.equal(notificationCurrent(n,t),true);
+ t.secretary.stage='clarifying';t.secretary.sourceVersion=5;t.secretary.proposal=null;t.secretary.deploymentReview={state:'pending',originalEventId:id,originalSourceVersion:4};assert.equal(notificationCurrent(n,t),true);
+ t.secretary.deploymentReview.state='reviewed';assert.equal(notificationCurrent(n,t),true);
+ for(const stage of ['awaiting_approval','approved','executing']){const x=structuredClone(t);x.secretary.stage=stage;x.secretary.proposal={hash:'new'};assert.equal(notificationCurrent(n,x),true);}
+ for(const alteration of [x=>{x.secretary.sourceWithdrawn=true},x=>{x.secretary.stage='paused'},x=>{x.secretary.stage='awaiting_confirmation'},x=>{x.secretary.stage='closed'},x=>{x.secretary.sourceVersion++},x=>{x.secretary.deploymentReview.originalEventId='b'.repeat(64)},x=>{x.secretary.deploymentReview.state='resolved'},x=>{x.secretary.reporters[0].source.userId=OTHER},x=>{x.secretary.reporters[0].source.botUserId=OTHER},x=>{x.deletedAt='now'},x=>{x.status='cancelled'}]){const x=structuredClone(t);alteration(x);assert.equal(notificationCurrent(n,x),false);}
+});
 function fixture(){
  const sql=new DatabaseSync(':memory:');
  sql.exec('CREATE TABLE work_items(id TEXT PRIMARY KEY,level INTEGER,parent_id TEXT,department TEXT,department_id TEXT,value TEXT,revision INTEGER); CREATE TABLE documents(namespace TEXT,key TEXT,value TEXT,revision INTEGER,PRIMARY KEY(namespace,key)); CREATE TABLE xiaoye_operations(id TEXT PRIMARY KEY,guard INTEGER CHECK(guard=1),fingerprint TEXT,task_id TEXT); CREATE TABLE xiaoye_draft_operations(id TEXT PRIMARY KEY,guard INTEGER CHECK(guard=1)); CREATE TABLE work_notion_jobs(id TEXT PRIMARY KEY,version INTEGER); CREATE TABLE xiaoye_event_outbox(id TEXT PRIMARY KEY,task_id TEXT,version INTEGER,kind TEXT,created_at INTEGER); CREATE TABLE task_attachments(id TEXT PRIMARY KEY,scope TEXT,target_id TEXT,name TEXT,mime TEXT,size INTEGER,digest TEXT,actor TEXT,actor_name TEXT,created_at TEXT); CREATE TABLE task_attachment_chunks(attachment_id TEXT,part INTEGER,content BLOB);');
@@ -166,6 +174,24 @@ test('a blocked completed execution may replan within its own bounded budget',()
  task.secretary.autoRecovery.replanAttempts=3;assert.equal(canAutoResume(c,task,e,false),false);
 });
 
+test('exact-commit recovery is bound to the recorded dependency and each event',()=>{
+ const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='b'.repeat(64),capability='render-deploy-commit-v1';
+ const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:5,sources:[{}],recovery:{reason:'publisher unavailable',capability:{name:capability,outcome:'rejected',eventId:id,sourceVersion:5}},lease:null,leaseUntil:0,executionEvent:{id},autoRecovery:{sourceCount:1,attempts:1,replanAttempts:3}}};
+ const e={id,taskId:task.id,state:'done',kind:'execute',sourceVersion:5,leaseActive:false};
+ assert.equal(canAutoResume(c,task,e,false),false);
+ assert.equal(canAutoResume(c,task,e,false,'render-read-v1'),false);
+ assert.equal(canAutoResume(c,task,e,false,capability),true);
+ assert.equal(canAutoResume(c,task,{...e,id:'c'.repeat(64)},false,capability),false);
+ assert.equal(canAutoResume(c,task,e,true,capability),false);
+ task.secretary.stage='paused';assert.equal(canAutoResume(c,task,e,false,capability),false);
+ task.secretary.stage='blocked';task.secretary.autoRecovery.capabilityEvents=[{name:capability,eventId:id,at:Date.now()}];assert.equal(canAutoResume(c,task,e,false,capability),false);
+ const next='d'.repeat(64);task.secretary.executionEvent.id=next;task.secretary.recovery.capability.eventId=next;
+ assert.equal(canAutoResume(c,task,{...e,id:next},false,capability),true,'a second independent failure can recover');
+ task.secretary.recovery.capability.outcome='unknown';assert.equal(canAutoResume(c,task,{...e,id:next},false,capability),false);assert.equal(canAutoResume(c,task,{...e,id:next},false),false);
+ task.secretary.recovery.capability.outcome='rejected';task.secretary.autoRecovery.capabilityEvents.push({name:capability,eventId:'e'.repeat(64),at:Date.now()},{name:capability,eventId:'f'.repeat(64),at:Date.now()});assert.equal(canAutoResume(c,task,{...e,id:next},false,capability),false,'three retries in a day trigger backoff');
+ task.secretary.autoRecovery.capabilityEvents.forEach(x=>x.at=Date.now()-86400001);assert.equal(canAutoResume(c,task,{...e,id:next},false,capability),true,'a later genuinely distinct event can recover after backoff');
+});
+
 test('a new plan gets its own bounded tool-recovery attempt',()=>{
  const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='c'.repeat(64);
  const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:6,sources:[{}],recovery:{reason:'temporary tool outage'},lease:null,leaseUntil:0,autoRecovery:{sourceCount:1,attempts:1,replanAttempts:1}}};
@@ -216,4 +242,68 @@ test('legacy blocked case resumes once into a new analyze event, then idempotent
  assert.ok(calls.includes('/prepare'));assert.ok(calls.includes('/commit'));
  const replay=await call();assert.equal(replay.status,200);assert.equal((await replay.json()).replayed,true);
  assert.equal(f.sql.prepare('SELECT count(*) AS n FROM xiaoye_event_outbox').get().n,1);
+});
+
+test('exact-commit recovery consumes its one capability retry in the guarded transaction',async()=>{
+ const f=fixture(),taskId=f.addCase(1,{stage:'blocked',waiting:false,version:16,sourceVersion:6,recovery:{reason:'publisher unavailable'}}),eventId='a'.repeat(64),capability='render-deploy-commit-v1';
+ const task=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);
+ task.secretary.executionEvent={id:eventId};task.secretary.recovery.capability={name:capability,outcome:'rejected',eventId,sourceVersion:6};task.secretary.autoRecovery={sourceCount:task.secretary.sources.length,attempts:1,replanAttempts:3};
+ f.sql.prepare('UPDATE work_items SET value=? WHERE id=?').run(JSON.stringify(task),taskId);
+ const event={id:eventId,taskId,kind:'execute',state:'done',version:15,sourceVersion:6,leaseActive:false};
+ f.c.runnerHash=await digest('Bearer runner-key');
+ f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('xiaoye-secretary','config',JSON.stringify(f.c));
+ f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('service-accounts','ai-xiaoye',JSON.stringify({id:f.c.account.id,active:true,type:'ai'}));
+ f.env.XIAOYE_EVENTS={idFromName:()=>1,get:()=>({fetch:async request=>request.url.endsWith('/inspect')?Response.json({ok:true,event}):Response.json({ok:true})})};
+ const body={tenantKey:'test',id:taskId,version:16,eventId,operationId:'capability-resume-event-'+eventId,capability};
+ const call=async b=>xiaoyeFetch(new Request('https://example.invalid/api/integrations/leaf-snail/tasks/secretary/runner/auto-resume',{method:'POST',headers:{Authorization:'Bearer runner-key'},body:JSON.stringify(b)}),f.env,{});
+ assert.equal((await call({...body,version:15})).status,409);
+ const response=await call(body);assert.equal(response.status,200);
+ const saved=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);
+ assert.equal(saved.secretary.autoRecovery.capabilityEvents[0].name,capability);assert.equal(saved.secretary.autoRecovery.capabilityEvents[0].eventId,eventId);assert.equal(saved.secretary.stage,'clarifying');
+ assert.equal((await (await call(body)).json()).replayed,true);
+ assert.equal(f.sql.prepare('SELECT count(*) AS n FROM xiaoye_event_outbox').get().n,1);
+});
+test('legacy dependency is version-guarded, auditable and idempotent, but is a runner assertion',async()=>{
+ const f=fixture(),taskId=f.addCase(1,{stage:'blocked',waiting:false,version:16,sourceVersion:6,recovery:{reason:'old publisher unavailable'}}),eventId='a'.repeat(64),capability='render-deploy-commit-v1';
+ const task=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);task.secretary.executionEvent={id:eventId};task.secretary.autoRecovery={sourceCount:task.secretary.sources.length,attempts:1,replanAttempts:3};f.sql.prepare('UPDATE work_items SET value=? WHERE id=?').run(JSON.stringify(task),taskId);
+ const event={id:eventId,taskId,kind:'execute',state:'done',version:15,sourceVersion:6,leaseActive:false};f.c.runnerHash=await digest('Bearer runner-key');
+ f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('xiaoye-secretary','config',JSON.stringify(f.c));f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('service-accounts','ai-xiaoye',JSON.stringify({id:f.c.account.id,active:true,type:'ai'}));
+ f.env.XIAOYE_EVENTS={idFromName:()=>1,get:()=>({fetch:async request=>request.url.endsWith('/inspect')?Response.json({ok:true,event}):Response.json({ok:true})})};
+ const body={tenantKey:'test',id:taskId,version:16,eventId,operationId:'legacy-capability-'+eventId,capability,evidence:'legacy-local-preflight-v1'};
+ const call=async b=>xiaoyeFetch(new Request('https://example.invalid/api/integrations/leaf-snail/tasks/secretary/runner/record-legacy-capability',{method:'POST',headers:{Authorization:'Bearer runner-key'},body:JSON.stringify(b)}),f.env,{});
+ assert.equal((await call({...body,version:15})).status,409);assert.equal((await call(body)).status,200);
+ const saved=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);assert.equal(saved.secretary.recovery.capability.evidence,'legacy-local-preflight-v1');assert.equal(saved.secretary.recovery.capability.eventId,eventId);assert.equal(saved.secretary.stage,'blocked');
+ assert.equal((await (await call(body)).json()).replayed,true);
+});
+test('unknown deploy reconciliation requires exact immutable deployment identity and live only permits analysis',async()=>{
+ const f=fixture(),taskId=f.addCase(1,{stage:'blocked',waiting:false,version:16,sourceVersion:6,recovery:{reason:'deploy unknown'}}),eventId='a'.repeat(64),d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};
+ const task=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);task.secretary.executionEvent={id:eventId};task.secretary.autoRecovery={sourceCount:task.secretary.sources.length,replanAttempts:3};task.secretary.recovery.capability={name:'render-deploy-commit-v1',outcome:'unknown',eventId,sourceVersion:6,deployment:d};f.sql.prepare('UPDATE work_items SET value=? WHERE id=?').run(JSON.stringify(task),taskId);
+ const event={id:eventId,taskId,kind:'execute',state:'done',version:15,sourceVersion:6,leaseActive:false};f.c.runnerHash=await digest('Bearer runner-key');f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('xiaoye-secretary','config',JSON.stringify(f.c));f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('service-accounts','ai-xiaoye',JSON.stringify({id:f.c.account.id,active:true,type:'ai'}));f.env.XIAOYE_EVENTS={idFromName:()=>1,get:()=>({fetch:async r=>r.url.endsWith('/inspect')?Response.json({ok:true,event}):r.url.endsWith('/check')?Response.json({ok:true,job:{taskId,kind:'analyze',sourceVersion:7}}):Response.json({ok:true})})};
+ const call=async(action,b)=>xiaoyeFetch(new Request('https://example.invalid/api/integrations/leaf-snail/tasks/secretary/runner/'+action,{method:'POST',headers:{Authorization:'Bearer runner-key'},body:JSON.stringify({tenantKey:'test',...b})}),f.env,{});
+ const body={id:taskId,version:16,eventId,operationId:'deploy-reconcile-'+eventId,status:'live',deployment:d};
+ assert.equal((await call('record-deploy-reconciliation',{...body,version:15})).status,409);
+ assert.equal((await call('record-deploy-reconciliation',{...body,deployment:{...d,commitId:'c'.repeat(40)}})).status,409);
+ assert.equal((await call('record-deploy-reconciliation',body)).status,200);
+ const saved=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);assert.equal(saved.secretary.stage,'blocked');assert.equal(saved.secretary.recovery.capability.reconciliation.status,'live');
+ assert.equal((await call('auto-resume',{id:taskId,version:17,eventId,operationId:'deploy-live-resume-'+eventId,capability:'render-deploy-reconciled-v1'})).status,200);
+ const resumed=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(f.sql.prepare('SELECT kind FROM xiaoye_event_outbox').get().kind,'analyze');
+});
+test('a confirmed failed deploy notifies the original reporter and cannot resume the original deployment',async()=>{
+ const f=fixture(),taskId=f.addCase(1,{stage:'blocked',waiting:false,version:16,sourceVersion:6,recovery:{reason:'deploy unknown'}}),eventId='a'.repeat(64),d={workspaceId:'tea-abc',serviceId:'srv-abc',deployId:'dep-abc',commitId:'b'.repeat(40)};
+ const task=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);task.secretary.executionEvent={id:eventId};task.secretary.autoRecovery={sourceCount:task.secretary.sources.length,replanAttempts:3};task.secretary.recovery.capability={name:'render-deploy-commit-v1',outcome:'unknown',eventId,sourceVersion:6,deployment:d};f.sql.prepare('UPDATE work_items SET value=? WHERE id=?').run(JSON.stringify(task),taskId);
+ const event={id:eventId,taskId,kind:'execute',state:'done',version:15,sourceVersion:6,leaseActive:false};f.c.runnerHash=await digest('Bearer runner-key');f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('xiaoye-secretary','config',JSON.stringify(f.c));f.sql.prepare('INSERT INTO documents VALUES(?,?,?,1)').run('service-accounts','ai-xiaoye',JSON.stringify({id:f.c.account.id,active:true,type:'ai'}));f.env.XIAOYE_EVENTS={idFromName:()=>1,get:()=>({fetch:async r=>r.url.endsWith('/inspect')?Response.json({ok:true,event}):r.url.endsWith('/check')?Response.json({ok:true,job:{taskId,kind:'analyze',sourceVersion:7}}):Response.json({ok:true})})};
+ const call=async(action,b)=>xiaoyeFetch(new Request('https://example.invalid/api/integrations/leaf-snail/tasks/secretary/runner/'+action,{method:'POST',headers:{Authorization:'Bearer runner-key'},body:JSON.stringify({tenantKey:'test',...b})}),f.env,{});
+ assert.equal((await call('record-deploy-reconciliation',{id:taskId,version:16,eventId,operationId:'deploy-reconcile-'+eventId,status:'build_failed',deployment:d})).status,200);
+ const notice=JSON.parse(f.sql.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='deploy-reconciliation'").get().value);assert.equal(notice.account,ACCOUNT);assert.equal(notice.expectedUserId,PERSON);assert.match(notice.message,/未成功/);
+ assert.equal((await call('auto-resume',{id:taskId,version:17,eventId,operationId:'not-retry-'+eventId,capability:'render-deploy-reconciled-v1'})).status,409);
+ assert.equal(f.sql.prepare('SELECT count(*) AS n FROM xiaoye_event_outbox').get().n,0);
+ const resumed=await call('auto-resume',{id:taskId,version:17,eventId,operationId:'failure-analysis-'+eventId,capability:'render-deploy-failure-analysis-v1'});assert.equal(resumed.status,200);
+ const now=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);assert.equal(now.secretary.stage,'clarifying');assert.equal(now.secretary.deploymentReview.state,'pending');assert.equal(now.secretary.deploymentReview.deployment.deployId,d.deployId);
+ assert.equal(f.sql.prepare('SELECT kind FROM xiaoye_event_outbox').get().kind,'analyze');
+ const currentId='c'.repeat(64),base={id:taskId,version:18,eventId:currentId,eventLease:'lease',operationId:'review-original-deploy',originalEventId:eventId,deployId:d.deployId,effectsStatus:'none',summary:'隔離副作用核對',evidence:['隔離唯讀證據']};
+ assert.equal((await call('propose',{...base,operationId:'premature-proposal'})).status,409);
+ assert.equal((await call('deploy-effects-check',{...base,deployId:'dep-wrong'})).status,409);
+ assert.equal((await call('deploy-effects-check',{...base,effectsStatus:'unknown'})).status,400);
+ assert.equal((await call('deploy-effects-check',base)).status,200);assert.equal((await (await call('deploy-effects-check',base)).json()).replayed,true);
+ const reviewed=JSON.parse(f.sql.prepare('SELECT value FROM work_items WHERE id=?').get(taskId).value);assert.equal(reviewed.secretary.deploymentReview.state,'reviewed');
 });

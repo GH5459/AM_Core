@@ -6,7 +6,7 @@ function event(text='@同仁 請整理本週客訴清單'){return {type:'message
 async function fixture({failFirstTenant=false,businessResolution='active',missingRecipient=false,duplicateService=false}={}){let config=null,job=null,judgments=0,issues=0,notices=0,failNotice=false,revoked=false;const paths=[];
  const options={env:{LINE_CHANNEL_SECRET:secret},tenants:failFirstTenant?[{key:'unavailable',runtimeEnabled:true},tenant]:[tenant],store:{service:async t=>{if(t.key==='unavailable')throw Object.assign(Error('synthetic unavailable'),{code:'42501'});return config;},provisionTasks:async()=>{},configureTask:async(t,v)=>config={encrypted_key:{iv:'preserved-calendar',taskService:{baseUrl:v.baseUrl,encryptedKey:v.encryptedKey}}}},router:{resolveGroupBinding:async()=>({tenant,binding:{status:'影子記錄'},resolution:'active'})},line:{lineGet:async p=>({userId:p.split('/').at(-1)})},resolveIdentity:async(u,t)=>revoked?null:({tenantKey:t,account:u===sender?'sender':'recipient',bindingId:'bound-'+u}),platform:{pushLineMessage:async()=>{if(failNotice){failNotice=false;throw Error('synthetic timeout');}notices++;}},llm:{completeJson:async opts=>{judgments++;return JSON.parse(opts.userContent).text.includes('早安')?{assignments:[]}:{assignments:[{title:'整理客訴清單',description:'整理本週客訴清單',recipientIndices:[0]}]};}},logger:{warn(){}},fetchImpl:async(url,init)=>{const path=new URL(url).pathname.split('/').at(-1),input=init.body?JSON.parse(init.body):{};paths.push(path);let output={ok:true};
  if(path==='meeting-person')output={ok:true,person:{name:'合成同仁'}};
- if(path==='health')output={ok:true,contract:'line-mention-dailylog-immediate-v1',tenant:'fixture'};
+ if(path==='health')output={ok:true,contract:'line-mention-dailylog-immediate-v1',directTaskContract:'line-group-bot-direct-v2',tenant:'fixture'};
  if(path==='intake'){if(!job)job={id:input.id,state:'queued',input,result:null,leaseToken:'synthetic-lease'};else assert.equal(input.id,job.id);}
  if(path==='next')output.job=job&&job.state!=='done'&&job.state!=='suppressed'?structuredClone(job):null;
  if(path==='judgment'){job.result={assignments:input.assignments};job.state=input.assignments.length?'judged':'suppressed';}
@@ -70,6 +70,20 @@ test('combined group extraction uses original mention indices and does not call 
   const r=await service.submitSelfTask(tenant,e,prior,draft,confirmation,1);assert.equal(r.taskIds[0],'work-fixture');assert.match(JSON.stringify(r.message),/已建立自己的任務/);assert.equal(f.counts().issues,0);
   await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,{...confirmation,userId:recipient},1));f.revoke();await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,confirmation,1));
  });
+
+test('direct group task and reply use current verified group identities and exact service contracts',async()=>{
+ const f=await fixture(),e=event('@同仁 任務 明天盤點'),base=f.options.fetchImpl,seen=[];f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);
+ f.options.fetchImpl=async(url,init)=>{const path=new URL(url).pathname.split('/').at(-1);if(path==='self-create'||path==='direct-update'){const value=JSON.parse(init.body);seen.push({path,value});return Response.json({ok:true,contract:value.contract,taskIds:['work-12345678-1234-1234-1234-123456789abc'],taskId:'work-12345678-1234-1234-1234-123456789abc'});}return base(url,init);};
+ const service=f.restart(),people=await Promise.all([sender,recipient].map(id=>service.resolveGroupIdentity(id,tenant,group))),draft={title:'盤點',description:'盤點用品',acceptance:'',executionDate:'2026-10-30',dueDate:'2026-11-01',dueAt:'2026-11-01T23:59:00+08:00'};
+ await service.submitDirectGroupTask(tenant,e,people,draft,1);assert.equal(seen[0].value.contract,'line-group-bot-direct-assignment-v2');assert.equal(seen[0].value.recipients[0].userId,recipient);assert.equal(seen[0].value.actor.userId,sender);
+ await service.updateDirectTask(tenant,e,'work-12345678-1234-1234-1234-123456789abc',{action:'cancel'},1);assert.equal(seen[1].path,'direct-update');assert.equal(seen[1].value.expectedVersion,1);assert.match(seen[1].value.operationId,/^op-/);f.revoke();await assert.rejects(()=>service.updateDirectTask(tenant,e,'work-12345678-1234-1234-1234-123456789abc',{action:'cancel'},1));
+});
+test('direct task is not sent while the DailyLog service is still on the older contract',async()=>{
+ const f=await fixture(),e=event(),base=f.options.fetchImpl;f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);
+ f.options.fetchImpl=async(url,init)=>new URL(url).pathname.endsWith('/health')?Response.json({ok:true,contract:'line-mention-dailylog-immediate-v1',tenant:'fixture'}):base(url,init);
+ const service=f.restart(),people=await Promise.all([sender,recipient].map(id=>service.resolveGroupIdentity(id,tenant,group)));
+ await assert.rejects(()=>service.submitDirectGroupTask(tenant,e,people,{title:'盤點'},1),/direct_task_service_unavailable/);assert(!f.paths.includes('self-create'));
+});
 
 test('current disabled recipient is silently rejected before intake, and unavailable roster is not labeled ineligible',async()=>{
  const f=await fixture(),base=f.options.fetchImpl;let disabled=true,outage=false;

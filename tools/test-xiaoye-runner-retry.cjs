@@ -8,3 +8,4 @@ async function run(action){
 }
 test('a temporary connection failure retries the same read-only event check',async()=>{const r=await run('event-check');assert.equal(r.code,0);assert.equal(r.count,2);assert(JSON.parse(r.out).ok);});
 test('a write with an unknown outcome is never retried automatically',async()=>{const r=await run('propose');assert.notEqual(r.code,0);assert.equal(r.count,1);});
+test('a deployment-effects record is allowed but never resubmitted after an unknown response',async()=>{const r=await run('deploy-effects-check');assert.notEqual(r.code,0);assert.equal(r.count,1);});

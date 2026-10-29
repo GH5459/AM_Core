@@ -9,4 +9,5 @@ const replacement="if (route.endsWith(\"/self-create\")) return response(await c
 assert(baseline.includes('permission: permission2')||baseline.includes('permission:permission2'));
 fs.writeFileSync(folder+'/candidate/worker.mjs',"import {createLineSelfTask} from './line-self-task.mjs';\n"+baseline.replace(anchor,replacement).replace('contract: ASSIGNMENT_CONTRACT, speedPolicy:', 'contract: ASSIGNMENT_CONTRACT, selfTaskContract:"line-group-bot-quick-create-v1", speedPolicy:'));
 fs.copyFileSync(path.resolve(__dirname,'../core/line-self-task-worker.mjs'),folder+'/candidate/line-self-task.mjs');
+fs.copyFileSync(path.resolve(__dirname,'../core/line-task-dates.mjs'),folder+'/candidate/line-task-dates.mjs');
 console.log('Extended exact current task-service route; all other modules and Assets retained.');

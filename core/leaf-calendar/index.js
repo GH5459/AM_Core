@@ -110,10 +110,10 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
       const events=await extractEvents({text:existing?(supplementRequest(row.source_evidence.text)?.text||row.source_evidence.text):row.source_evidence.text,at:row.source_evidence.timestamp,llm:platform.llmForTenant?.(tenant)||platform.llm,existing:existing?{...Object.fromEntries(Object.entries(existing.payload.event).filter(([k])=>!['account','requestId'].includes(k))),needsClarification:prior.missing,confirmationNotes:prior.notes}:undefined});
       if(!events.length){await push(row,'目前無法辨識這筆活動。請提供活動名稱及日期；全天活動請註明「全天」。農曆請寫例如「每年農曆十月十七」。無法支援的排程不會自動改成其他日期。',tenant,'unsupported');}
       const drafts=events.map((event,index)=>{const id=row.payload.editId||hash(`${tenant.tenantId}:${row.line_user_id}:${row.source_evidence.id}:${index}`).slice(0,48);
-        const payload=prepareEvent(event,`leafcal:${id}`);payload.event.account=row.payload.account;return {id,payload,status:payload.missing.length?'needs_details':'pending'};});
+        const payload=prepareEvent(event,`leafcal:${id}`,{requiredLocation:existing?existing.payload.requiredLocation===true:event.allDay!==true});payload.event.account=row.payload.account;return {id,payload,status:payload.missing.length?'needs_details':'pending'};});
       await store.storeDrafts(tenant,row,drafts);return;
     }
-    if(['pending','needs_details'].includes(row.status)){await push(row,preview(row),tenant,'preview');await store.settle(tenant,row,{prompted:true});return;}
+    if(['pending','needs_details'].includes(row.status)){if(row.status==='pending'&&row.payload.requiredLocation===true&&!await store.startConfirmation(tenant,row))return;await push(row,preview(row),tenant,'preview');await store.settle(tenant,row,{prompted:true});return;}
     if(row.status==='saving'){
       if(!row.confirmed_at||reviewDraft(row).missing.length||row.payload.event.account!==current.account)throw new Error('confirmation_required');
       const result=await calendarRequest({...current,apiKey:decrypt(current.encrypted_key,secret,tenant.tenantId)},row.payload.event);
