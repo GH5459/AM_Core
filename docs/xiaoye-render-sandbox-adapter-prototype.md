@@ -97,3 +97,8 @@ running supervisor that can stop and verify the exact sandbox when authorization
 expires or is revoked. That supervisor and its failure handling are not yet
 implemented or verified here. The adapter deliberately keeps its conservative
 initial-lease bound rather than claiming long-running production support.
+During each `recover` scan of a created sandbox, the prototype rechecks the
+original event, source, generation and lease. A rejection or unavailable check
+requests stop and keeps external effects unknown. Since no independent scheduler
+is installed, this only happens when a caller runs `recover`; it is not an
+immediate-revocation guarantee. The check and external provider are not atomic.
