@@ -1,6 +1,6 @@
 'use strict';
 // Test double for Render CLI: only local JSON files, no network.
-const fs=require('node:fs');const [file,...args]=process.argv.slice(2),lock=file+'.lock';let fd;for(let i=0;i<500;i++){try{fd=fs.openSync(lock,'wx');break;}catch(e){if(e.code!=='EEXIST')throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5);}}if(fd===undefined)process.exit(3);const state=JSON.parse(fs.readFileSync(file,'utf8'));state.calls.push(args);const save=()=>{fs.writeFileSync(file,JSON.stringify(state));fs.closeSync(fd);fs.unlinkSync(lock);};
+const fs=require('node:fs');const [file,...args]=process.argv.slice(2),lock=file+'.lock';let fd;for(let i=0;i<500;i++){try{fd=fs.openSync(lock,'wx');break;}catch(e){if(!['EEXIST','EPERM','EACCES'].includes(e.code))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5);}}if(fd===undefined)process.exit(3);const state=JSON.parse(fs.readFileSync(file,'utf8'));state.calls.push(args);const save=()=>{fs.writeFileSync(file,JSON.stringify(state));fs.closeSync(fd);fs.unlinkSync(lock);};
 const flag=k=>args[args.indexOf(k)+1];
 if(args[0]==='workspace'&&args[1]==='current'){save();console.log(JSON.stringify({id:state.workspace||'tea-fixture'}));}
 else if(args[0]==='sandbox-groups'&&args[1]==='list'){save();console.log(JSON.stringify([{id:state.group||'sbg-fixture',ownerId:state.owner||'tea-fixture'}]));}

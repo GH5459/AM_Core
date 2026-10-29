@@ -77,3 +77,10 @@ is not an absolute wall-clock enforcement without the independent supervisor.
 A nominal 60-second event window will be rejected if prechecks consume any time;
 the caller must supply additional time for checks, or wait for a new authorized
 work item. This adapter never silently extends the original event deadline.
+
+The sandbox lifetime is bounded by the earlier of the original event deadline
+and the verified authority expiry. The expiry is persisted, and `recover` asks
+for stop once it is reached. This adapter does not extend a running sandbox on
+renewal or provide the always-on recovery scheduler; provider latency, failed
+stop requests, supervisor downtime, and suspension/resume can extend actual
+execution or costs beyond these local bounds.
