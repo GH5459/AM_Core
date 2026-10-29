@@ -11,8 +11,16 @@ test('a completed case with an unsent result requests notification only',async()
 });
 test('a persisted finalization retries only its original operation ID',async()=>{
   const calls=[];
-  const result=await run(fixture(),{evidence:{finalization:{action:'complete',operationId:'saved-complete'}},finalizeEvent:async(action,input)=>{calls.push({action,input});return {state:'done'}}});
+  const result=await run(fixture(),{evidence:{uncertainFinalization:true,finalization:{action:'complete',input:{id,lease:'lease-a',operationId:'saved-complete'}}},finalizeEvent:async(action,input)=>{calls.push({action,input});return {state:'done'}}});
   assert.deepEqual(calls,[{action:'complete',input:{id,lease:'lease-a',operationId:'saved-complete'}}]);assert.equal(result.decision,'finalization-replayed');
+});
+test('terminal state is checked against the original saved receipt and changed source is held',async()=>{
+ const input={id,lease:'lease-a',operationId:'original-failure',reason:'離線'},calls=[];
+ const evidence={uncertainFinalization:true,finalization:{action:'fail',input}};
+ const result=await run(fixture('failed'),{evidence,finalizeEvent:async(action,body)=>{calls.push({action,body});return {state:'failed',replayed:true}}});
+ assert.equal(result.decision,'finalization-replayed');assert.deepEqual(calls,[{action:'fail',body:input}]);
+ assert.equal((await run(fixture('failed',{task:{...fixture().task,sourceVersion:5}}),{evidence})).decision,'case-version-changed');
+ await assert.rejects(run(fixture('failed'),{evidence,finalizeEvent:async()=>{throw Object.assign(Error('fingerprint conflict'),{status:409})}}),/fingerprint conflict/);
 });
 test('a saved answer settles the event without dispatching a second desktop turn',async()=>{
   const calls=[];
@@ -22,10 +30,17 @@ test('a saved answer settles the event without dispatching a second desktop turn
 test('uncertain desktop dispatch is held for the original chat to be inspected',async()=>{
   const result=await run(fixture(),{evidence:{chatDispatchInput:true}});assert.equal(result.decision,'inspect-original-chat');assert.equal(result.terminal,false);
 });
-test('an event before dispatch may continue only under its existing lease',async()=>{
-  assert.equal((await run(fixture())).decision,'resume-same-event');
+test('missing dispatch evidence cannot prove the event never launched',async()=>{
+  assert.equal((await run(fixture())).decision,'dispatch-evidence-incomplete');
   assert.equal((await run(fixture('running',{event:{...fixture().event,leaseActive:false}}))).decision,'lease-changed');
   assert.equal((await run(fixture(),{verifyLease:async()=>false})).decision,'lease-unverified');
+});
+test('saved failure is replayed unchanged; mismatched or conflicting records are held',async()=>{
+ const input={id,lease:'lease-a',operationId:'saved-failure',reason:'工具暫時離線',nextStep:'連線恢復後自動查核'},calls=[];
+ const evidence={uncertainFinalization:true,finalization:{action:'fail',input}};
+ const result=await run(fixture(),{evidence,finalizeEvent:async(action,v)=>{calls.push({action,input:v});return {state:'failed'}}});assert.equal(result.decision,'finalization-replayed');assert.deepEqual(calls,[{action:'fail',input}]);
+ for(const bad of [{...input,id:'b'.repeat(64)},{...input,lease:'wrong-lease'},{...input,operationId:'short'},{...input,extra:'unknown'}])assert.equal((await run(fixture(),{evidence:{uncertainFinalization:true,finalization:{action:'fail',input:bad}}})).decision,'await-finalization-readback');
+ assert.equal((await run(fixture(),{evidence:{...evidence,finalizationConflict:true}})).decision,'await-finalization-readback');
 });
 test('old blocked auto-authorized case resumes with a stable operation ID',async()=>{
   const calls=[];
