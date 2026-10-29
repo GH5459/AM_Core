@@ -24,3 +24,12 @@ exports.patchWorker=function(s){
  s+=`\nconst entry_measured_worker={...${prior},async fetch(request,env,ctx){if(request.method!=='GET'||new URL(request.url).pathname!=='/api/tasks')return ${prior}.fetch(request,env,ctx);const times=[],start=performance.now();const measure=async(name,fn)=>{const t=performance.now();try{return await fn();}finally{times.push(name+';dur='+(performance.now()-t).toFixed(1));}};const response=await ${prior}.fetch(request,{...env,ENTRY_TASK_MEASURE:measure},ctx);if(response.status!==200)return response;const headers=new Headers(response.headers);headers.set('Server-Timing',times.concat('total;dur='+(performance.now()-start).toFixed(1)).join(', '));headers.set('Cache-Control','private, no-store');return new Response(response.body,{status:response.status,headers});}};\n`;
  return s;
 };
+exports.patchDetail=function(s){
+ const timed=(name,expression)=>`await (env.ENTRY_TASK_MEASURE||((_,fn)=>fn()))('${name}',async()=>${expression})`;
+ s=once(s,'const stateResult = await accessState(env), state2 = stateResult.state;','const stateResult = '+timed('initial_access','accessState(env)')+', state2 = stateResult.state;');
+ const query='db.prepare("SELECT token_hash,csrf,user_json,expires_at FROM sessions WHERE token_hash=? AND expires_at>?").bind(await hash222(token), now()).first()';
+ s=once(s,'const row = await '+query+';','const row = '+timed('session_read',query)+';');
+ s=once(s,'const tokenHash = await hash4(token), [state2, remote2] = await Promise.all([localState(env, tokenHash), remoteState(env)]), identity = authorized(env, state2, remote2);','const tokenHash = await hash4(token), [state2, remote2] = '+timed('shared_authority','Promise.all([localState(env, tokenHash), remoteState(env)])')+', identity = authorized(env, state2, remote2);');
+ s=once(s,'await taskOriginsResponse(request,await line_completion_report_worker.fetch(request,env,ctx),env)', 'await (async()=>{const response=await line_completion_report_worker.fetch(request,env,ctx);return '+timed('origin_enrichment','taskOriginsResponse(request,response,env)')+';})()');
+ return s;
+};
