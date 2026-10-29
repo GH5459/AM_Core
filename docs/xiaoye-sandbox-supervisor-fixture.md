@@ -2,7 +2,9 @@
 
 這是只配合假權威資料、假 sandbox provider 及既有 `SandboxController` 的本機測試原型。排程從同一 SQLite 中發現待查案件，持久記錄下次查核時間、失敗退避與短期領取標記；每次有限量處理，避免故障案件永久卡住其他案件。領取期過後可由重啟程序重新處理；舊領取者不能覆寫新的排程結果。單一程序內重疊 tick 不會重入。
 
-每案核對來源版本、代次、權限狀態與 lease，遇到撤銷、斷線、過期、權威狀態不可確認，或主控記錄顯示結果不明時，沿既有 `stopRecord` 嘗試撤銷權限和終止；再由 `inspectRecord` 唯讀核對。未確認的副作用維持 unknown，不重新派送。一般週期不使用 `recover()`，因為它的重啟邏輯會將正在進行中的 creating／starting 標示結果不明。
+每案核對來源版本、代次、權限狀態與 lease；若查核期間成功續期，以最新紀錄重新查權威，重試四次仍不一致則保守停止。查 sandbox 後再查最新權限與時間，避免等待期間到期或撤銷卻回報 active。已知 sandbox 停止但 broker 撤權未確認、無法讀其狀態、撤銷、斷線、過期、權威不可確認或主控記錄結果不明時，沿既有 `stopRecord` 嘗試撤銷和終止；再由 `inspectRecord` 唯讀核對。未確認的副作用維持 unknown，不重新派送。一般週期不使用 `recover()`，因為它的重啟邏輯會將正在進行中的 creating／starting 標示結果不明。
+
+在 creating／registering／starting 時，假權威必須明確回 ownerAlive=true 才視為在途；ownerAlive=false 也會停止 ready／running。該欄位只是測試資料，正式環境目前沒有驗證中的可信存活證明或簽發者，不能因此宣稱已完成重啟後安全接續。若建立者不明而找到 sandbox，先持久撤權，再在後續查核中終止；沒有查到唯一身分則持續保留結果不明。
 
 測試：
 
