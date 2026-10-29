@@ -82,21 +82,21 @@ test('complete worker follows a failed deploy with one same-case side-effect ana
   let resumed=await a.get(t.id);assert.equal(resumed.secretary.stage,'clarifying');assert.equal(resumed.secretary.caseChat.threadId,threadId);assert.equal(resumed.secretary.deploymentReview.state,'pending');assert.equal(resumed.secretary.deploymentReview.deployment.deployId,d.deployId);
   const notice=JSON.parse((await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='deploy-reconciliation' AND json_extract(value,'$.taskId')=?").bind(t.id).first()).value);assert.equal(notice.expectedUserId,'U'+'b'.repeat(32));assert.match(notice.message,/未成功/);
   await bridge.recoverFailedEvents();assert.equal(calls.filter(c=>c==='auto-resume').length,1);
-  // Match production ordering: the failed status was recorded, the case was
-  // automatically resumed, and only then the notification worker drains.
+  const next=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,analysis.id).first();await wait(5300);const nextJob=(await a.ok(await a.machine('runner/event-acquire',{id:next.id,operationId:'acquire-'+next.id},true))).job;
+  const plan={id:t.id,version:resumed.version,operationId:op(),eventId:nextJob.id,eventLease:nextJob.lease,projectId:a.projects[3].id,category:'bug',proposal};assert.equal((await a.machine('runner/propose',plan,true)).status,409);
+  const effects={id:t.id,version:resumed.version,eventId:nextJob.id,eventLease:nextJob.lease,operationId:op(),originalEventId:job.id,deployId:d.deployId,effectsStatus:'none',summary:'隔離部署未執行遷移',evidence:['隔離部署與遷移紀錄']};
+  assert.equal((await a.machine('runner/deploy-effects-check',{...effects,effectsStatus:'unknown'},true)).status,400);resumed=(await a.ok(await a.machine('runner/deploy-effects-check',effects,true))).task;assert.equal(resumed.secretary.deploymentReview.state,'reviewed');
+  // Actual race: record failure, resume, finish the effects check, then drain.
   let delivered=0;for(let i=0;i<12;i++){
    const n=(await a.ok(await a.machine('notifications/claim'))).notification;if(!n)break;
    if(n.kind==='deploy-reconciliation'){assert.equal(n.expectedUserId,'U'+'b'.repeat(32));assert.equal(n.context.eventId,job.id);assert((await a.ok(await a.machine('notifications/validate',{id:n.id,lease:n.lease}))).notification);delivered++;}
    await a.ok(await a.machine('notifications/receipt',{id:n.id,lease:n.lease,state:'sent',requestId:'synthetic-accepted'}));
   }
   assert.equal(delivered,1);const sent=JSON.parse((await a.db.prepare("SELECT value FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.kind')='deploy-reconciliation' AND json_extract(value,'$.taskId')=?").bind(t.id).first()).value);assert.equal(sent.state,'sent');
-  const next=await a.db.prepare("SELECT * FROM xiaoye_event_outbox WHERE task_id=? AND kind='analyze' AND id!=? ORDER BY version DESC LIMIT 1").bind(t.id,analysis.id).first();await wait(5300);const nextJob=(await a.ok(await a.machine('runner/event-acquire',{id:next.id,operationId:'acquire-'+next.id},true))).job;
-  const plan={id:t.id,version:resumed.version,operationId:op(),eventId:nextJob.id,eventLease:nextJob.lease,projectId:a.projects[3].id,category:'bug',proposal};assert.equal((await a.machine('runner/propose',plan,true)).status,409);
-  const effects={id:t.id,version:resumed.version,eventId:nextJob.id,eventLease:nextJob.lease,operationId:op(),originalEventId:job.id,deployId:d.deployId,effectsStatus:'none',summary:'隔離部署未執行遷移',evidence:['隔離部署與遷移紀錄']};
-  assert.equal((await a.machine('runner/deploy-effects-check',{...effects,effectsStatus:'unknown'},true)).status,400);resumed=(await a.ok(await a.machine('runner/deploy-effects-check',effects,true))).task;assert.equal(resumed.secretary.deploymentReview.state,'reviewed');
+  const planned=await a.ok(await a.machine('runner/propose',{...plan,version:resumed.version,operationId:op()},true));assert.equal(planned.task.secretary.stage,'approved');
+  const completed=planned.task;completed.secretary.stage='awaiting_confirmation';await a.db.prepare('UPDATE work_items SET value=? WHERE id=?').bind(JSON.stringify(completed),t.id).run();
   const stale={...notice,id:'fixture-stale-deploy-notice',state:'pending',attempts:0,leaseUntil:0};await a.db.prepare('INSERT INTO documents(namespace,key,value) VALUES(?,?,?)').bind('xiaoye-notifications',stale.id,JSON.stringify(stale)).run();
   assert.equal((await a.ok(await a.machine('notifications/claim'))).notification,null);assert.equal(JSON.parse((await a.db.prepare('SELECT value FROM documents WHERE namespace=? AND key=?').bind('xiaoye-notifications',stale.id).first()).value).state,'cancelled');
-  const planned=await a.ok(await a.machine('runner/propose',{...plan,version:resumed.version,operationId:op()},true));assert.equal(planned.task.secretary.stage,'approved');
  }finally{bridge?.stop();await a.close();}
 });
 test('missing deploy ID tells the reporter the result cannot currently be determined',async()=>{

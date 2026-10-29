@@ -409,7 +409,7 @@ export function notificationCurrent(n,t){
   if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!n.context?.eventId||!n.context.botUserId||!n.expectedUserId||!s.reporters?.some(p=>p.account===n.account&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===n.context.botUserId))return false;
   const dep=s.recovery?.capability,review=s.deploymentReview;
   if(s.stage==='blocked')return n.sourceVersion===s.sourceVersion&&n.proposalHash===(s.proposal?.hash||null)&&dep?.eventId===n.context.eventId&&dep.outcome==='reconciled-failed';
-  return s.stage==='clarifying'&&review?.state==='pending'&&review.originalEventId===n.context.eventId&&review.originalSourceVersion===n.sourceVersion&&s.sourceVersion===n.sourceVersion+1&&!s.proposal;
+  return ['clarifying','awaiting_approval','approved','executing'].includes(s.stage)&&['pending','reviewed'].includes(review?.state)&&review.originalEventId===n.context.eventId&&review.originalSourceVersion===n.sourceVersion&&s.sourceVersion===n.sourceVersion+1;
  }
  if(n.sourceVersion!==s.sourceVersion||n.proposalHash!==(s.proposal?.hash||null))return false;if(n.kind==='event-blocked')return !['closed','duplicate'].includes(s.stage);return n.kind==='approval'?s.stage==='awaiting_approval':n.kind==='result'?s.stage==='awaiting_confirmation':n.kind==='question'?s.stage==='clarifying'&&s.waitingForReporter:s.stage==='blocked';
 }

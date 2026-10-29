@@ -12,7 +12,9 @@ test('a failed-deploy notice survives only the exact same-case automatic transit
  const id='a'.repeat(64),n={kind:'deploy-reconciliation',account:ACCOUNT,expectedUserId:PERSON,sourceVersion:4,proposalHash:'old',context:{eventId:id,botUserId:BOT}},t={secretary:{stage:'blocked',sourceVersion:4,proposal:{hash:'old'},reporters:[{account:ACCOUNT,source:source()}],recovery:{capability:{eventId:id,outcome:'reconciled-failed'}}}};
  assert.equal(notificationCurrent(n,t),true);
  t.secretary.stage='clarifying';t.secretary.sourceVersion=5;t.secretary.proposal=null;t.secretary.deploymentReview={state:'pending',originalEventId:id,originalSourceVersion:4};assert.equal(notificationCurrent(n,t),true);
- for(const alteration of [x=>{x.secretary.sourceWithdrawn=true},x=>{x.secretary.stage='paused'},x=>{x.secretary.sourceVersion++},x=>{x.secretary.deploymentReview.originalEventId='b'.repeat(64)},x=>{x.secretary.deploymentReview.state='reviewed'},x=>{x.secretary.reporters[0].source.userId=OTHER},x=>{x.secretary.reporters[0].source.botUserId=OTHER},x=>{x.deletedAt='now'},x=>{x.status='cancelled'}]){const x=structuredClone(t);alteration(x);assert.equal(notificationCurrent(n,x),false);}
+ t.secretary.deploymentReview.state='reviewed';assert.equal(notificationCurrent(n,t),true);
+ for(const stage of ['awaiting_approval','approved','executing']){const x=structuredClone(t);x.secretary.stage=stage;x.secretary.proposal={hash:'new'};assert.equal(notificationCurrent(n,x),true);}
+ for(const alteration of [x=>{x.secretary.sourceWithdrawn=true},x=>{x.secretary.stage='paused'},x=>{x.secretary.stage='awaiting_confirmation'},x=>{x.secretary.stage='closed'},x=>{x.secretary.sourceVersion++},x=>{x.secretary.deploymentReview.originalEventId='b'.repeat(64)},x=>{x.secretary.deploymentReview.state='resolved'},x=>{x.secretary.reporters[0].source.userId=OTHER},x=>{x.secretary.reporters[0].source.botUserId=OTHER},x=>{x.deletedAt='now'},x=>{x.status='cancelled'}]){const x=structuredClone(t);alteration(x);assert.equal(notificationCurrent(n,x),false);}
 });
 function fixture(){
  const sql=new DatabaseSync(':memory:');
