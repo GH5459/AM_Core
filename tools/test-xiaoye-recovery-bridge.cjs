@@ -129,3 +129,12 @@ test('new deployment capability does not bypass a server-side eligibility refusa
  fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:{id,taskId,sourceVersion:4,lease:'lease-a',kind:'execute'}}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
  await f.bridge.recoverFailedEvents();assert.deepEqual(f.calls.map(c=>c.action),['event-inspect','event-inspect']);assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
 });
+test('receiver advances past a full page of blocked cases and reaches the older cases',async()=>{
+ const byId=new Map(),f=fixture(async(action,input)=>{assert.equal(action,'event-inspect');const active=byId.get(input.eventId);assert(active);return {event:{id:active.id,taskId:active.taskId,sourceVersion:4,state:'done',kind:'execute',leaseActive:false},task:{id:active.taskId,sourceVersion:4,stage:'blocked',version:10},autoResumeEligible:false};},'finished',async()=>{throw Error('no execution expected');});
+ for(let i=0;i<40;i++){
+  const eventId=i.toString(16).padStart(64,'0'),caseId='work-'+i.toString(16).padStart(8,'0')+'-aaaa-aaaa-aaaa-aaaaaaaaaaaa',run=path.join(f.dir,'event-runs',eventId),active={id:eventId,taskId:caseId,sourceVersion:4,lease:'fixture',kind:'execute'};
+  byId.set(eventId,active);fs.mkdirSync(run,{recursive:true});fs.writeFileSync(path.join(run,'acquire.response.private.json'),JSON.stringify({job:active}));fs.writeFileSync(path.join(run,'completion.private.json'),JSON.stringify({state:'done'}));
+ }
+ await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,32);assert.equal(f.bridge.failedRecoveryOffset,32);
+ await f.bridge.recoverFailedEvents();assert.equal(f.calls.length,40);assert.equal(f.bridge.failedRecoveryOffset,0);assert(f.bridge.failedRecoveryTimer);f.bridge.stop();
+});
