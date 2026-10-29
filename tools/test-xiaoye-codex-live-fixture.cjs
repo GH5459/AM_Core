@@ -1,0 +1,10 @@
+'use strict';
+// Explicit Windows-only local test; never discovers or reads a real API key.
+const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),{execFile}=require('node:child_process');
+const executable=process.env.XIAOYE_FIXTURE_CODEX_EXE,enabled=process.platform==='win32'&&typeof executable==='string'&&path.isAbsolute(executable);
+const probe=path.join(__dirname,'probe-xiaoye-codex-fake-upstream.cjs');
+function run(mode){return new Promise((resolve,reject)=>execFile(process.execPath,[probe,executable,mode],{timeout:20000,maxBuffer:1024*1024,windowsHide:true},(e,out)=>{if(e)return reject(e);try{resolve(JSON.parse(out));}catch(err){reject(err);}}));}
+test('actual local Codex tool turn passes through fixture gateway only',{skip:!enabled},async()=>{const r=await run('--gateway-tool');assert.equal(r.finished,true);assert.equal(r.turnStatus,'completed');assert.equal(r.requests.length,2);assert.equal(r.toolEvidence.succeeded,1);assert(r.requests[1].inputTypes.includes('function_call_output'));assert(r.requests[1].toolOutputs.some(x=>x.output.includes('fictional_tool_result')));assert(r.requests.every(x=>x.maxOutputTokens===1024&&!('metadataKeys' in x)));assert.equal(r.cleaned,true);});
+test('actual local Codex retries a fictional pre-stream 503 once',{skip:!enabled},async()=>{const r=await run('--gateway-retry');assert.equal(r.finished,true);assert.equal(r.requests.length,2);assert.equal(r.requests[0].requestHash,r.requests[1].requestHash);assert.equal(r.events[0],'503');assert.equal(r.cleaned,true);});
+test('actual local Codex interrupt closes the fictional upstream',{skip:!enabled},async()=>{const r=await run('--gateway-interrupt');assert.equal(r.turnStatus,'interrupted');assert.equal(r.upstreamClosed,true);assert.equal(r.cleaned,true);});
+test('truncated fictional tool response is not executed by actual local Codex',{skip:!enabled},async()=>{const r=await run('--gateway-truncate');assert.equal(r.turnStatus,'failed');assert.equal(r.fictionalMarkerCreated,false);assert.equal(r.finished,false);assert.equal(r.cleaned,true);});
