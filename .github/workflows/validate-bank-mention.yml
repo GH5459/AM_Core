@@ -1,3 +1,4 @@
+# Validate the future-work navigation package as part of the full suite.
 name: Validate bank notification registry
 on:
   pull_request:
