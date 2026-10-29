@@ -88,3 +88,12 @@ In particular, a short initial authorization limits the provider lifetime to
 that short window; a job longer than 30 minutes has not been connected or
 verified through this adapter. The two-hour ceiling is not a promise that a
 single job can renew and continue for two hours.
+The installed CLI 2.33.0 sandbox commands and the currently published Render
+sandbox SDK lifecycle references do not document an operation for extending an
+existing sandbox's timeout. This observation is limited to those interfaces;
+it is not proof that no other or future interface can do so. A longer sandbox
+lifetime plus renewable short authorizations would require a trusted continuously
+running supervisor that can stop and verify the exact sandbox when authorization
+expires or is revoked. That supervisor and its failure handling are not yet
+implemented or verified here. The adapter deliberately keeps its conservative
+initial-lease bound rather than claiming long-running production support.
