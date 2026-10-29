@@ -14,16 +14,17 @@ this prototype does not establish that boundary. Each event has a durable local
 creation intent before the CLI call. Create always specifies workspace, group,
 finite lifetime, disabled automatic idle suspension, and either deny-all or
 exact-domain HTTPS allow-list. It requires the returned identity, group, policy,
-timeout and idle timeout to match before returning a created record. Stopping is
-attempted only after an exact event/source/generation broker revocation receipt;
-the acknowledgement is not considered termination until list readback.
+timeout and idle timeout to match before returning a created record. Stopping is attempted after requesting broker revocation; an unreachable broker
+does not prevent a stop request for the identified sandbox. Revocation is
+confirmed only by an exact event/source/generation receipt, and stopping is
+confirmed only by a list readback.
 
 Render CLI 2.33.0 does not expose a create idempotency key or an intent label.
 A lost create response cannot be attributed to a particular event by listing;
 this adapter merely reports the group list count, retains unknown and never
 recreates or guesses an identity. A sandbox with an unconfirmed identity may
-continue until its configured lifetime; if revoke cannot be confirmed, no stop
-is sent. A stop reply that is lost is also never resent, even if it never took
+continue until its configured lifetime; if revoke cannot be confirmed, sandbox stop is still attempted but the
+capability may remain usable until revocation or expiry. A stop reply that is lost is also never resent, even if it never took
 effect. These are deliberate unresolved liveness and containment limitations.
 The external supervisor must call `recover` periodically and after restart;
 this code does not install or monitor a scheduler. Provider responses, network
