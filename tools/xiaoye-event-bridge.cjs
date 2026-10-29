@@ -75,6 +75,14 @@ class EventBridge {
         const rel='event-runs/'+active.id;
         try{
         let inspected=await this.call('event-inspect',{id:active.taskId,eventId:active.id});
+        const finding=inspected.task?.findingCandidate;
+        if(finding&&inspected.event?.id===active.id&&inspected.event.taskId===active.taskId&&inspected.event.sourceVersion===active.sourceVersion&&inspected.event.state==='failed'&&inspected.event.kind==='execute'&&inspected.task?.id===active.taskId&&inspected.task.sourceVersion===active.sourceVersion&&inspected.task.stage==='blocked'&&Number.isSafeInteger(inspected.task.version)){
+          // A neutral question is not a conclusion about the old operation.
+          // The Worker checks the persisted same-event evidence, original
+          // reporter and revision, and keeps execution blocked afterwards.
+          const result=await this.call('finding-question',{id:active.taskId,version:inspected.task.version,eventId:active.id,findingId:finding.id,operationId:'finding-question-'+active.id},rel+'/finding-question.input.private.json');
+          this.save(rel+'/auto-resume.response.private.json',result);continue;
+        }
         if(inspected.autoResumeEligible!==true){
           if(inspected.event?.id!==active.id||inspected.event?.taskId!==active.taskId||inspected.task?.id!==active.taskId)
             throw Error('原案件事件識別未確認，暫不變更重查紀錄');

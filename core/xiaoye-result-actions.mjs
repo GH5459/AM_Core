@@ -7,7 +7,7 @@ export async function resultRequest(env,c,base,v,h){
  const actor=await linePerson(env,base,v.sender),op='line-result:'+await digest(source.botUserId+':'+source.eventId),fingerprint=await digest(JSON.stringify(v));
  const old=await load(env.DB,command.taskId),t=old&&structuredClone(old.task),s=t?.secretary;
  if(!s||t.deletedAt||t.mergedInto||s.sourceWithdrawn||!s.reporters.some(p=>p.account===actor.account))throw fail('請由原回報人確認自己的案件。',403);
- const reporter=s.reporters.find(p=>p.account===actor.account);if(reporter.source?.type==='user'&&(reporter.source.userId!==source.userId||reporter.source.botUserId!==source.botUserId))throw fail('原回報來源已變更，請從案件頁查核。',403);
+ const reporter=s.reporters.find(p=>p.account===actor.account);if((reporter.source?.type==='user'||reporter.source?.type==='group'&&s.findingQuestion)&&(reporter.source.userId!==source.userId||reporter.source.botUserId!==source.botUserId))throw fail('原回報來源已變更，請從案件頁查核。',403);
  if(command.reopen||command.followup){
   const valid=command.reopen?sameResultVersion(t,command.version)&&s.stage==='awaiting_confirmation'&&!!s.result:t.version===command.version&&s.stage==='clarifying'&&!!s.waitingForReporter;
   if(!valid)throw fail('案件已有更新，請從最新通知或案件頁確認。');
