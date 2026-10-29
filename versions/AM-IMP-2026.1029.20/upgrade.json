@@ -1,0 +1,14 @@
+{
+  "id": "AM-IMP-2026.1029.20",
+  "name": "LINE 任務直接建立與共同活動確認",
+  "type": "LINE / Tasks / Calendar",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-29",
+  "installTargets": ["AM_PLATFORM", "DAILYLOG"],
+  "requiresDatabases": ["existing tenant-local LINE archive and DailyLog work_items and documents"],
+  "requiresEnv": ["existing LINE, task service, Google and DailyLog access settings"],
+  "requiresScripts": ["node --test tools/test-line-task-dates.mjs", "node --experimental-vm-modules --test tools/test-group-quick-create.mjs", "node --experimental-vm-modules --test tools/test-leaf-tasks.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["direct tasks retain source and existing permissions", "shared task and reply update are idempotent", "calendar confirmation and per-person results preserve existing data", "production version and full module set are verified"]
+}

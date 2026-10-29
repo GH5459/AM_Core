@@ -71,6 +71,14 @@ test('combined group extraction uses original mention indices and does not call 
   await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,{...confirmation,userId:recipient},1));f.revoke();await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,confirmation,1));
  });
 
+test('direct group task and reply use current verified group identities and exact service contracts',async()=>{
+ const f=await fixture(),e=event('@同仁 任務 明天盤點'),base=f.options.fetchImpl,seen=[];f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);
+ f.options.fetchImpl=async(url,init)=>{const path=new URL(url).pathname.split('/').at(-1);if(path==='self-create'||path==='direct-update'){seen.push({path,value:JSON.parse(init.body)});return Response.json({ok:true,taskIds:['work-fixture'],taskId:'work-12345678-1234-1234-1234-123456789abc'});}return base(url,init);};
+ const service=f.restart(),people=await Promise.all([sender,recipient].map(id=>service.resolveGroupIdentity(id,tenant,group))),draft={title:'盤點',description:'盤點用品',acceptance:'',executionDate:'2026-10-30',dueDate:'2026-11-01',dueAt:'2026-11-01T23:59:00+08:00'};
+ await service.submitDirectGroupTask(tenant,e,people,draft,1);assert.equal(seen[0].value.contract,'line-group-bot-direct-assignment-v2');assert.equal(seen[0].value.recipients[0].userId,recipient);assert.equal(seen[0].value.actor.userId,sender);
+ await service.updateDirectTask(tenant,e,'work-12345678-1234-1234-1234-123456789abc',{action:'cancel'},1);assert.equal(seen[1].path,'direct-update');assert.equal(seen[1].value.expectedVersion,1);assert.match(seen[1].value.operationId,/^op-/);f.revoke();await assert.rejects(()=>service.updateDirectTask(tenant,e,'work-12345678-1234-1234-1234-123456789abc',{action:'cancel'},1));
+});
+
 test('current disabled recipient is silently rejected before intake, and unavailable roster is not labeled ineligible',async()=>{
  const f=await fixture(),base=f.options.fetchImpl;let disabled=true,outage=false;
  f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/meeting-person')){const a=JSON.parse(init.body).account;if(outage)return Response.json({ok:false,code:'SERVICE_UNAVAILABLE'},{status:503});return Response.json({ok:true,person:disabled&&a==='recipient'?null:{name:'合成'}});}return base(url,init);};

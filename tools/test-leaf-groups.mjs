@@ -26,16 +26,16 @@ export async function fixture(){
  const line={lineGet:async path=>{const id=path.split('/').at(-1);if(!names.has(id))throw Error('not_member');return {userId:id,displayName:names.get(id)};}};
  const llm={available:true,completeJson:async input=>{const data=JSON.parse(input.userContent);if(input.schema.properties.kind)return {kind:data.text.includes('會議')?'meeting':data.text.includes('整理清單')?'task':'none'};
    return {events:[{topic:'專案會議',date:'2026-10-14',time:data.text.includes('時間未定')?'':'15:00',location:'漫漫回嘉附近的咖啡廳',content:'討論進度',...(data.existing||{}),...(data.existing?{time:'16:00',needsClarification:[]}:{} )}]};}};
- const tasks={resolveTaskGroupIdentity:async id=>identities.get(id)||null,submitSelfTask:async(t,e,p,d,c,r)=>{selfSubmissions.push({t,e,p,d,c,r});return {taskIds:['work-fixture'],message:{type:'text',text:'已建立自己的任務'}};},groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p,judgment)=>{submissions.push({t,e,p,judgment});return {ok:true};}};
+ const updates=[];const tasks={resolveTaskGroupIdentity:async id=>identities.get(id)||null,submitSelfTask:async(t,e,p,d,c,r)=>{selfSubmissions.push({t,e,p,d,c,r});return {taskIds:['work-fixture'],link:'https://fixture.test/?task=work-fixture',message:{type:'text',text:'已建立自己的任務'}};},groupServices:async()=>[tenant],resolveGroupIdentity:async id=>identities.get(id)||null,submitGroupTask:async(t,e,p,judgment)=>{submissions.push({t,e,p,judgment});return {ok:true};},submitDirectGroupTask:async(t,e,p,d,r)=>{submissions.push({t,e,p,d,r});return {taskIds:['work-fixture'],link:'https://fixture.test/?task=work-fixture'};},readDirectTask:async()=>({version:1,title:'盤點用品',description:'共同盤點三樓用品'}),updateDirectTask:async(t,e,id,change,expectedVersion)=>{updates.push({t,e,id,change,expectedVersion});return {title:'盤點用品',startDate:change.executionDate||'2026-10-14',dueDate:change.dueDate||'2026-10-16'};}};
  const calendar={writeGroupEvent:async(t,account,event)=>{attempts.push({t,account,event});if(disconnected.has(account))throw Object.assign(Error('connect'),{code:'GOOGLE_NOT_CONNECTED'});
    if(!writes.has(event.requestId))writes.set(event.requestId,{id:'saved-'+writes.size});if(uncertain){uncertain=false;throw Object.assign(Error('timeout'),{code:'NETWORK_UNCERTAIN'});}return writes.get(event.requestId);}};
- const platform={llmForTenant:()=>llm,pushLineMessage:async(to,message,_,options)=>{if(failSummary&&typeof message==='string'&&message.startsWith('活動：')){failSummary=false;throw Error('delivery');}pushes.push({to,message,options});}};
+ const platform={llmForTenant:()=>llm,pushLineMessage:async(to,message,_,options)=>{if(failSummary&&typeof message==='string'&&message.startsWith('活動：')){failSummary=false;throw Error('delivery');}pushes.push({to,message,options});return {messageIds:Array.from({length:1+(options.additionalMessages?.length||0)},(_,i)=>String(10000000000000000n+BigInt(pushes.length*10+i)))};}};
  const options={env,store,now,line,tasks,calendar,platform,llm,logger:{warn(){}}};let service=createLeafGroups(options);
  const message=(text='@甲 @乙 明天15:00會議',mentions=[a,b,a],sender=owner,g=group)=>({type:'message',webhookEventId:'event-'+(++serial),timestamp:clock,source:{type:'group',groupId:g,userId:sender},message:{id:'message-'+serial,type:'text',text,mention:{mentionees:mentions.map(userId=>({type:'user',userId}))}}});
  const button=(id,revision=1,sender=owner,g=group,action='confirm')=>({type:'postback',webhookEventId:'button-'+(++serial),timestamp:clock,source:{type:'group',groupId:g,userId:sender},postback:{data:`groupcal:${action}:${id}:${revision}`}});
  const capture=async e=>{await archive.capture([e]);return service.capture([e]);};
  const rows=async()=> (await db.query("SELECT payload->'groupDispatch' AS p FROM central_archive.jobs WHERE payload ? 'groupDispatch' ORDER BY event_at,key")).rows.map(r=>r.p);
- return {db,store,archive,options,identities,names,pushes,submissions,selfSubmissions,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:(ms=61000)=>clock+=ms,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
+ return {db,store,archive,options,identities,names,pushes,submissions,selfSubmissions,updates,attempts,writes,disconnected,message,button,capture,rows,drain:()=>service.drain(),advance:(ms=61000)=>clock+=ms,restart:()=>service=createLeafGroups(options),uncertain:()=>uncertain=true,failSummary:()=>failSummary=true,close:()=>db.close()};
 }
 test('replied-image explanation reaches task submission even when semantic model would return none, with original quote and replay preserved',async()=>{const f=await fixture();try{
  const e=f.message('@同仁甲 請說明這張圖片的目的',[a]);e.message.quotedMessageId='12345678901234567';await f.capture(e);await f.drain();
@@ -51,14 +51,29 @@ test('one semantic decision freezes validated task extraction with the original 
  const e=f.message('@甲 @乙 整理清單',[a,b,a]);await f.capture(e);await f.drain();assert.equal(calls,1);assert.equal(f.submissions.length,1);assert.equal(f.submissions[0].judgment.policy,'line-task-fast-notice-v1');assert.deepEqual(f.submissions[0].judgment.assignments[0].recipientIndices,[0,1]);assert.equal(f.submissions[0].e.message.text,e.message.text);const row=(await f.rows())[0];assert.deepEqual(row.taskJudgment,f.submissions[0].judgment);
  await f.capture(e);f.restart();await f.drain();assert.equal(calls,1);assert.equal(f.submissions.length,1);
 }finally{await f.close();}});
-test('meeting requires original organizer confirmation; fanout deduplicates native mentions and replay',async()=>{const f=await fixture();try{
+test('meeting accepts a participant confirmation; fanout deduplicates native mentions and replay',async()=>{const f=await fixture();try{
  const e=f.message();await f.capture(e);await f.drain();assert.equal(f.writes.size,0);let p=(await f.rows())[0];assert.equal(p.phase,'confirmation');
  const card=f.pushes.find(x=>x.message.type==='flex').message;assert.equal(card.contents.footer.contents.length,2);assert.match(JSON.stringify(card),/groupcal:confirm/);
- await f.capture(f.button(p.id,1,a));await f.drain();assert.equal(f.writes.size,0);
+ await f.capture(f.button(p.id,1,U(9)));await f.drain();assert.equal(f.writes.size,0);
  await f.capture(f.button(p.id,1,owner,C(5)));await f.drain();assert.equal(f.writes.size,0);
- await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,3);assert.equal(f.submissions.length,0);
+ await f.capture(f.button(p.id,1,a));await f.drain();assert.equal(f.writes.size,3);assert.equal(f.submissions.length,0);
  assert.deepEqual(f.attempts.map(x=>x.account),['owner','a','b']);assert.ok(f.attempts.every(x=>x.event.location==='漫漫回嘉附近的咖啡廳'));
  await f.capture(e);await f.capture(f.button(p.id));f.restart();await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.length,3);
+}finally{await f.close();}});
+test('explicit activity reports disconnected participants without replaying successful calendars',async()=>{const f=await fixture();try{
+ f.disconnected.add('b');const e=f.message('活動 會議 明天15:00',[a,b]);await f.capture(e);await f.drain();const p=(await f.rows())[0];
+ await f.capture(f.button(p.id,1,a));await f.drain();assert.equal(f.writes.size,2);
+ const report=f.pushes.find(x=>typeof x.message==='string'&&x.message.startsWith('活動：'))?.message;
+ assert.match(report,/已加入行事曆：發起人、同仁甲/);assert.match(report,/未建立：同仁乙/);
+ f.advance(3600000);f.restart();await f.drain();assert.equal(f.attempts.length,3);assert.equal(f.writes.size,2);
+}finally{await f.close();}});
+test('simultaneous organizer and participant confirmations create one event per person',async()=>{const f=await fixture();try{
+ await f.capture(f.message());await f.drain();const p=(await f.rows())[0];await Promise.all([f.capture(f.button(p.id,1,owner)),f.capture(f.button(p.id,1,a))]);await f.drain();assert.equal(f.writes.size,3);assert.equal(f.attempts.length,3);
+}finally{await f.close();}});
+test('explicit activity without location asks for location and cannot be confirmed',async()=>{const f=await fixture();try{
+ const original=f.options.llm.completeJson;f.options.llm.completeJson=async input=>{const result=await original(input);if(result.events)result.events[0].location='';return result;};
+ await f.capture(f.message('活動 會議 明天15:00',[a]));await f.drain();const p=(await f.rows())[0];assert.ok(p.prepared.missing.some(x=>x.includes('地點')));const card=f.pushes.find(x=>x.message?.type==='flex').message;assert.deepEqual(card.contents.footer.contents.map(x=>x.action.label),['取消邀約']);
+ await f.capture(f.button(p.id));await f.drain();assert.equal(f.writes.size,0);
 }finally{await f.close();}});
 test('unresolved task identity is silently terminal, login and replay never backfill',async()=>{const f=await fixture();try{
  f.identities.delete(a);const e=f.message('@甲 明天請整理清單',[a]);await f.capture(e);await f.drain();assert.equal(f.submissions.length,0);assert.equal(f.pushes.length,0);assert.equal((await f.rows())[0].phase,'ignored');

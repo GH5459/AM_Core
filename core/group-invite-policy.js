@@ -3,6 +3,7 @@ export const GROUP_INVITE_TIMEOUT_POLICY='group-invite-silent-timeout-10m-v1';
 // A replacement card does not renew the original invitation window. Old cards
 // without a delivery timestamp use source time, so deployment cannot revive them.
 export function invitationDeadline(row,p=row.dispatch){
+  if(p.directSelfTask)return null;
   if(!['meeting','selftask'].includes(p.mode)||!['preview','confirmation'].includes(p.phase))return null;
   if(p.phase==='preview'&&p.revision===1&&p.confirmationStartedAt===undefined)return null;
   const started=p.confirmationStartedAt??row.event.timestamp;

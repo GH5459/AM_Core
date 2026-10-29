@@ -42,13 +42,18 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
   async function active(row){return tx(async c=>(await c.query(`${select} WHERE j.key=$1 AND c.bot_id=$2 AND j.payload->'${marker}'->>'lease'=$3
     AND (j.payload->'${marker}'->>'leaseUntil')::bigint>$4`,[row.key,bot,row.dispatch.lease,now()])).rows[0]||null);}
   async function owned(id,group,user){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group'
-    AND j.payload->'${marker}'->>'id'=$3 AND j.payload->'event'->'source'->>'userId'=$4`,[bot,group,id,user])).rows[0]||null);}
+    AND j.payload->'${marker}'->>'id'=$3 AND (j.payload->'event'->'source'->>'userId'=$4 OR (j.payload->'${marker}'->>'mode'='meeting' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(j.payload->'${marker}'->'people','[]'::jsonb)) person WHERE person->>'userId'=$4)))`,[bot,group,id,user])).rows[0]||null);}
+  async function notice(group,messageId){if(!/^\d{15,30}$/.test(messageId||''))return null;return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group' AND j.payload->'${marker}'->>'phase'='done' AND (j.payload->'${marker}'->>'noticeMessageId'=$3 OR COALESCE(j.payload->'${marker}'->'noticeMessageIds','[]'::jsonb) ? $3) AND j.payload->'${marker}'->>'directSelfTask'='true'`,[bot,group,messageId])).rows[0]||null);}
+  async function byId(group,id){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group' AND j.payload->'${marker}'->>'id'=$3`,[bot,group,id])).rows[0]||null);}
   async function drafts(group,user,topic='',mode='meeting'){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group'
     AND j.payload->'event'->'source'->>'userId'=$3 AND j.payload->'${marker}'->>'mode'=$5
     AND j.payload->'${marker}'->>'phase' IN ('preview','confirmation') AND ($4='' OR j.payload->'${marker}'->'prepared'->'event'->>'topic'=$4)`,[bot,group,user,topic,mode])).rows.filter(row=>!invitationTimedOut(row,row.dispatch,now())));}
   async function control(id,event,action,revision,prepared){return tx(async c=>{
     const row=(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_kind='group' AND c.source_id=$2 AND j.payload->'${marker}'->>'id'=$3 FOR UPDATE OF j`,[bot,event.source.groupId,id])).rows[0];
-    if(!row||row.event.source.userId!==event.source.userId)return {code:'owner'};const p=row.dispatch;
+    if(!row)return {code:'owner'};const p=row.dispatch;
+    const isOwner=row.event.source.userId===event.source.userId;
+    const isParticipant=p.mode==='meeting'&&p.people?.some(person=>person.userId===event.source.userId&&person.account&&person.bindingId);
+    if(!isOwner&&!(action==='confirm'&&isParticipant))return {code:'owner'};
     if(p.leaseUntil>now())return {code:'busy'};
     if(p.sourceRemoved)return {code:'closed'};
     if(p.closedReason)return {code:'expired'};
@@ -71,5 +76,5 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
     await c.query(`UPDATE central_archive.jobs j SET payload=jsonb_set(payload,'{${marker},sourceRemoved}','true'::jsonb,true)
       FROM central_archive.conversations c WHERE j.conversation_key=c.key AND c.bot_id=$1 AND c.source_id=$2 AND j.key=$3 AND j.payload->'${marker}' IS NOT NULL`,[bot,event.source.groupId,key]);
   });}
-  return {insert,lease,save,checkpoint,active,owned,drafts,control,removed,close:async()=>{if(!injected&&pool)await pool.end();}};
+  return {insert,lease,save,checkpoint,active,owned,notice,byId,drafts,control,removed,close:async()=>{if(!injected&&pool)await pool.end();}};
 }
