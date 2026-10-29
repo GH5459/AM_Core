@@ -9,5 +9,7 @@ test('fails safely if the production page changes unexpectedly',async()=>{
  for(const path of ['/','/journal.js','/mobile.js']){const out=await futureNavResponse(req(path),new Response('changed asset'));assert.equal(out.status,503);assert.equal(out.headers.get('cache-control'),'private, no-store');}
 });
 test('updates navigation in the intended order',async()=>{
- const source="const items=[['journals','book','今日'],['weekly','calendar','本週'],['todos','check','追蹤'],['account','people','我的']];";const out=await futureNavResponse(req('/mobile.js'),new Response(source,{headers:{etag:'old','content-type':'text/javascript'}}));const body=await out.text();assert.match(body,/\['journals','book','今日'\],\['todos','check','未來'\],\['weekly','calendar','本週'\]/);assert.equal(out.headers.get('etag'),null);
+ const source="const items=[['journals','book','今日'],['weekly','calendar','本週'],['todos','check','追蹤'],['account','people','我的']];";const out=await futureNavResponse(req('/mobile.js'),new Response(source,{headers:{etag:'old','content-type':'text/javascript'}}));const body=await out.text();assert.match(body,/\['journals','book','今日'\],\['future','check','未來'\],\['weekly','calendar','本週'\]/);assert.equal(out.headers.get('etag'),null);
 });
+
+
