@@ -248,6 +248,8 @@ jobs:
       - run: node --test tools/test-xiaoye-event-bridge.cjs
       - run: node --test tools/test-xiaoye-event-recovery.cjs tools/test-xiaoye-failed-event-scan.cjs tools/test-xiaoye-recovery-bridge.cjs
       - run: node --test tools/test-xiaoye-render-publish-recovery.cjs
+      - run: node --test tools/test-xiaoye-exception-recovery.cjs
+      - run: node --check tools/test-xiaoye-exception-worker.cjs
       - run: node --check tools/test-xiaoye-capability-worker.cjs
       - run: node --test tools/test-xiaoye-runtime-reconnect.cjs
       - run: node --test tools/test-xiaoye-runtime-paths.cjs

@@ -54,7 +54,7 @@ class DesktopMcp {
    await this.handoffToAppServer({threadId:args.threadId,workRoot:desktop.thread.cwd});
    const c=this.appServerContext;
    const policy={permissions:':danger-full-access'};
-   return this.appServer.startTurn({threadId:args.threadId,cwd:desktop.thread.cwd,prompt:args.prompt,...policy,approvalPolicy:'never'});
+   return this.appServer.startTurn({threadId:args.threadId,cwd:desktop.thread.cwd,prompt:args.prompt,...policy,approvalPolicy:'never',onTurnStarted:c.onTurnStarted,onServerExit:c.onServerExit});
   }
   if(!['send_message_to_thread','read_thread','create_thread','move_thread_to_project','set_thread_archived'].includes(name))throw Error('不是允許的專用聊天操作');
   return unwrap(await this.request('tools/call',{name,arguments:args,_meta:{'openai/threadId':this.context.ownerThreadId}},90000));

@@ -1,15 +1,23 @@
-const { spawn } = require('node:child_process');
+const { spawn,execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const { codexExecutable } = require('./xiaoye-runtime-paths.cjs');
 
+function processIdentity(pid){
+ if(process.platform!=='win32'||!Number.isSafeInteger(pid)||pid<=0)return Promise.resolve({state:'unknown'});
+ const script="try { $p=[System.Diagnostics.Process]::GetProcessById("+pid+"); $p.StartTime.ToUniversalTime().ToString('o') } catch [System.ArgumentException] { 'absent' } catch { exit 2 }";
+ return new Promise(resolve=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,timeout:5000,maxBuffer:4096},(error,stdout)=>{
+  if(error)return resolve({state:'unknown'});const value=stdout.trim();if(value==='absent')return resolve({state:'absent'});if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z$/.test(value))return resolve({state:'unknown'});resolve({state:'present',startedAt:value});
+ }));
+}
 class CodexAppServerClient {
-  constructor({ executable = 'codex', launch = spawn, requestTimeoutMs = 30000, turnTimeoutMs = 27 * 60000, configOverrides = [] } = {}) {
+  constructor({ executable = 'codex', launch = spawn, requestTimeoutMs = 30000, turnTimeoutMs = 27 * 60000, configOverrides = [], readProcessIdentity=processIdentity } = {}) {
     this.executable = executable;
     this.launch = launch;
     this.requestTimeoutMs = requestTimeoutMs;
     this.turnTimeoutMs = turnTimeoutMs;
     this.configOverrides = configOverrides;
+    this.readProcessIdentity=readProcessIdentity;
     this.sequence = 0;
     this.pending = new Map();
     this.completions = new Map();
@@ -82,11 +90,11 @@ class CodexAppServerClient {
   waitForTurn(turnId, timeoutMs = this.turnTimeoutMs) {
     if (this.completions.has(turnId)) return Promise.resolve(this.completions.get(turnId));
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.waiters.delete(turnId); reject(Error('案件聊天處理仍未確認完成，禁止重新派送')); }, timeoutMs);
+      const timer = setTimeout(() => { this.waiters.delete(turnId); reject(Object.assign(Error('案件聊天處理仍未確認完成，禁止重新派送'),{code:'turn_timeout',turnId})); }, timeoutMs);
       this.waiters.set(turnId, { resolve, reject, timer });
     });
   }
-  async startTurn({ threadId, prompt, cwd, permissions, sandboxPolicy, approvalPolicy = 'never' }) {
+  async startTurn({ threadId, prompt, cwd, permissions, sandboxPolicy, approvalPolicy = 'never', onTurnStarted, onServerExit }) {
     if (!threadId || !prompt) throw Error('案件聊天與問題內容不可為空');
     if (permissions && sandboxPolicy) throw Error('案件聊天不可同時指定兩種權限設定');
     if (!permissions && !sandboxPolicy) throw Error('案件聊天必須明確指定執行權限');
@@ -97,6 +105,9 @@ class CodexAppServerClient {
     const started = await this.request('turn/start', params);
     const turnId = started?.turn?.id;
     if (!turnId) throw Error('案件聊天已送出，但未取得處理編號；禁止重新派送');
+    const serverPid=this.child?.pid||null,identity=await this.readProcessIdentity(serverPid),serverStartedAt=identity.state==='present'?identity.startedAt:null;
+    if(typeof onTurnStarted==='function')await onTurnStarted({threadId,turnId,serverPid,serverStartedAt});
+    if(this.child&&typeof onServerExit==='function')this.child.once('exit',(exitCode,signal)=>{try{onServerExit({threadId,turnId,serverPid,serverStartedAt,exitCode,signal});}catch{}});
     const turn = await this.waitForTurn(turnId);
     if (turn.status !== 'completed') throw Object.assign(Error('案件聊天未正常完成'), { turnId, status: turn.status, turnError: turn.error });
     const read = await this.request('thread/read', { threadId, includeTurns: true });
@@ -124,6 +135,29 @@ class CodexAppServerClient {
   }
 }
 const caseRepositories = Object.freeze({am:'GH5459/AM_Core',dailylog:'GH5459/DailyLog',uof:'GH5459/UOF_LoginCheck',meeting:'GH5459/AM_Core',hozo:'GH5459/rental-management-blueprint'});
+async function exceptionDispatchSettled(client,folder,active,{readProcessIdentity=processIdentity}={}){
+ const run=path.join(folder,'event-runs',active.id),read=name=>{try{return JSON.parse(fs.readFileSync(path.join(run,name),'utf8'));}catch{return null;}};
+ const name=['failure.input.private.json','event-fail.input.private.json','event-complete.input.private.json'].find(n=>fs.existsSync(path.join(run,n)));
+ if(!name)return true;const intent=read(name);if(!intent)return false;
+ if(intent.id!==active.id||intent.lease!==active.lease)return false;
+ const dispatchFile=path.join(run,'chat-dispatch.input.private.json');
+ if(!fs.existsSync(dispatchFile))return true; // intent is written before any send
+ const dispatch=read('chat-dispatch.input.private.json');if(!dispatch)return false;
+ if(typeof dispatch.threadId!=='string'||dispatch.hostId!=='local')return false;
+ const mark=read('chat-turn-started.private.json');
+ // Desktop turn status alone has been observed stale. Require both an exact
+ // captured turn and independent evidence that its original server exited.
+ // Old dispatches without these identities stay unconfirmed.
+ if(!mark||mark.eventId!==active.id||mark.taskId!==active.taskId||mark.sourceVersion!==active.sourceVersion||mark.threadId!==dispatch.threadId||!mark.turnId||!Number.isSafeInteger(mark.serverPid)||mark.serverPid<=0||typeof mark.serverStartedAt!=='string'||!mark.serverStartedAt)return false;
+ const receipt=read('chat-server-exit.private.json');
+ const matchedReceipt=receipt&&(Number.isSafeInteger(receipt.exitCode)||typeof receipt.signal==='string'&&receipt.signal.length>0)&&['eventId','taskId','sourceVersion','threadId','turnId','serverPid','serverStartedAt'].every(k=>receipt[k]===mark[k]);
+ if(!matchedReceipt){const now=await readProcessIdentity(mark.serverPid);if(now.state!=='absent'&&!(now.state==='present'&&now.startedAt!==mark.serverStartedAt))return false;}
+ const response=await client.request('thread/read',{threadId:dispatch.threadId,includeTurns:true});
+ const thread=response?.thread,turns=thread?.turns;
+ if(thread?.id!==dispatch.threadId||!Array.isArray(turns)||!['idle','notLoaded'].includes(thread.status?.type))return false;
+ const turn=turns.find(t=>t.id===mark.turnId);if(!turn||turns.at(-1)?.id!==mark.turnId)return false;
+ return ['completed','failed','interrupted','cancelled','canceled'].includes(turn?.status);
+}
 function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=message=>console.warn(message),resolveExecutable=codexExecutable}={}){
  return async function verifyCaseExecutor(active,inspected){
   let client;
@@ -152,6 +186,7 @@ function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=mess
     'mcp_servers.xiaoye_runtime.default_tools_approval_mode="approve"'
    ];
    client=await new Client({executable:resolveExecutable(config.codexExecutable),configOverrides:overrides}).connect();
+   if(!await exceptionDispatchSettled(client,config.operatorDirectory,active))throw Error('原案件聊天結果尚未確認，暫不派送新查核');
    const profiles=await client.request('permissionProfile/list');
    if(!profiles.data?.some(p=>p.id===':danger-full-access'&&p.allowed))throw Error('案件完整執行權限不可用');
    const status=await client.request('mcpServerStatus/list');
@@ -175,4 +210,4 @@ function createCaseExecutorVerifier(config,{Client=CodexAppServerClient,log=mess
   finally{client?.close();}
  };
 }
-module.exports = { CodexAppServerClient, createCaseExecutorVerifier };
+module.exports = { CodexAppServerClient, createCaseExecutorVerifier, exceptionDispatchSettled, processIdentity };

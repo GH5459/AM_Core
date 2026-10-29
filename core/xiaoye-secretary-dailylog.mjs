@@ -402,9 +402,15 @@ async function runner(env,c,base,authority,action,v,preview){
  }
  throw fail('不支援此操作。',400);
 }
-export function notificationCurrent(n,t){
+export function notificationCurrent(n,t,c){
  if(!t?.secretary)return false;const s=t.secretary;
  if(n.kind==='receipt')return !s.sourceWithdrawn&&s.reporters.some(p=>p.account===n.account);
+ if(n.kind==='progress'&&/^event-blocked:[a-f0-9]{64}:reporter:/.test(n.id||'')){
+  const legacy=/^event-blocked:([a-f0-9]{64}):reporter:(.+)$/.exec(n.id||''),eventId=n.context?.eventId||legacy?.[1],bot=n.context?.botUserId||c?.oaBotUserId;
+  if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!eventId||!bot||!n.expectedUserId||legacy&&legacy[2]!==n.account||!s.reporters?.some(p=>p.account===n.account&&p.source?.type==='user'&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===bot))return false;
+  if(s.stage==='blocked')return s.sourceVersion===n.sourceVersion&&n.proposalHash===(s.proposal?.hash||null);
+  return ['clarifying','awaiting_approval','approved','executing'].includes(s.stage)&&s.sourceVersion===n.sourceVersion+1&&s.autoRecovery?.eventId===eventId;
+ }
  if(n.kind==='deploy-reconciliation'){
   if(t.deletedAt||t.mergedInto||t.status==='cancelled'||s.sourceWithdrawn||!n.context?.eventId||!n.context.botUserId||!n.expectedUserId||!s.reporters?.some(p=>p.account===n.account&&p.source?.userId===n.expectedUserId&&p.source?.botUserId===n.context.botUserId))return false;
   const dep=s.recovery?.capability,review=s.deploymentReview;
@@ -417,14 +423,14 @@ async function approvalDeferred(env,c,n){if(n.kind!=='approval')return false;ret
 async function notifications(env,c,action,v){
  if(action==='claim'){
   const rows=(await env.DB.prepare("SELECT key,value,revision FROM documents WHERE namespace='xiaoye-notifications' AND json_extract(value,'$.state')!='sent' AND COALESCE(json_extract(value,'$.leaseUntil'),0)<=? AND COALESCE(json_extract(value,'$.nextAttempt'),0)<=? AND json_extract(value,'$.attempts')<5 AND NOT (json_extract(value,'$.kind')='approval' AND EXISTS(SELECT 1 FROM documents d WHERE d.namespace='xiaoye-intake-sessions' AND json_extract(d.value,'$.mode')='draft' AND json_extract(d.value,'$.until')>? AND json_extract(d.value,'$.actor.account')=json_extract(documents.value,'$.account') AND (? IS NULL OR json_extract(d.value,'$.source.botUserId')=?))) ORDER BY json_extract(value,'$.createdAt') LIMIT 10").bind(Date.now(),Date.now(),Date.now(),c.oaBotUserId||null,c.oaBotUserId||null).all()).results;
-  for(const row of rows){let n=JSON.parse(row.value);const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t)){n.state='cancelled';n.attempts=5;await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}
+  for(const row of rows){let n=JSON.parse(row.value);const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t,c)){n.state='cancelled';n.attempts=5;await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}
    if(n.firstAttemptAt&&Date.now()-n.firstAttemptAt>23*3600000){n.state='unknown';n.attempts=5;n.error='通知確認期限已過，請人工核對原對話，避免重複發送。';await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();continue;}if(n.kind==='approval'&&!n.attempts&&!n.firstAttemptAt){n.lineMessage=proposalCard(env.PUBLIC_ORIGIN,t);n.message=proposalText(t)+'\n'+link(env,t.id);}if(n.kind==='result'&&!n.attempts&&!n.firstAttemptAt){n.lineMessage=resultCard(env.PUBLIC_ORIGIN,t);n.message=resultText(t);}n={...n,firstAttemptAt:n.firstAttemptAt||Date.now(),lease:crypto.randomUUID(),leaseUntil:Date.now()+90000,attempts:n.attempts+1,state:'sending'};
    const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',row.key,row.revision).run();if(r.meta.changes)return {ok:true,notification:n};
   }return {ok:true,notification:null};
  }
  const row=await record(env.DB,'xiaoye-notifications',v.id),n=row?.value;if(!n||n.lease!==v.lease||n.leaseUntil<=Date.now())throw fail('通知確認已失效。');
  if(action==='defer'){if(n.kind!=='approval')throw fail('此通知不支援延後。');n.state='pending';n.lease=null;n.leaseUntil=0;n.nextAttempt=0;n.attempts=Math.max(0,n.attempts-1);if(!n.attempts)delete n.firstAttemptAt;const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',v.id,row.revision).run();if(!r.meta.changes)throw fail('通知狀態已更新。');return {ok:true,deferred:true};}
- if(action==='validate'){const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t))throw fail('問題內容或狀態已更新，原通知停止。');return {ok:true,notification:n,deferred:await approvalDeferred(env,c,n)};}
+ if(action==='validate'){const t=(await load(env.DB,n.taskId))?.task;if(!notificationCurrent(n,t,c))throw fail('問題內容或狀態已更新，原通知停止。');return {ok:true,notification:n,deferred:await approvalDeferred(env,c,n)};}
  if(action==='receipt'){
   if(!['sent','failed','unknown'].includes(v.state))throw fail('通知狀態錯誤。',400);n.state=v.state;n.leaseUntil=0;n.nextAttempt=Date.now()+Math.min(3600000,60000*2**n.attempts);n.error=v.state==='sent'?'':String(v.error||'通知尚未確認。').slice(0,300);n.requestId=String(v.requestId||'').slice(0,150);
   const r=await env.DB.prepare('UPDATE documents SET value=?,revision=revision+1 WHERE namespace=? AND key=? AND revision=?').bind(JSON.stringify(n),'xiaoye-notifications',v.id,row.revision).run();if(!r.meta.changes)throw fail('通知狀態已更新。');return {ok:true};

@@ -16,7 +16,13 @@ test('a project access confirmation stops the same case and explains the require
  f.bridge.visibleClientFactory=()=>({async connect(){return this},async call(name){assert.equal(name,'move_thread_to_project');throw Object.assign(Error('confirmation required'),{code:'confirmation_required'});},close(){}});
  f.bridge.pending.add(id);await f.bridge.drain();
  const failure=calls.find(c=>c.action==='event-fail');assert.match(failure.input.reason,/確認資料夾存取權限/);assert.match(failure.input.nextStep,/側欄/);assert(!calls.some(c=>c.action==='event-complete'));
+ assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir,'event-runs',id,'completion.private.json'))).state,'failed');
  const saved=JSON.parse(fs.readFileSync(path.join(routes.caseChatsDirectory,caseId+'.json')));assert.equal(saved.phase,'ready');assert.equal(saved.threadId,'thread-original');assert.equal(saved.projectId,'project-am');f.bridge.stop();
+});
+test('an unknown event finalization sends no competing or repeated finalization',async()=>{
+ const calls=[],job={id,lease,kind:'analyze',taskId:'case',sourceVersion:2};
+ const f=fixture(async url=>{const action=new URL(url).pathname.split('/').at(-1);calls.push(action);if(action==='event-acquire')return reply({job});if(action==='event-check')return reply({job});if(action==='event-complete')throw Error('unknown response');return reply({state:'failed'});},()=>{const child=new EventEmitter();child.stdin={end:()=>queueMicrotask(()=>child.emit('exit',0))};child.kill=()=>{};return child;});
+ f.bridge.pending.add(id);await f.bridge.drain();assert.equal(calls.filter(x=>x==='event-complete').length,1);assert.equal(calls.filter(x=>x==='event-fail').length,0);assert(fs.existsSync(path.join(f.dir,'event-runs',id,'event-complete.input.private.json')));assert(!fs.existsSync(path.join(f.dir,'event-runs',id,'completion.private.json')));f.bridge.stop();
 });
 
 test('API authorization rejection retains its safe cause instead of pretending the desktop is offline',async()=>{const f=fixture(async()=>Response.json({ok:false,error:'工作日誌權限已更新，請重新登入。'},{status:403}));await assert.rejects(f.bridge.call('event-check'),e=>e.status===403&&e.action==='event-check'&&e.reason==='工作日誌權限已更新，請重新登入。');const bad=fixture(async()=>Response.json({ok:false,error:'Bearer private-token-secret'},{status:403}));await assert.rejects(bad.bridge.call('event-check'),e=>e.reason===null);f.bridge.stop();bad.bridge.stop();});
