@@ -154,6 +154,18 @@ test('automatic resume is restricted to the same terminal event and one attempt 
  task.secretary.sources.push({});assert.equal(canAutoResume(c,task,event,false),true);
 });
 
+test('a blocked completed execution may replan within its own bounded budget',()=>{
+ const c={autoResolutionEnabled:true,autoResolutionEpoch:'1'.repeat(16)},id='b'.repeat(64);
+ const task={id:caseId(1),secretary:{stage:'blocked',sourceVersion:5,sources:[{}],recovery:{reason:'new scope'},lease:null,leaseUntil:0,executionEvent:{id},autoRecovery:{sourceCount:1,attempts:1}}};
+ const e={id,taskId:task.id,state:'done',kind:'execute',sourceVersion:5,leaseActive:false};
+ assert.equal(canAutoResume(c,task,e,false),true);
+ assert.equal(canAutoResume(c,task,{...e,id:'c'.repeat(64)},false),false);
+ assert.equal(canAutoResume(c,task,{...e,kind:'analyze'},false),false);
+ task.secretary.stage='paused';assert.equal(canAutoResume(c,task,e,false),false);
+ task.secretary.stage='blocked';task.secretary.autoRecovery.replanAttempts=2;assert.equal(canAutoResume(c,task,e,false),true);
+ task.secretary.autoRecovery.replanAttempts=3;assert.equal(canAutoResume(c,task,e,false),false);
+});
+
 test('event inspect returns one event without exposing its lease and marks expired lease inactive',async()=>{
  const id='a'.repeat(64),event={id,taskId:caseId(1),kind:'analyze',state:'failed',version:4,sourceVersion:2,lease:'secret-lease',leaseUntil:Date.now()-1000};
  const ctx={storage:{async get(key){return key==='event:'+id?event:null;}}};const instance=new XiaoyeEvents(ctx,{});
