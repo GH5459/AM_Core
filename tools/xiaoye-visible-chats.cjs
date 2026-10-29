@@ -1,13 +1,15 @@
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
 const {CodexAppServerClient}=require('./xiaoye-app-server-client.cjs');
+const {appToolsDirectory,codexExecutable}=require('./xiaoye-runtime-paths.cjs');
 const unwrap=result=>{const item=result?.content?.find(c=>c.type==='text');if(!item)throw Error('Codex聊天工具未傳回確認');const value=JSON.parse(item.text);if(result?.isError)throw Object.assign(Error('Codex聊天工具拒絕操作'),{code:value?.error||'desktop_error'});return value;};
 function desktopPipe(names){const matches=names.filter(n=>/^codex-app-tools-[0-9a-f-]+$/i.test(n));if(matches.length!==1)throw Error('目前無法唯一確認Codex桌面連線');return '\\\\.\\pipe\\'+matches[0];}
 class DesktopMcp {
  constructor(context,{launch=spawn,pipeNames=()=>fs.readdirSync('\\\\.\\pipe\\'),appServerContext=null,appServerFactory=options=>new CodexAppServerClient(options)}={}){this.context=context;this.launch=launch;this.pipeNames=pipeNames;this.appServerContext=appServerContext;this.appServerFactory=appServerFactory;this.pending=new Map();this.sequence=0;this.buffer='';}
  async connect(){
   const t=this.context.transport,env={...process.env,...t.env,...this.context.environment};
+  const cwd=appToolsDirectory(t.cwd);
   if(process.platform==='win32')env.CODEX_APP_TOOLS_PIPE_PATH=desktopPipe(this.pipeNames());
-  this.child=this.launch(t.command,t.args,{cwd:t.cwd,env,windowsHide:true,stdio:['pipe','pipe','pipe']});
+  this.child=this.launch(t.command,t.args,{cwd,env,windowsHide:true,stdio:['pipe','pipe','pipe']});
   this.child.stderr.on('data',()=>{});
   this.child.on('error',()=>this.rejectAll());this.child.on('exit',()=>this.rejectAll());
   this.child.stdout.on('data',b=>{this.buffer+=b;if(this.buffer.length>8*1024*1024){this.rejectAll();this.close();return;}let n;while((n=this.buffer.indexOf('\n'))>=0){const line=this.buffer.slice(0,n);this.buffer=this.buffer.slice(n+1);let v;try{v=JSON.parse(line);}catch{continue;}const pending=this.pending.get(v.id);if(!pending)continue;this.pending.delete(v.id);clearTimeout(pending.timer);v.error?pending.reject(Object.assign(Error('Codex桌面連線拒絕要求'),{mcpError:v.error,method:pending.method})):pending.resolve(v.result);}});
@@ -25,7 +27,7 @@ class DesktopMcp {
      'mcp_servers.xiaoye_runtime.enabled=true',
      'mcp_servers.xiaoye_runtime.default_tools_approval_mode="approve"'
     ];
-    this.appServer=this.appServerFactory({executable:c.codexExecutable||'codex',configOverrides:overrides});
+    this.appServer=this.appServerFactory({executable:codexExecutable(c.codexExecutable),configOverrides:overrides});
     await this.appServer.connect();
     const profiles=await this.appServer.request('permissionProfile/list');
     if(c.kind==='execute'&&!profiles.data?.some(p=>p.id===':danger-full-access'&&p.allowed))throw Error('案件完整執行權限目前不可用');
