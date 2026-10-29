@@ -22,6 +22,13 @@ test('terminal state is checked against the original saved receipt and changed s
  assert.equal((await run(fixture('failed',{task:{...fixture().task,sourceVersion:5}}),{evidence})).decision,'case-version-changed');
  await assert.rejects(run(fixture('failed'),{evidence,finalizeEvent:async()=>{throw Object.assign(Error('fingerprint conflict'),{status:409})}}),/fingerprint conflict/);
 });
+test('an expired lease can only submit the exact saved receipt for DO proof verification',async()=>{
+ const input={id,lease:'lease-a',operationId:'saved-failure',reason:'offline'},calls=[];
+ const inspected=fixture('running',{event:{...fixture().event,leaseActive:false}});
+ const result=await run(inspected,{evidence:{finalization:{action:'fail',input}},finalizeEvent:async(action,body)=>{calls.push({action,body});return {state:'failed'}}});
+ assert.equal(result.decision,'finalization-replayed');assert.deepEqual(calls,[{action:'fail',body:input}]);
+ assert.equal((await run(inspected)).decision,'lease-changed');
+});
 test('a saved answer settles the event without dispatching a second desktop turn',async()=>{
   const calls=[];
   const result=await run(fixture('running',{task:{id:active.taskId,sourceVersion:4,stage:'clarifying',waitingForReporter:true}}),{finalizeEvent:async(action,input)=>{calls.push({action,input});return {state:'done'}}});

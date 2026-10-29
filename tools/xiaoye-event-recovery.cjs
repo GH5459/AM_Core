@@ -65,15 +65,16 @@ async function reconcileInterruptedEvent({active, inspectEvent, verifyLease, fin
     }
     return {decision:'failed-needs-reconciliation', terminal:true};
   }
-  if (event.state !== 'running' || event.leaseActive !== true) {
+  if (event.state !== 'running') {
     return {decision:'lease-changed', terminal:false};
   }
   if (finalization) {
-    // The DO atomically checks the original lease and source as part of this
-    // idempotent receipt; a generic check would grant a different capability.
+    // The DO checks the original lease and source. An expired lease permits
+    // only settlement of matching already-persisted DO and D1 evidence.
     const result = await finalizeEvent(finalization.action,finalization.input);
     return {decision:'finalization-replayed', terminal:['done','failed'].includes(result?.state), result};
   }
+  if(event.leaseActive!==true)return {decision:'lease-changed',terminal:false};
   if (typeof verifyLease !== 'function' || await verifyLease(active) !== true) {
     return {decision:'lease-unverified', terminal:false};
   }

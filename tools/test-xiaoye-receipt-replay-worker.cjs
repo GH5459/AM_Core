@@ -71,3 +71,11 @@ test('an execute cannot bypass a corrupted D1 proof merely because blocked was n
   assert.notEqual((await a.machine('runner/event-check',{id:job.id,lease:job.lease},true)).status,200);assert.notEqual((await a.machine('runner/event-fail',input,true)).status,200);
  }finally{await a.close();}
 });
+test('expired synthetic lease after D1 commit settles through DO alarm without reauthorizing execution',{skip:process.env.DAILYLOG_FAULT_INJECTION!=='1'},async()=>{
+ const {a,job}=await prepare();try{
+  const input={id:job.id,lease:job.lease,operationId:op(),reason:'fixture-d1-committed-crash'};assert.notEqual((await a.machine('runner/event-fail',input,true)).status,200);
+  await wait(3800);assert.notEqual((await a.machine('runner/event-check',{id:job.id,lease:job.lease},true)).status,200);
+  const result=await a.ok(await a.machine('runner/event-fail',input,true));assert.equal(result.state,'failed');assert.equal(result.replayed,true);
+  assert.notEqual((await a.machine('runner/event-fail',{...input,reason:'changed'},true)).status,200);
+ }finally{await a.close();}
+});

@@ -65,11 +65,11 @@ export class XiaoyeEvents {
   }
   async finalizationProof(e,t) {
     const i=e.finalizationIntent,s=t?.secretary;
-    if(e.state!=='running'||!i?.operationId||!i.fingerprint||!s||s.stage!=='blocked'||s.sourceWithdrawn||s.pendingUnknownExecution?.state==='pending'||s.sourceVersion!==e.sourceVersion||t.id!==e.taskId)return false;
+    if(e.state!=='running'||!i?.operationId||!i.fingerprint||!Number.isSafeInteger(i.acceptedAt)||i.acceptedAt>=i.leaseUntil||i.leaseUntil!==e.leaseUntil||!s||s.stage!=='blocked'||s.sourceWithdrawn||s.pendingUnknownExecution?.state==='pending'||s.sourceVersion!==e.sourceVersion||t.id!==e.taskId)return false;
     const row=await this.env.DB.prepare("SELECT value FROM documents WHERE namespace='xiaoye-event-receipt-proof' AND key=?").bind(e.id).first();
     if(!row)return false;
     let p;try{p=JSON.parse(row.value);}catch{return false;}
-    return p.eventId===e.id&&p.taskId===e.taskId&&p.sourceVersion===e.sourceVersion&&p.operationId===i.operationId&&p.fingerprint===i.fingerprint&&p.state==='failed';
+    return p.eventId===e.id&&p.taskId===e.taskId&&p.sourceVersion===e.sourceVersion&&p.operationId===i.operationId&&p.fingerprint===i.fingerprint&&p.acceptedAt===i.acceptedAt&&p.leaseUntil===i.leaseUntil&&p.state==='failed';
   }
   async save(e) {
     await this.ctx.storage.transaction(async storage=>{
@@ -102,7 +102,7 @@ export class XiaoyeEvents {
     }
     const message='葉小蝸處理受阻：'+t.title+'\n原因：'+(s.recovery?.reason||reason)+'\n下一步：'+(automatic?effectiveNextStep:s.recovery?.nextStep||nextStep)+'\n'+url;
     const n={id,taskId:e.taskId,account:c.ownerAccount,kind:'event-blocked',message,lineMessage:recoveryCard(this.env.PUBLIC_ORIGIN,t,automatic),sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:null,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
-    if(e.finalizationIntent?.operationId&&e.finalizationIntent?.fingerprint){const proof={eventId:e.id,taskId:e.taskId,sourceVersion:e.sourceVersion,operationId:e.finalizationIntent.operationId,fingerprint:e.finalizationIntent.fingerprint,state:'failed'};extra.push(this.env.DB.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('xiaoye-event-receipt-proof',?,?,1)").bind(e.id,JSON.stringify(proof)));}
+    if(e.finalizationIntent?.operationId&&e.finalizationIntent?.fingerprint){const proof={eventId:e.id,taskId:e.taskId,sourceVersion:e.sourceVersion,operationId:e.finalizationIntent.operationId,fingerprint:e.finalizationIntent.fingerprint,acceptedAt:e.finalizationIntent.acceptedAt,leaseUntil:e.finalizationIntent.leaseUntil,state:'failed'};extra.push(this.env.DB.prepare("INSERT INTO documents(namespace,key,value,revision) VALUES('xiaoye-event-receipt-proof',?,?,1)").bind(e.id,JSON.stringify(proof)));}
     for(const p of s.reporters||[]){
       if(!p.account||!p.source?.userId)continue;
       const noticeId=id+':reporter:'+p.account,notice={id:noticeId,taskId:e.taskId,account:p.account,kind:'progress',context:{eventId:e.id,botUserId:p.source.botUserId||null},message:'葉小蝸處理「'+t.title+'」時遇到困難，目前尚未完成，原案件已保留。若需要您補充，會在這裡詢問；有結果後也會在這裡告訴您。\n'+url,sourceVersion:s.sourceVersion,proposalHash:s.proposal?.hash||null,expectedUserId:p.source.userId,state:'pending',attempts:0,leaseUntil:0,createdAt:Date.now()};
@@ -126,8 +126,9 @@ export class XiaoyeEvents {
       }
       if (e.state === 'running') {
         const t = await this.task(e.taskId);
-        if (!this.runningValid(e,t)&&!await this.finalizationProof(e,t)) { e.state='superseded'; this.send({type:'invalidate',id:e.id}); await this.save(e); }
-        else if (e.leaseUntil <= now) { e.state='failed'; await this.notice(e,'處理租期已到，未自動重做；請先查核是否已有動作。'); await this.save(e); this.send({type:'invalidate',id:e.id}); }
+        const proof=await this.finalizationProof(e,t);
+        if (!this.runningValid(e,t)&&!proof) { e.state='superseded'; this.send({type:'invalidate',id:e.id}); await this.save(e); }
+        else if (e.leaseUntil <= now) { e.state='failed'; if(proof){e.finishedAt=now;e.completionOperation=e.finalizationIntent.operationId;e.completionFingerprint=e.finalizationIntent.fingerprint;}else await this.notice(e,'處理租期已到，未自動重做；請先查核是否已有動作。'); await this.save(e); this.send({type:'invalidate',id:e.id}); }
       }
       if (e.state === 'ready') {
         const t = await this.task(e.taskId);
@@ -197,9 +198,10 @@ export class XiaoyeEvents {
         if(!e.completionFingerprint||e.completionFingerprint!==fingerprint||t?.secretary?.sourceVersion!==e.sourceVersion)return respond({ok:false,error:'原事件回執內容或來源版本無法核對。'},409);
         return respond({ok:true,state:e.state,replayed:true});
       }
-      if (e.state !== 'running' || e.lease !== v.lease || e.leaseUntil <= Date.now()) return respond({ok:false,error:'事件執行確認已失效。'},409);
+      if (e.state !== 'running' || e.lease !== v.lease) return respond({ok:false,error:'事件執行確認已失效。'},409);
       const t = await this.task(e.taskId);
       const proof=await this.finalizationProof(e,t);
+      if(e.leaseUntil<=Date.now()&&!proof)return respond({ok:false,error:'事件執行確認已失效。'},409);
       if(route!=='/check'&&e.finalizationIntent&&!proof&&await this.env.DB.prepare("SELECT key FROM documents WHERE namespace='xiaoye-notifications' AND key=?").bind('event-blocked:'+e.id).first())return respond({ok:false,error:'原事件回執證據不足。'},409);
       if (!this.runningValid(e,t)&&!proof) { e.state='superseded'; await this.save(e); this.send({type:'invalidate',id:e.id}); await this.pump(); return respond({ok:false,error:'案件已有新版本，請停止。'},409); }
       if(route==='/check'&&e.finalizationIntent)return respond({ok:false,error:'原事件已進入結束對帳。'},409);
@@ -209,7 +211,7 @@ export class XiaoyeEvents {
       // adopt the original notice or overwrite its meaning on retry.
       if(e.finalizationIntent&&(e.finalizationIntent.operationId!==op||e.finalizationIntent.fingerprint!==fingerprint))return respond({ok:false,error:'原事件回執內容不符。'},409);
       if(proof){e.state='failed';e.finishedAt=Date.now();e.completionOperation=op;e.completionFingerprint=fingerprint;await this.save(e);await this.pump();return respond({ok:true,state:e.state,replayed:true});}
-      if(op&&!e.finalizationIntent){e.finalizationIntent={operationId:op,fingerprint};await this.save(e);}
+      if(op&&!e.finalizationIntent){const acceptedAt=Date.now();if(acceptedAt>=e.leaseUntil)return respond({ok:false,error:'事件執行確認已失效。'},409);e.finalizationIntent={operationId:op,fingerprint,acceptedAt,leaseUntil:e.leaseUntil};await this.save(e);}
       const completed = e.kind === 'analyze' ? ['awaiting_approval','approved','awaiting_confirmation'].includes(t.secretary.stage)||t.secretary.waitingForReporter : ['awaiting_confirmation','blocked'].includes(t.secretary.stage);
       e.state = route === '/complete' && completed ? 'done' : 'failed'; e.finishedAt=Date.now(); e.completionOperation=op; e.completionFingerprint=fingerprint;
       if (e.state === 'failed') await this.notice(e,typeof v.reason==='string'?v.reason.slice(0,1500):'自動處理未取得完整完成證據，已停止；需先查核已有動作。',typeof v.nextStep==='string'?v.nextStep.slice(0,500):recoveryNextStep);
