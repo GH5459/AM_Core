@@ -17,6 +17,8 @@ class FixtureGateway {
     this.grants = new Map();
     this.issuedEvents = new Set();
     this.requests = new Set();
+    this.readers = new Map(); this.activeStreams = new Map(); this.readerCount = 0;
+    this.maxReaders = 4; this.maxReadersPerGrant = 1; this.readTimeoutMs = 1000;
     this.backendCalls = 0;
     this.server = http.createServer((req, res) => { this.handle(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); }); });
   }
@@ -31,8 +33,16 @@ class FixtureGateway {
     this.grants.set(digest(token), {eventId, sourceVersion, generation, expiresAt, maxRequests, used: 0, revoked: false});
     return token;
   }
-  revoke(token) { const grant = this.grants.get(digest(token)); if (grant) grant.revoked = true; }
+  revoke(token) { const grant = this.grants.get(digest(token)); if (grant) { grant.revoked = true; for(const req of this.readers.get(grant)||[]) req.destroy(); for(const abort of this.activeStreams.get(grant)||[]) abort.abort(); } }
   authorize(token) { const grant = this.grants.get(digest(token)); return grant && !grant.revoked && grant.expiresAt > this.clock() ? grant : null; }
+  trackStream(grant, abort) { let set=this.activeStreams.get(grant); if(!set)this.activeStreams.set(grant,set=new Set()); set.add(abort); return ()=>{set.delete(abort);if(!set.size)this.activeStreams.delete(grant);}; }
+  async readBody(req,grant,maxBytes) {
+    let set=this.readers.get(grant);if(this.readerCount>=this.maxReaders||(set?.size||0)>=this.maxReadersPerGrant)throw Object.assign(Error('too many readers'),{status:429});
+    if(!set)this.readers.set(grant,set=new Set());set.add(req);this.readerCount++;let size=0,parts=[],large=false;
+    const timer=setTimeout(()=>req.destroy(Error('fixture read timeout')),this.readTimeoutMs);
+    try{for await(const chunk of req){size+=chunk.length;if(size>maxBytes){large=true;parts=[];}else if(!large)parts.push(chunk);}if(large)throw Object.assign(Error('body too large'),{status:413});return Buffer.concat(parts);}
+    finally{clearTimeout(timer);set.delete(req);this.readerCount--;if(!set.size)this.readers.delete(grant);}
+  }
   async listen() { await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); }); return this.server.address().port; }
   async close() { await new Promise((resolve, reject) => this.server.close(err => err ? reject(err) : resolve())); }
   async handle(req, res) {
@@ -42,10 +52,8 @@ class FixtureGateway {
     if (!token || !this.authorize(token)) return fail(401);
     const id = req.headers['x-fixture-request-id'];
     if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(id)) return fail(400);
-    let size = 0, parts = [], tooLarge = false;
-    for await (const chunk of req) { size += chunk.length; if (size > 16384) { tooLarge = true; parts = []; } else if (!tooLarge) parts.push(chunk); }
-    if (tooLarge) return fail(413);
-    let body; try { body = JSON.parse(Buffer.concat(parts).toString('utf8')); } catch { return fail(400); }
+    let raw;try{raw=await this.readBody(req,this.authorize(token),16384);}catch(e){if(!res.destroyed)return fail(e.status||408);return;}
+    let body; try { body = JSON.parse(raw.toString('utf8')); } catch { return fail(400); }
     if (!validBody(body)) return fail(400);
     // Re-check after potentially slow body upload. This atomic synchronous
     // section enforces the in-memory request limit in this single process.

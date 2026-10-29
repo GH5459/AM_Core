@@ -44,3 +44,13 @@ node --test tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-mode
 此處借用 [Responses function calling](https://developers.openai.com/api/docs/guides/function-calling) 的 function call／output 形狀及 [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events) 的事件名稱來製作假資料，並非真實 Codex 相容測試。尚未使用真正 Codex app-server 產生協議 trace，假 schema 只接受很小子集；例如更多工具、歷史、圖片、錯誤、推理內容或模型協議都可能被拒絕。沒有證據證明此程式可直接供完整 Codex 使用。
 
 本地測試用記憶體 token／請求數沒有跨重啟持久性，亦無 TLS、真實 upstream、真正 key 的安全保管、完整費用計量、實際身份或隔離。輸入字節上限不能精算 token 用量或費用；串流逾時送出中止信號也不保證上游已停止或不計費。未證實任何模型可用、API 授權或實際費率。真實轉接器必須另行實作只連固定 OpenAI endpoint、不跟隨任意重導、受控外部密鑰、可靠撤銷與用量，以及用真正 Codex 和供應商進行端到端測試；目前沒有這些功能，也不能推送或啟用正式模型連線。
+
+## 本機 Codex 與假上游的限定驗證
+
+`xiaoye-codex-proxy-fixture.cjs` 根據本機 Codex 的虛構 trace 接受限定欄位與固定版本的七個工具定義，關閉 web search 與多代理；工具定義摘要若變動即拒絕。輸出工具事件在名稱、call ID、參數格式及終態對帳通過前緩衝，拒絕額外欄位、未完成或矛盾內容；明確 503 在開始串流前可有限重試相同推論，部分串流或結果不明不自動重送。普通文字串流可能已交付呼叫端，遇錯不可撤回，呼叫端須以終態判斷結果。每個事件及全域上傳數量有假限制，撤權主動中斷等待中的讀取與串流；此中斷不證明真實提供者已停止或不再計費。
+
+在此電腦上以臨時空白 home、虛構 bearer、外層 `network.enabled=false` 測得：透過本機假 gateway 及本機假上游，Codex 完成一次虛構 `exec_command` 與結果回傳；假 503 後純推論重試成功；手動中斷為 interrupted；工具 call 後截斷時為 failed，虛構標記檔未建立。僅證明該版本與這四個虛構情境，並非完整協議或真 API 相容。測試用外層 Windows 權限仍可讀 root、loopback 可用，不能證明所有主機憑證、桌面或網路均已隔離。此假 proxy 插入 `max_output_tokens` 作上限；官方文件所述 ChatGPT OAuth 預覽路徑不接受此欄位，因此不能宣稱可用於該路徑。
+
+工具 schema 僅限制資料形狀，不限制 `exec_command` 可執行的命令或任何副作用，模型工具輸出也不等於可信動作證據。正式需求仍是獨立執行隔離、可信事件與工具授權、受控外部操作 broker、持久資料與費用上限。由於尚未接真 API、密鑰保管、真實憑證／工具或正式案件，此原型不可啟用。
+
+本機 Windows 可由呼叫者明確提供 Codex 程式位置後執行 `tools/test-xiaoye-codex-live-fixture.cjs`；其他環境會跳過，不應將跳過當成通過。另可執行 `node --test tools/test-xiaoye-codex-proxy-fixture.cjs tools/test-xiaoye-responses-proxy-fixture.cjs tools/test-xiaoye-model-gateway-fixture.cjs tools/test-xiaoye-controlled-broker.cjs tools/test-xiaoye-controlled-action-journal.cjs`。所有上游均為假資料。
