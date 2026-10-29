@@ -1,10 +1,11 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 const runtimeTools=require('./xiaoye-runtime-tools.cjs');
+const {codexExecutable}=require('./xiaoye-runtime-paths.cjs');
 const {reconcileInterruptedEvent,nextFailure}=require('./xiaoye-event-recovery.cjs');
 const {failedEventCandidates}=require('./xiaoye-failed-event-scan.cjs');
 class EventBridge {
   constructor(config,{WebSocket,launch,fetcher=fetch,clock=Date.now,checkTools=runtimeTools.preflight,visibleClientFactory,verifyCaseExecutor}={}) {
-    this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(config.codexExecutable,args,options));this.fetcher=fetcher;this.clock=clock;
+    this.config=config;this.folder=config.operatorDirectory;this.WebSocket=WebSocket||require(config.wsModule);this.launch=launch||((args,options)=>spawn(codexExecutable(config.codexExecutable),args,options));this.fetcher=fetcher;this.clock=clock;
     this.pending=new Set();this.running=null;this.stopped=false;this.retry=0;this.childrenStarted=0;this.checkTools=checkTools;this.visibleClientFactory=visibleClientFactory;this.verifyCaseExecutor=verifyCaseExecutor;
     fs.mkdirSync(path.join(this.folder,'event-runs'),{recursive:true});
     this.credentials=JSON.parse(fs.readFileSync(path.join(this.folder,'runner.private.json')));
