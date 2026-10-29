@@ -78,7 +78,7 @@ export function canAutoResume(c,t,e,ownerDraft){
  const s=t?.secretary,sourceCount=s?.sources?.length||0,already=s?.autoRecovery;
  const replan=e?.state==='done'&&e.kind==='execute'&&s?.executionEvent?.id===e.id;
  const terminal=e?.state==='failed'||replan;
- const exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1);
+ const exhausted=already?.sourceCount===sourceCount&&(replan?(already.replanAttempts||0)>=3:already.attempts>=1&&(already.failureAfterReplan||0)===(already.replanAttempts||0));
  return c.autoResolutionEnabled===true&&typeof c.autoResolutionEpoch==='string'&&c.autoResolutionEpoch.length>=16&&!!s&&!t.deletedAt&&!t.mergedInto&&!s.sourceWithdrawn&&s.stage==='blocked'&&!s.waitingForReporter&&!s.lease&&!s.leaseUntil&&!ownerDraft&&!!s.recovery&&terminal&&!e.leaseActive&&e.taskId===t.id&&e.sourceVersion===s.sourceVersion&&!exhausted;
 }
 async function inspectEvent(env,c,v){
@@ -104,7 +104,7 @@ async function autoResume(env,c,v){
  const replan=inspected.event.state==='done'&&inspected.event.kind==='execute';
  const attempts=previous?.attempts||0,replanAttempts=previous?.replanAttempts||0;
  restartAnalysis(t,retireProposal);
- s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:attempts+1,...replanAttempts?{replanAttempts}:{},at:new Date().toISOString(),eventId:v.eventId};
+ s.autoRecovery=replan?{sourceCount,attempts,replanAttempts:replanAttempts+1,...previous?.failureAfterReplan?{failureAfterReplan:previous.failureAfterReplan}:{},at:new Date().toISOString(),eventId:v.eventId}:{sourceCount,attempts:1,...replanAttempts?{replanAttempts,failureAfterReplan:replanAttempts}:{},at:new Date().toISOString(),eventId:v.eventId};
  s.recoveryHistory.at(-1).automatic=true;
  const guard="NOT EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-owner-sessions' AND json_extract(value,'$.taskId')=? AND json_extract(value,'$.mode')='feedback' AND json_extract(value,'$.until')>?) AND EXISTS(SELECT 1 FROM documents WHERE namespace='xiaoye-secretary' AND key='config' AND json_extract(value,'$.autoResolutionEnabled')=1 AND json_extract(value,'$.autoResolutionEpoch')=?)";
  const saved=await transaction(env,old,t,v.operationId,input,actor,'系統確認工具恢復後，沿原案件自動接續查核；已完成的動作先核對，不重做。',[],guard,[t.id,Date.now(),c.autoResolutionEpoch]);

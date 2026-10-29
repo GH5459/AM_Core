@@ -140,7 +140,10 @@ class EventBridge {
             preflightRoute=require('./xiaoye-visible-chats.cjs').selectRoute(routes,initialChecked);
             workRoot=preflightRoute.workRoot;
           }
-          const health=await this.checkTools(this.toolContext,{workRoot});this.save(rel+'/tools-preflight.private.json',health);
+          let health;
+          try{health=await this.checkTools(this.toolContext,{workRoot});}
+          catch(first){await new Promise(resolve=>setTimeout(resolve,1000));health=await this.checkTools(this.toolContext,{workRoot});}
+          this.save(rel+'/tools-preflight.private.json',health);
         }
         catch(e){
           const labels={git_unavailable:'Git工具無法使用',github_unavailable:'GitHub連線或授權無法使用',desktop_unavailable:'Codex桌面連線無法使用',pr_unavailable:'聊天附加PR工具無法使用',ci_unavailable:'自動測試查核工具無法使用',owner_chat_unavailable:'無法核對原聊天'};
