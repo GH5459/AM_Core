@@ -29,7 +29,14 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
   await assertMember(row,r.host_id);
   q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[id])).rows[0];if(!q)return;
   if(!q.payload&&!todos(r.fields).some(t=>t.ownerId)&&!todos(q.applied_fields).some(t=>t.ownerId)){await wait(id,'');return;}
-  const identities=new Map(),resolve=async userId=>{if(!identities.has(userId)){await assertMember(row,userId);identities.set(userId,await platform.meetingTaskIdentity?.(userId));}return identities.get(userId);};
+  const identities=new Map(),resolve=async ownerId=>{if(!identities.has(ownerId)){
+   if(ownerId.startsWith('account:')){
+    const account=ownerId.slice(8),host=await platform.meetingTaskIdentity?.(r.host_id),org=await platform.meetingOrganization?.(r.host_id);
+    if(!host||!org||host.tenantKey!==org.tenantKey||!org.people.some(p=>p.account===account)||!(r.receipt?.taskParticipants||[]).some(p=>p.account===account&&p.tenantKey===host.tenantKey))throw Error('identity_changed');
+    const recipient=await platform.meetingShareRecipient?.({tenantKey:host.tenantKey,account}),who=recipient&&await platform.meetingTaskIdentity?.(recipient.userId);
+    if(who&&(who.account!==account||who.tenantKey!==host.tenantKey))throw Error('identity_changed');identities.set(ownerId,who||null);
+   }else{await assertMember(row,ownerId);identities.set(ownerId,await platform.meetingTaskIdentity?.(ownerId));}
+  }return identities.get(ownerId);};
   const host=await resolve(r.host_id);
   if(!host){await wait(id,'待主持人完成 UOF／LINE 與工作日誌連線；會議已發布。');return;}
   if(q.host_identity&&!identityEqual(q.host_identity,host)||q.task_tenant&&q.task_tenant!==host.tenantKey)throw Error('identity_changed');
@@ -38,7 +45,7 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
    for(const t of assigned){const owner=await resolve(t.ownerId);
     if(!owner){waiting.push(t.id);continue;}
     if(owner.tenantKey!==host.tenantKey)throw Error('service_changed');
-    const prior=q.applied_identities[t.id];if(prior?.userId===owner.userId&&!identityEqual(prior,owner))throw Error('identity_changed');
+    const prior=q.applied_identities[t.id];if(prior&&(prior.userId===owner.userId||q.applied_fields[t.id]?.ownerId===t.ownerId)&&!identityEqual(prior,owner))throw Error('identity_changed');
     fields[t.id]=r.fields[t.id];ready.push({...t,owner});
    }
    const removed=todos(q.applied_fields).filter(t=>t.ownerId&&!fields[t.id]?.ownerId).map(t=>t.id);
@@ -54,7 +61,7 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
    q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[id])).rows[0];
   }
   if(!identityEqual(q.payload.host,host))throw Error('identity_changed');
-  for(const t of q.payload.tasks)if(!identityEqual(await resolve(t.owner.userId),t.owner))throw Error('identity_changed');
+  for(const t of q.payload.tasks){const ownerId=q.payload_fields?.[t.id]?.ownerId||t.owner.userId;if(!identityEqual(await resolve(ownerId),t.owner))throw Error('identity_changed');}
   const result=await platform.publishMeetingTasks({preparedPayload:q.payload,taskTenant:q.task_tenant});
   if(!result||!Array.isArray(result.tasks))throw Error('invalid_delivery_receipt');
   const known=[...new Set([...q.known_task_ids,...result.tasks.map(t=>t.id).filter(Boolean)])];

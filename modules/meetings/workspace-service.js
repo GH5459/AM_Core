@@ -133,8 +133,11 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }
  async function validateAssignees(r,row){
   const entries=todos(r.fields),assigned=entries.filter(t=>t.ownerId);if(!assigned.length)return [];
-  const ids=[...new Set([r.host_id,...assigned.map(t=>t.ownerId)])],results=new Map();
+  const accountIds=[...new Set(assigned.map(t=>t.ownerId).filter(id=>id.startsWith('account:')))];
+  let org;if(accountIds.length){org=await platform.meetingOrganization?.(r.host_id);if(!org)throw failure(503,'組織名單暫時無法核對。');}
+  const ids=[...new Set([r.host_id,...assigned.map(t=>t.ownerId).filter(uid)])],results=new Map();
   for(let i=0;i<ids.length;i+=5)await Promise.all(ids.slice(i,i+5).map(async id=>{await assertMember(row,id);results.set(id,await platform.meetingTaskIdentity?.(id));}));
+  for(const id of accountIds){const account=id.slice(8),p=(r.receipt?.taskParticipants||[]).find(p=>p.account===account&&p.tenantKey===org.tenantKey),person=org.people.find(p=>p.account===account);if(!p||!person)throw failure(409,'負責人不在本場會議的有效參與者名單，請重新選擇。');results.set(id,{userId:id,name:person.name,tenantKey:org.tenantKey});}
   const host=results.get(r.host_id),ready=assigned.map(t=>results.get(t.ownerId)).filter(Boolean);
   if(new Set([host?.tenantKey,r.receipt?.taskTenant,...ready.map(p=>p.tenantKey)].filter(Boolean)).size>1)throw failure(409,'負責人與主持人的工作日誌服務不同，請重新選擇同一服務的負責人。');
   // A missing work binding is a delivery prerequisite, never a publication gate.
@@ -263,12 +266,20 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
      people=[...new Set(input.accounts)].map(account=>{const person=org.people.find(p=>p.account===account);if(!person)throw failure(409,'部分同仁已不在有效組織名單，請重新讀取後再選擇。');return {tenantKey:org.tenantKey,account,name:person.name};});
     }current=await store.share(r.id,actor,input.enabled,input.revision,input.version,people);
    }
+   else if(input.action==='task-participants'){
+    if(actor.id!==r.host_id)throw failure(403,'只有主持人可以設定會議任務參與者。');
+    if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能設定參與者。');
+    if(!Array.isArray(input.accounts)||input.accounts.length>200||input.accounts.some(a=>typeof a!=='string'||!/^\d{1,20}$/.test(a)))throw failure(400,'參與者名單格式不正確。');
+    const org=await platform.meetingOrganization?.(r.host_id);if(!org)throw failure(503,'組織架構暫時無法讀取。');
+    const people=[...new Set(input.accounts)].map(account=>{const p=org.people.find(x=>x.account===account);if(!p)throw failure(409,'同仁名單已更新，請重新選擇。');return {account,name:p.name,tenantKey:org.tenantKey};});
+    current=await store.locked(r.id,async(fresh,db)=>{if(Number(fresh.revision)!==input.revision)throw failure(409,'會議內容已更新，請重新讀取後再設定。');if(!['review','published'].includes(fresh.state))throw failure(409,'目前無法設定任務參與者。');if((await db.query("SELECT 1 FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' LIMIT 1",[fresh.id])).rows.length)throw failure(409,'會議修改正在同步，請稍後再設定參與者。');const effective=await store.effective(fresh,db);if(todos(effective.fields).some(t=>t.ownerId?.startsWith('account:')&&!people.some(p=>p.account===t.ownerId.slice(8))))throw failure(409,'已有待辦指派給該同仁，請先調整待辦再移除。');const before=fresh.receipt?.taskParticipants||[],rev=Number(fresh.revision)+1;await db.query("UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{taskParticipants}',$2::jsonb),revision=$3,updated_at=now() WHERE id=$1",[fresh.id,JSON.stringify(people),rev]);await db.query('INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)',[fresh.id,rev,actor.id,actor.name,'taskParticipants',JSON.stringify(before),JSON.stringify(people)]);return store.get(fresh.id,db);});
+   }
    else if(input.action==='save-part'){
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉，暫時不能儲存。');
     current=await store.part(r.id,actor,input,async next=>{
-     if(input.field?.startsWith('todo:')&&input.value?.ownerId)await assertMember(row,input.value.ownerId);
+     if(input.field?.startsWith('todo:')&&input.value?.ownerId&&!input.value.ownerId.startsWith('account:'))await assertMember(row,input.value.ownerId);
      if(next.state==='published'){const identities=await validateAssignees(next,row);return Object.fromEntries(identities.map(p=>[p.userId,p.name]));}
-     if(input.field?.startsWith('todo:')&&input.value?.ownerId){const userId=input.value.ownerId,identity=await platform.meetingTaskIdentity?.(userId),profile=identity?null:await platform.lineGet(row.source_kind==='user'?'/v2/bot/profile/'+userId:`/v2/bot/${row.source_kind}/${row.source_id}/member/${userId}`,{timeoutMs:8000});return {...next.receipt.ownerNames,[userId]:identity?.name||String(profile?.displayName||'群組成員').slice(0,100)};}
+     if(input.field?.startsWith('todo:')&&input.value?.ownerId){const userId=input.value.ownerId;if(userId.startsWith('account:')){const identities=await validateAssignees(next,row),identity=identities.find(p=>p.userId===userId);return {...next.receipt.ownerNames,[userId]:identity.name};}const identity=await platform.meetingTaskIdentity?.(userId),profile=identity?null:await platform.lineGet(row.source_kind==='user'?'/v2/bot/profile/'+userId:`/v2/bot/${row.source_kind}/${row.source_id}/member/${userId}`,{timeoutMs:8000});return {...next.receipt.ownerNames,[userId]:identity?.name||String(profile?.displayName||'群組成員').slice(0,100)};}
     });drain().catch(()=>{});
    }
    else if(input.action==='revise'){
@@ -304,6 +315,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    result.publication=await publication.status(current,row);
    if(input.action==='publication-targets')result.publicationTargets=await publication.list(current,row,actor);
    if(result.host)result.sharing.people=current.shared_people;
+   result.taskParticipants=current.receipt?.taskParticipants||[];
    if(input.action==='members')result.members=await members(row,r.host_id,input.observed===true);
    if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
    if(experience.locale!=='zh-Hant')result.canEdit=false;

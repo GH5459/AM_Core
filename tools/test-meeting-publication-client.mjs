@@ -22,6 +22,13 @@ async function fixture(){
  return {w,el,edit,save,tick,requests,poll:()=>timers[0](),get state(){return state;},setBehavior:fn=>behavior=fn,commit,mutate:fn=>fn(state),close:()=>dom.window.close()};
 }
 const selected='2'.repeat(64),source='1'.repeat(64),other='3'.repeat(64);
+{
+ const f=await fixture();try{const $=s=>f.w.document.querySelector(s),people=[{account:'222',name:'合成參與者'}];
+ f.w.chooseMeetingPeople=async({title})=>{assert(title.includes('參與者'));return people;};
+ f.setBehavior((input)=>{if(input.action==='organization')return {status:200,body:{organization:{tenantKey:'fixture',people}}};if(input.action==='task-participants'){assert.deepEqual(input.accounts,['222']);f.mutate(s=>{s.taskParticipants=people;s.workspace.revision++;s.editing.revision++;});}return {status:200};});
+ await $('#chooseTaskParticipants').onclick();assert(f.el(todo).querySelector('[data-owner]').innerHTML.includes('合成參與者'));assert(!f.requests.some(r=>r.action==='publish'||r.action==='save-part'),'Selecting participants does not publish or assign a task');
+ }finally{f.close();}
+}
 async function choose(f,key=selected){const $=s=>f.w.document.querySelector(s);await $('#loadPublicationTargets').onclick();$('#publicationTarget').value=key;$('#publicationTarget').dispatchEvent(new f.w.Event('change',{bubbles:true}));}
 {
  const f=await fixture();try{const $=s=>f.w.document.querySelector(s),originalTodo=clone(f.state.editing.fields[todo]);assert(!$('#publicationPanel').hidden);f.edit(record,'人工修改尚未保存');f.edit(todo,'保持原待辦負責人');await choose(f);$('#publish').click();assert(!$('#confirmDialog').open);assert($('#error').textContent.includes('發布群組'));await $('#savePublicationTarget').onclick();assert.equal(f.state.publication.key,selected);assert.equal(f.el(record).querySelector('[contenteditable]').innerText,'人工修改尚未保存');assert(f.el(record).classList.contains('dirty'));assert.equal(f.state.editing.fields[todo].ownerId,originalTodo.ownerId);await $('#saveContent').onclick();$('#publish').click();assert($('#confirmDialog').open);assert($('#confirmText').textContent.includes('合成發布群組'));assert($('#confirmText').textContent.includes('收聽錄音'));assert.equal(f.state.editing.fields.record,'人工修改尚未保存');assert(!f.requests.some(r=>r.action==='publish'));await $('#confirmPublish').onclick();const sent=f.requests.find(r=>r.action==='publish');assert.equal(sent.publicationKey,selected);assert.equal(sent.publicationVersion,1);}finally{f.close();}

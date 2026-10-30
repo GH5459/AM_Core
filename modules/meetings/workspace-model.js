@@ -13,7 +13,7 @@ export function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value||'')&&N
 export function checkField(field,value){
  if(/^todo:[a-f0-9-]{36}$/.test(field)){
   if(value===null)return;
-  if(!value||Object.keys(value).some(k=>!['content','ownerId','due','evidence'].includes(k))||!bounded(value.content,4000)||!bounded(value.ownerId,50)||value.ownerId&&!/^U[a-f0-9]{32}$/i.test(value.ownerId)||!bounded(value.due,10)||value.due&&!validDate(value.due)||!bounded(value.evidence,4000))throw failure(400,'待辦內容或日期格式不正確。');
+  if(!value||Object.keys(value).some(k=>!['content','ownerId','due','evidence'].includes(k))||!bounded(value.content,4000)||!bounded(value.ownerId,50)||value.ownerId&&!/^(?:U[a-f0-9]{32}|account:\d{1,20})$/i.test(value.ownerId)||!bounded(value.due,10)||value.due&&!validDate(value.due)||!bounded(value.evidence,4000))throw failure(400,'待辦內容或日期格式不正確。');
   return;
  }
  if(field==='settings'){

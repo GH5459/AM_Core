@@ -308,6 +308,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.22
       - run: node tools/test-meeting-workspace-service.mjs
       - run: node tools/test-meeting-task-dispatch.mjs
+      - run: node tools/test-meeting-participant-assignment.mjs
       - run: node --check tools/test-meeting-workspace-worker.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.35
