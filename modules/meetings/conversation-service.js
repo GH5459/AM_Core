@@ -3,6 +3,7 @@ import {verifyManagementRequest} from './management-auth.js';
 import {readTaskOrigins} from './task-origins.js';
 import {sendJson} from '../../core/util.js';
 import {createMeetingWorkspace} from './workspace-service.js';
+import {currentGroupNames} from './group-names.js';
 
 export const CONVERSATION_MEETINGS_CONTRACT='all-line-conversations-meetings-v1';
 const id=v=>String(v||'').replaceAll('-','');
@@ -214,8 +215,8 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
         return sendJson(res,200,await readTaskOrigins(JSON.parse(body),{pool,botId})),true;
       }
       if(req.method==='GET'&&url.pathname==='/integrations/meeting-management/conversations'){
-        const rows=await store.list();return sendJson(res,200,{contract:CONVERSATION_MEETINGS_CONTRACT,conversations:rows.map(r=>({
-          key:r.key,name:r.display_name||'尚未取得名稱',type:r.source_kind,status:r.legacy_status||'啟用',connection:r.connection_state,
+        const rows=await store.list();const names=await currentGroupNames(rows,platform);return sendJson(res,200,{contract:CONVERSATION_MEETINGS_CONTRACT,conversations:rows.map(r=>({
+          key:r.key,name:names.get(r.key)||r.display_name||'尚未取得名稱',type:r.source_kind,status:r.legacy_status||'啟用',connection:r.connection_state,
           enabled:r.enabled,todoMode:r.todo_mode,tenantKey:r.tenant_key,version:Number(r.version),lastActivity:r.last_activity,
           processingState:r.processing_state||'',processingUpdatedAt:r.processing_updated_at,settingsUpdatedAt:r.updated_at,
           notionUrl:r.database_id?'https://www.notion.so/'+id(r.database_id):'',

@@ -82,6 +82,8 @@ on:
       - 'tools/test-meeting-personnel.mjs'
       - 'versions/AM-IMP-2026.1016.06/**'
       - 'tools/test-conversation-meetings.mjs'
+      - 'tools/test-meeting-group-names.mjs'
+      - 'versions/AM-IMP-2026.1030.04/**'
       - 'tools/test-meeting-audio-receipt.mjs'
       - 'tools/test-meeting-publishing-reader.mjs'
       - 'versions/AM-IMP-2026.1021.04/**'
@@ -292,6 +294,8 @@ jobs:
       - run: node tools/test-portal-command-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-conversation-meetings.mjs
+      - run: node tools/test-meeting-group-names.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1030.04
       - run: node tools/test-meeting-audio-receipt.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1021.03
       - run: node tools/test-task-origins.mjs
@@ -510,5 +514,6 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0928.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.02
+
 
 

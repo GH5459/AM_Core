@@ -8,6 +8,7 @@ import {meetingTaskProgress} from './task-progress.js';
 import {planInput,audioInput,HUB_CONTRACT} from './hub-model.js';
 import {hubHtml} from './hub-ui.js';
 import {meetingHostAttention} from './host-attention.js';
+import {currentGroupNames} from './group-names.js';
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 export function meetingHub({locale,pool,botId,platform,env,store,getConversation,authenticate,assertMember,tenantFor,base,request,publicationReader=async()=>false}){
  const origin=()=>new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
@@ -183,7 +184,7 @@ if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>600
    const lines=[];let n=0;async function blocks(id,depth=0){if(depth>6||n>3000)throw failure(413,'會議內容過長，請由原會議連結閱讀。');let cursor;do{const j=await request('/blocks/'+id+'/children?page_size=100'+(cursor?'&start_cursor='+cursor:''));for(const b of j.results||[]){n++;const value=b[b.type],text=(value?.rich_text||[]).map(x=>x.plain_text||x.text?.content||'').join('');if(text)lines.push((b.type==='to_do'?(value.checked?'☑ ':'☐ '):'')+text);if(b.has_children)await blocks(b.id,depth+1);}cursor=j.has_more?j.next_cursor:null;}while(cursor);}await blocks(page.id);await assertMember(row,actor.id);return {ok:true,topic:plain(page.properties?.['會議']),text:lines.join('\n\n'),url:page.url};
   }
   if(v.action==='create')return create(actor,v);
-  if(v.action==='sources'){const rows=(await pool.query(`SELECT c.key FROM central_archive.conversations c JOIN central_archive.meeting_settings s ON s.conversation_key=c.key WHERE c.bot_id=$1 AND ($2=true OR s.enabled=true) AND s.connection_state NOT IN ('left','blocked')`,[botId,v.history===true])).rows,items=[];for(let i=0;i<rows.length;i+=5)await Promise.all(rows.slice(i,i+5).map(async x=>{const row=await getConversation(x.key);try{await assertMember(row,actor.id);items.push({key:row.key,name:row.display_name||'個人對話',kind:row.source_kind});}catch{}}));return {ok:true,sources:items};}
+  if(v.action==='sources'){const rows=(await pool.query(`SELECT c.key FROM central_archive.conversations c JOIN central_archive.meeting_settings s ON s.conversation_key=c.key WHERE c.bot_id=$1 AND ($2=true OR s.enabled=true) AND s.connection_state NOT IN ('left','blocked')`,[botId,v.history===true])).rows,allowed=[];for(let i=0;i<rows.length;i+=5)await Promise.all(rows.slice(i,i+5).map(async x=>{const row=await getConversation(x.key);try{await assertMember(row,actor.id);allowed.push(row);}catch{}}));const names=await currentGroupNames(allowed,platform);return {ok:true,sources:allowed.map(row=>({key:row.key,name:names.get(row.key)||row.display_name||'個人對話',kind:row.source_kind}))};}
   if(v.action==='task-progress'){
    if(!/^[a-f0-9]{64}$/.test(v.id||''))throw failure(400,'會議識別不正確。');
    const r=await store.get(v.id),row=r&&await getConversation(r.conversation_key);
