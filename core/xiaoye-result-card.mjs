@@ -10,6 +10,7 @@ export function completionExplanation(value){
  return result;
 }
 export function resultLines(result){
+ if(result?.kind==='guidance'&&typeof result.text==='string'&&result.text.trim())return [result.text.trim()];
  if(result?.explanation){try{const e=completionExplanation(result.explanation);return ['原因：'+e.cause,'處理方式：'+e.handling,'結果：'+e.outcome];}catch{}}
  return [resultSummary(result?.text)];
 }

@@ -270,14 +270,20 @@ class EventBridge {
           active.phase='visible-chat';this.save('bridge-active.private.json',active);this.status('processing-visible-chat');
           const eventCheck=async()=>{if(this.running?.invalidated)throw Error('原事件已失效');return this.call('event-check',checkInput);};
           const saveEvent=(file,v)=>this.save(rel+'/'+file,v);
+          // If the chat did not call the existing answer/clarify API itself,
+          // an explicitly marked final message can be delivered on its behalf.
+          // Unmarked internal progress is never forwarded to the reporter.
+          const reporterPrompt=prompt+'\n\n若這次分析要直接回覆或反問同仁，但沒有呼叫 runner/answer 或 runner/clarify，最後只輸出「小葉回覆JSON：」接一個 JSON 物件；不要寫內部過程、私密資料或未證實結果。反問格式為 {"type":"question","text":"給同仁的簡單問題"}。有查核依據的一般答覆格式為 {"type":"answer","text":"給同仁的說明","explanation":{"cause":"問題情況","handling":"提供的說明","outcome":"請同仁確認的結果"},"evidence":["實際查核依據"]}。每個 explanation 以120字為限；未修復不能說已修復。此回覆沿原案件送出，不會代同仁結案。若已使用 runner/answer 或 runner/clarify，請不要輸出此標記。';
+          let chatResult;
           if(routes.caseChatsDirectory){
             const {runCaseEvent}=require('./xiaoye-case-events.cjs');
             const caseUrl=new URL('/xiaoye',this.worker.vars.PUBLIC_ORIGIN);caseUrl.searchParams.set('issue',checked.task.id);
-            await runCaseEvent({client,config:routes,checked,prompt,caseUrl:caseUrl.href,clock:this.clock,save:saveEvent,check:eventCheck,bind:async({checked:latest,threadId,projectId,moved})=>{
+            chatResult=await runCaseEvent({client,config:routes,checked,prompt:reporterPrompt,caseUrl:caseUrl.href,clock:this.clock,save:saveEvent,check:eventCheck,bind:async({checked:latest,threadId,projectId,moved})=>{
               const input={id:latest.task.id,version:latest.task.version,operationId:'bind-chat-'+job.id+(moved?'-move':''),eventId:job.id,eventLease:job.lease,threadId,projectId,hostId:'local'};
               return this.call('bind-chat',input,rel+(moved?'/bind-chat-move.input.private.json':'/bind-chat.input.private.json'));
             }});
-          }else await runVisibleEvent({client,config:routes,checked,prompt,clock:this.clock,save:saveEvent,check:eventCheck});
+          }else chatResult=await runVisibleEvent({client,config:routes,checked,prompt:reporterPrompt,clock:this.clock,save:saveEvent,check:eventCheck});
+          await require('./xiaoye-chat-reply.cjs').deliverReporterReply({reply:chatResult.reporterReply,job,check:eventCheck,call:(...args)=>this.call(...args),savePath:rel+'/chat-reply.input.private.json'});
           const result=await this.call('event-complete',{...checkInput,operationId:'event-complete-'+job.id},rel+'/event-complete.input.private.json');
           this.save(rel+'/completion.private.json',result);this.save('bridge-active.private.json',{...active,phase:'finished',state:result.state});
         } finally {client.close();}

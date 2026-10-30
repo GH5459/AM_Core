@@ -117,7 +117,8 @@ class CodexAppServerClient {
     const succeeded = tools.filter(item => item.status === 'completed' && (item.type !== 'commandExecution' || item.exitCode === 0)).length;
     const failed = tools.filter(item => item.status === 'failed' || item.type === 'commandExecution' && item.exitCode !== 0).length;
     if (failed > 0 && succeeded === 0) throw Object.assign(Error('案件聊天工具執行失敗，不能視為完成'), { turnId, toolEvidence: { attempted: tools.length, succeeded, failed } });
-    return { threadId, turnId, status: turn.status, toolEvidence: { attempted: tools.length, succeeded, failed } };
+    const reporterReply=require('./xiaoye-chat-reply.cjs').parseReporterReply(stored.items);
+    return { threadId, turnId, status: turn.status, toolEvidence: { attempted: tools.length, succeeded, failed }, ...(reporterReply?{reporterReply}:{}) };
   }
   rejectAll(error) {
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(error); }
