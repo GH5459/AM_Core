@@ -14,6 +14,16 @@ test('only marked final reporter text is parsed; internal output and incomplete 
  assert.equal(parseReporterReply(item(marked({...question,text:'x'.repeat(2001)}))),null);
  assert.deepEqual(parseReporterReply([...item('內部過程'),...item(marked(question))]),question);
  assert.deepEqual(parseReporterReply(item(marked(answer))),answer);
+ assert(parseReporterReply(item(marked({...answer,explanation:{...answer.explanation,cause:'😀'.repeat(120)}}))));
+ assert.equal(parseReporterReply(item(marked({...answer,explanation:{...answer.explanation,cause:'😀'.repeat(121)}}))),null);
+ assert.equal(parseReporterReply(item(marked({...answer,explanation:{...answer.explanation,cause:'第一行\n第二行'}}))),null);
+ assert.equal(parseReporterReply(item(marked({...answer,text:'😀'.repeat(1001)}))),null);
+});
+test('only new conversation answers show full text; existing long guidance and finish cards keep their original fields',async()=>{
+ const {resultLines}=await import('../core/xiaoye-result-card.mjs');
+ const prior={kind:'guidance',text:'旧'.repeat(12000),explanation:answer.explanation};assert.equal(resultLines(prior).length,3);
+ assert.deepEqual(resultLines({...prior,text:'新'.repeat(2000),conversationReply:true}),['新'.repeat(2000)]);
+ assert.equal(resultLines({...prior,kind:'finish',conversationReply:true}).length,3);
 });
 test('a question and an answer use the original APIs, same event, and a stable operation id',async()=>{
  for(const [reply,action] of [[question,'clarify'],[answer,'answer']]){
@@ -29,6 +39,10 @@ test('already answered, asked, proposed, or changed cases do not send another me
  checked.task.secretary.stage='approved';assert.equal(await deliverReporterReply(args),false);
  checked.task.secretary.stage='clarifying';checked.task.secretary.sourceVersion++;await assert.rejects(deliverReporterReply(args));
  assert.equal(writes,0);
+});
+test('if reply and subsequent read are both unavailable, leave the result uncertain',async()=>{
+ const {job,checked}=context();let reads=0;
+ await assert.rejects(deliverReporterReply({reply:question,job,check:async()=>{if(reads++)throw Error('offline');return checked;},call:async()=>{throw Error('lost');}}),error=>error.replyUncertain===true);
 });
 test('the actual completed turn returns only the marked reporter message',async()=>{
  const c=new CodexAppServerClient({readProcessIdentity:async()=>({state:'unknown'})});c.child={pid:1};

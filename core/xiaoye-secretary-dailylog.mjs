@@ -396,8 +396,8 @@ async function runner(env,c,base,authority,action,v,preview){
   await membership(env,c,v.projectId);
   if(!Array.isArray(v.evidence)||!v.evidence.length||v.evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>2000))throw fail('請附上這次說明的查核依據。',400);
   if(v.title!==undefined)t.title=text(v.title,100);
-  const result=text(v.result,12000);s.category='help';t.primaryParentId=v.projectId;
-  s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:false,kind:'guidance',at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
+  const result=text(v.result,v.conversationReply===true?2000:12000);s.category='help';t.primaryParentId=v.projectId;
+  s.stage='awaiting_confirmation';s.result={text:result,explanation:completionExplanation(v.explanation),evidence:v.evidence,deployed:false,kind:'guidance',...(v.conversationReply===true?{conversationReply:true}:{}),at:new Date().toISOString()};t.finalResult=result;t.status='in_progress';
   const extras=s.reporters.map(p=>notification(env,t,p.account,'result',resultText(t)+'\n'+link(env,t.id),p.source));
   return {ok:true,task:await transaction(env,old,t,v.operationId,{...v,action},actor,'已提供查核後的操作說明，等待原回報人確認。',extras)};
  }

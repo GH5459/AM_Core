@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),{EventEmitter}=require('node:events');
-const {setup}=require('./test-xiaoye-worker.cjs'),{EventBridge}=require('./xiaoye-event-bridge.cjs');
+const {setup}=require('./test-xiaoye-worker.cjs'),{EventBridge}=require(process.env.XIAOYE_TEST_BRIDGE||'./xiaoye-event-bridge.cjs');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),op=()=>crypto.randomUUID();
 async function until(fn){const end=Date.now()+25000;while(Date.now()<end){if(await fn())return;await wait(100);}throw Error('isolated flow timed out');}
 test('one original case uses its bound chat for a question, follow-up, and complete answer',async()=>{
