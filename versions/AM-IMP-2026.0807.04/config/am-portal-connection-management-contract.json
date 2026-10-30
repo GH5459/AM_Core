@@ -1,0 +1,41 @@
+{
+  "contractVersion": "2026-08-07.portal-connections.v1",
+  "personalArea": [
+    "myAmIdentity",
+    "myLineBinding",
+    "issueBindingCode",
+    "revokeAndRebind",
+    "myTenants",
+    "activeWorkspace",
+    "myCalendarAndGoogleStatus"
+  ],
+  "tenantAdminArea": [
+    "tenantSettings",
+    "membersAndRoles",
+    "lineOfficialAccountAndAiAssistant",
+    "sharedOrDedicatedLineMode",
+    "webhookHealth",
+    "richMenuStatus",
+    "lineGroupManagement",
+    "calendarBackend",
+    "googleConnectionTargetsAcl",
+    "syncFailuresRetriesAudit"
+  ],
+  "roles": [
+    "PlatformOwner",
+    "TenantAdmin",
+    "IdentityAdmin",
+    "CalendarAdmin",
+    "GroupAdmin",
+    "Member",
+    "Auditor"
+  ],
+  "mutationRequirements": ["serverSession", "csrfToken", "tenantMembership", "capability", "requestId", "auditEvent"],
+  "displayRedaction": {
+    "channelSecret": "never",
+    "accessToken": "never",
+    "googleRefreshToken": "never",
+    "externalSubject": "hashPrefixOnly",
+    "credentialRef": "safeAliasOnly"
+  }
+}

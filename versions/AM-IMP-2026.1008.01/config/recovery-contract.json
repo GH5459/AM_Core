@@ -1,0 +1,11 @@
+{
+  "version": "AM-IMP-2026.1008.01",
+  "trigger": { "messageType": "text", "requiresSelfMention": true, "requiresQuotedMessageId": true },
+  "lookup": ["tenant-local message ID plus group ID", "attachment message relation", "Drive file URL", "tenant Drive root ancestry"],
+  "neverMatchBy": ["filename alone", "nearest photo", "other tenant", "other group"],
+  "sourceOfTruth": "Google Drive archived original",
+  "photo": { "inlineMimeTypes": ["image/jpeg", "image/png"], "originalMaxBytes": 10485760, "previewMaxBytes": 1048576, "previewMaxEdge": 1024 },
+  "download": { "https": true, "signature": "HMAC-SHA256", "ttlSeconds": 7200, "recheckSourceAndScope": true, "publicDrivePermission": false },
+  "noBackup": "report unavailable without claiming recovery",
+  "taskExtraction": "consume retrieval-only operation on success and failure"
+}

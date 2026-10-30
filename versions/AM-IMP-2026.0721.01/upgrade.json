@@ -74,6 +74,10 @@
     "The target project manifest and project-local upgrade record are updated after verification",
     "Production is marked Deployed only after target-specific authorization, isolation, and meeting smoke tests pass"
   ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
   "files": [
     "core/group-binding-schema.js",
     "core/router.js",

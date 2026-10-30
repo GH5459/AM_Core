@@ -1,0 +1,25 @@
+{
+  "containsProductionData": false,
+  "messages": [
+    {
+      "tenantKey": "fixture-tenant",
+      "lineConnectionId": "fixture-connection",
+      "sourceType": "group",
+      "externalKeyHash": "fixture-group-hash-a",
+      "messageId": "fixture-message-1",
+      "direction": "incoming",
+      "timestamp": "2026-08-08T08:00:00.000Z",
+      "content": "fixture only"
+    },
+    {
+      "tenantKey": "fixture-tenant",
+      "lineConnectionId": "fixture-connection",
+      "sourceType": "group",
+      "externalKeyHash": "",
+      "messageId": "fixture-message-needs-review",
+      "direction": "incoming",
+      "timestamp": "2026-08-08T08:01:00.000Z",
+      "content": "missing stable source key"
+    }
+  ]
+}

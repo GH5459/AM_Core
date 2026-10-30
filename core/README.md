@@ -10,6 +10,7 @@
 | `tenants.js` | 讀 `tenants/*.json` + 依 `envPrefix` 從 `.env` 補機密 → 執行期 tenant 物件;建「資料源 → 租戶」隔離登記 |
 | `notion.js` | `notionRequest` + **per-tenant 資料隔離守衛**(只放行該租戶宣告、且位於其母頁下的資料源) |
 | `line.js` | LINE 簽章驗證 / 取成員名 / 下載內容 / `pushLineMessage`(共用同一支 OA) |
+| `line-io/` | 外部程式專用群組收送 API：scoped key、持久化事件輪詢、推播去重；預設關閉 |
 | `drive.js` | Google Drive client(token / ensureFolder / upload) |
 | `access.js` | 統一 `AccessContext`：帳號 → 租戶 → 群組 → action，含 all/selected、停用群組與待分派規則 |
 | `access-directory.js` | Portal 伺服器專用租戶／群組目錄；只回群組綁定 Page ID 與顯示欄位，遷移中租戶 fail closed |
@@ -25,6 +26,7 @@
 - `GET /health` — 平台 + 各租戶設定狀態
 - `GET /portal/admin/access-directory` — 服務金鑰保護的 Portal 群組目錄，不回 LINE ID／成員／秘密
 - `POST /webhook/line` — 唯一入口:驗簽 → 解析租戶 → 分派模組(未綁定即忽略)
+- `GET /api/v1/line/groups`、`GET /api/v1/line/events`、`POST /api/v1/line/messages` — 設定 `AMCORE_LINE_IO_ENABLED=1` 才啟用；[API 與安裝說明](../versions/AM-IMP-2026.0928.01/README.md)
 - `GET /cron/tick?key=…` — 觸發模組 `tick` 巡邏
 - 其餘 → 各模組 `routes`
 

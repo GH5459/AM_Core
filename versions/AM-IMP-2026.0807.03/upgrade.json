@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0807.03",
+  "name": "AM Identity and LINE Connection Registry",
+  "type": "Platform identity and LINE routing contract",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:forest", "AM_PLATFORM:green-hotel", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["PostgreSQL tenant-scoped identity tables with forced RLS", "Project-local LINE group binding registry"],
+  "requiresEnv": ["<PROJECT>_IDENTITY_HASH_SECRET_REF", "<PROJECT>_LINE_CONNECTION_SECRET_REF"],
+  "requiresScripts": ["tools/verify-am-platform-standardization.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "External identities are namespaced by provider and connection, raw LINE user IDs are hashed/encrypted project-locally, and every runtime request must resolve an active tenant membership before capability use."
+  },
+  "definitionOfDone": [
+    "Identity and LINE contract is installed project-locally with all new features defaulting off",
+    "Additive schema and forced RLS deny missing tenant context and cross-tenant reads/writes",
+    "Six-digit binding challenges are hashed, short-lived, single-use, rate-limited and audited",
+    "Private LINE routing uses active workspace; group LINE routing uses group binding",
+    "Legacy compare mode can run without changing existing production behavior",
+    "Rollback leaves identity/audit rows intact and switches authority back to legacy or compare"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
+  "status": "Ready"
+}

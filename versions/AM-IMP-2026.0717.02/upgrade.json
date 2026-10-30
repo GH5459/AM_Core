@@ -21,5 +21,9 @@
     "A saved group change invalidates that group route cache",
     "Core and groups dry-runs pass"
   ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
   "status": "Ready"
 }

@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0807.05",
+  "name": "AM Calendar Hub",
+  "type": "Calendar backend registry and canonical DTO",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:forest", "AM_PLATFORM:green-hotel", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["Tenant-scoped Calendar backend registry", "Calendar event link/outbox/failure tables"],
+  "requiresEnv": ["<PROJECT>_CALENDAR_BACKEND_SECRET_REF"],
+  "requiresScripts": ["tools/verify-am-platform-standardization.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every Calendar item and backend operation carries tenant_id, actor context, visibility and action policy; backend fallback must never cross tenants."
+  },
+  "definitionOfDone": [
+    "Canonical Calendar DTO separates due date from planned date",
+    "Backend adapter interface supports Rental Calendar V2 and AM Calendar Core",
+    "All writes use idempotency keys and source version checks",
+    "Private, company, team, role-based and admin-only visibility are enforced before provider calls",
+    "Calendar source remains AM/Rental, not Google",
+    "Backend outage records failure without writing to another tenant or provider"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
+  "status": "Ready"
+}

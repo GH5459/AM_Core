@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tenant-local LINE conversation member index",
+  "type": "object",
+  "x-amcore-template": {
+    "databaseSemanticKey": "conversationMembers",
+    "properties": [
+      { "semanticKey": "title", "suggestedName": "成員", "type": "title", "required": true },
+      { "semanticKey": "tenantConversation", "suggestedName": "Tenant Conversation", "type": "relation", "required": true },
+      { "semanticKey": "platformConversationId", "suggestedName": "Platform Conversation ID", "type": "rich_text", "required": true },
+      { "semanticKey": "externalMemberIdentityHash", "suggestedName": "外部成員身分 Hash", "type": "rich_text", "required": true },
+      { "semanticKey": "personMembership", "suggestedName": "個人身分", "type": "relation", "required": false },
+      { "semanticKey": "displayName", "suggestedName": "顯示名稱", "type": "rich_text", "required": true },
+      { "semanticKey": "status", "suggestedName": "成員狀態", "type": "select", "required": true, "options": ["啟用", "離開", "待確認"] },
+      { "semanticKey": "firstSeenAt", "suggestedName": "第一次出現", "type": "date", "required": true },
+      { "semanticKey": "lastSeenAt", "suggestedName": "最後出現", "type": "date", "required": true },
+      { "semanticKey": "lastSyncedAt", "suggestedName": "最後同步時間", "type": "date", "required": false },
+      { "semanticKey": "source", "suggestedName": "資料來源", "type": "select", "required": true, "options": ["Webhook observed", "LINE member API", "人工確認"] }
+    ],
+    "authorizationRule": "Display name is never sufficient authority for access, payment, filing, or task ownership."
+  }
+}

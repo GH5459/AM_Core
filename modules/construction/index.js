@@ -30,6 +30,7 @@ import { handleContractsRequest } from './contracts.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
 import { handleTaskCardRequest } from './task-card.js';
+import { handleJournalRequest } from './journal.js';
 import { classify, classifyPhoto } from './classify.js';
 import { reminderPasses } from './reminders.js';
 import {
@@ -106,6 +107,7 @@ function fullDeps(tenant) {
     pushLineMessage: platform.pushLineMessage,
     getDriveAccessToken: platform.getDriveAccessToken,
     ensureDriveFolder: platform.ensureDriveFolder,
+    uploadDriveStream: platform.uploadDriveStream,
     // dashboard 用:專案行事曆對照 + LINE 推播配額
     calendars: tenantCalendars(tenant),
     getLineQuota: makeGetLineQuota(),
@@ -243,6 +245,7 @@ export default {
   name: 'construction',
   init,
   routes: [
+    { prefix: '/journal', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleJournalRequest) },
     { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },

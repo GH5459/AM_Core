@@ -177,6 +177,31 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
+  async function dispatchPostback({ tenant, binding, event }) {
+    const groupId = event.source?.groupId || event.source?.roomId || '';
+    const senderName = await platform.resolveSenderName(event.source);
+    const ctx = baseCtx({
+      tenant,
+      binding,
+      groupId,
+      isMaster: binding?.role === '主控群',
+      senderName,
+      event,
+      message: null,
+      text: '',
+    });
+    ctx.postback = event.postback || {};
+    for (const mod of tenantModules(tenant)) {
+      if (typeof mod.onPostback !== 'function') continue;
+      try {
+        if (await mod.onPostback(ctx) === true) return true;
+      } catch (error) {
+        logger.warn(`Module "${mod.name}" failed on postback (tenant=${tenant.key}, group=${groupId}): ${error.message}`);
+      }
+    }
+    return false;
+  }
+
   // 蒐集所有租戶 × 已啟用模組的 web routes。每筆帶其租戶,供 web 端點按需切租戶。
   function collectRoutes() {
     const routes = [];
@@ -212,5 +237,5 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
-  return { dispatchMessage, collectRoutes, runTicks };
+  return { dispatchMessage, dispatchPostback, collectRoutes, runTicks };
 }

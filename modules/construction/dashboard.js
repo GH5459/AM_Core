@@ -7,6 +7,14 @@
 
 import { plain, sameId, queryAll, pageName, sendJson, readJsonBody, parseScope, assertProjectInScope } from './common.js';
 import { SOP_STAGES } from './sop.js';
+import { listDesignDrawings, uploadDesignDrawing } from './drawings.js';
+import { constructionHistoryForPage } from './journal.js';
+import {
+  createDashboardSpace,
+  createDashboardTrade,
+  createDashboardWorkItem,
+  dashboardSetupOptions,
+} from './master-data.js';
 
 // 沿用 BuildAM 原簽名 handler(req,res,pathname,url,deps);budget/contract/scope 由 webRoute 注入 URL。
 export async function handleDashboardRequest(req, res, pathname, url, deps) {
@@ -39,12 +47,45 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
       return sendJson(res, 200, await buildSpacePhotos(deps, url.searchParams.get('space')));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/doc') {
-      return sendJson(res, 200, await buildDoc(deps, url.searchParams.get('page'), canBudget));
+      return sendJson(res, 200, await buildDoc(deps, url.searchParams.get('page'), canBudget, scope, canContract));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/gantt') {
       const projectId = url.searchParams.get('project');
       await assertProjectInScope(deps, scope, projectId);
       return sendJson(res, 200, await buildGantt(deps, projectId));
+    }
+    if (req.method === 'GET' && pathname === '/dashboard/api/drawings') {
+      const projectId = url.searchParams.get('project');
+      await assertProjectInScope(deps, scope, projectId);
+      return sendJson(res, 200, await listDesignDrawings(deps, projectId));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/drawings/upload') {
+      const projectId = url.searchParams.get('project');
+      await assertProjectInScope(deps, scope, projectId);
+      return sendJson(res, 201, await uploadDesignDrawing(deps, {
+        projectId,
+        drawingName: url.searchParams.get('name'),
+        version: url.searchParams.get('version'),
+        status: url.searchParams.get('status'),
+        note: url.searchParams.get('note'),
+        filename: url.searchParams.get('filename'),
+        uploader: deps.actor,
+        contentType: req.headers['content-type'],
+        size: Number(req.headers['x-am-file-size'] || req.headers['content-length']),
+        stream: req,
+      }));
+    }
+    if (req.method === 'GET' && pathname === '/dashboard/api/setup-options') {
+      return sendJson(res, 200, await dashboardSetupOptions(deps, scope, url.searchParams.get('project')));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/spaces') {
+      return sendJson(res, 201, await createDashboardSpace(deps, scope, await readJsonBody(req)));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/trades') {
+      return sendJson(res, 201, await createDashboardTrade(deps, await readJsonBody(req)));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/work-items') {
+      return sendJson(res, 201, await createDashboardWorkItem(deps, scope, await readJsonBody(req)));
     }
     if (req.method === 'POST' && pathname === '/dashboard/api/doc-edit') {
       return sendJson(res, 200, await editDocField(deps, await readJsonBody(req), canBudget));
@@ -69,8 +110,8 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
     }
     return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
-    console.error('Dashboard error:', error);
-    return sendJson(res, 500, { error: error.message });
+    if (!error.statusCode || error.statusCode >= 500) console.error('Dashboard error:', error);
+    return sendJson(res, error.statusCode || 500, { error: error.message });
   }
 }
 
@@ -132,6 +173,7 @@ async function buildProjectDetail(deps, projectId) {
     const p = w.properties;
     const spaceId = p['空間']?.relation?.[0]?.id;
     matrix.push({
+      id: w.id,
       space: spaceId ? await pageName(deps, spaceId) : '(未分空間)',
       trade: p['工種']?.select?.name || '其他',
       status: p['狀態']?.select?.name || '未開始',
@@ -222,7 +264,7 @@ function assertBudgetPageAllowed(deps, page, canBudget) {
 }
 
 // 單據/會議記錄的網頁詳情(取代進 Notion)
-async function buildDoc(deps, pageId, canBudget) {
+async function buildDoc(deps, pageId, canBudget, scope = null, canContract = false) {
   if (!pageId) throw new Error('page required');
   const page = await deps.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
   assertBudgetPageAllowed(deps, page, canBudget);
@@ -274,7 +316,8 @@ async function buildDoc(deps, pageId, canBudget) {
       spans: t.rich_text.map((r) => ({ text: r.plain_text || '', color: r.annotations?.color || 'default', link: r.href || null })),
     };
   }).filter(Boolean);
-  return { title, fields, blocks, notionUrl: page.url };
+  const constructionHistory = await constructionHistoryForPage(deps, scope, page, { canBudget, canContract });
+  return { title, fields, blocks, notionUrl: page.url, constructionHistory };
 }
 
 // 彈窗就地編輯:寫回欄位並留編輯記錄
@@ -325,6 +368,7 @@ async function buildGantt(deps, projectId) {
 function renderDashboardPage(tenantKey, canBudget, canContract) {
   const t = encodeURIComponent(tenantKey);
   const headerLinks = [
+    `<a href="/journal?tenant=${t}">→ 工程日誌／施工進度</a>`,
     ...(canBudget ? [`<a href="/budget?tenant=${t}">→ 💰 預算控制</a>`] : []),
     ...(canContract ? [`<a href="/contracts?tenant=${t}">→ 📑 合約發包</a>`] : []),
     `<a href="/tickets?tenant=${t}">→ 回饋單／變更單</a>`,
@@ -395,6 +439,30 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   .gbar.b-進行中 { background:#e3b93f; }
   .gbar.b-待複驗 { background:#7c9bd6; }
   .gbar.b-完成 { background:#2e7d52; }
+  .drawing-lib { margin-top:10px; padding:12px; border:1px solid #b9d8c6; border-radius:10px; background:#f6fbf8; }
+  .drawing-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .drawing-head strong { color:var(--green); margin-right:auto; }
+  .drawing-head button { border:1px solid var(--green); background:var(--green); color:#fff; border-radius:8px; padding:7px 11px; cursor:pointer; }
+  .drawing-group { margin-top:9px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
+  .drawing-group summary { cursor:pointer; font-size:13px; }
+  .drawing-version { display:grid; grid-template-columns:90px 80px 1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px solid #edf1ef; font-size:12px; }
+  .drawing-version a { color:var(--green); font-weight:600; }
+  .drawing-meta { color:var(--dim); line-height:1.5; }
+  .managebar { background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .managebar strong { color:var(--green); margin-right:auto; font-size:14px; }
+  .managebar button,.manage-primary,.manage-secondary { border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer; }
+  .managebar button,.manage-primary { border:1px solid var(--green); background:var(--green); color:#fff; }
+  .managebar button.secondary,.manage-secondary { border:1px solid var(--line); background:#fff; color:#22302a; }
+  #manageBg { display:none; position:fixed; inset:0; background:rgba(20,30,25,.5); z-index:30; }
+  #manageModal { display:none; position:fixed; z-index:31; left:50%; top:50%; transform:translate(-50%,-50%); width:min(520px,94vw); max-height:88vh; overflow-y:auto; background:#fff; border-radius:16px; padding:18px; }
+  #manageModal h2 { font-size:17px; color:var(--green); margin:0 28px 12px 0; }
+  #manageModal .close { position:absolute; top:10px; right:12px; border:none; background:#eef2f0; border-radius:8px; padding:6px 10px; }
+  #manageModal label { display:block; font-size:13px; color:var(--dim); margin-top:10px; }
+  #manageModal input,#manageModal select { width:100%; margin-top:4px; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; color:#22302a; }
+  #manageModal .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  #manageModal .actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  #manageModal .hint { color:var(--dim); font-size:12px; line-height:1.6; margin-top:8px; }
+  @media (max-width:560px) { #manageModal .grid2 { grid-template-columns:1fr; gap:0; } .drawing-version { grid-template-columns:72px 1fr; } }
 </style>
 </head>
 <body>
@@ -403,11 +471,18 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
 <div class="section" id="detail"></div>
 <div id="modalBg" onclick="closeDoc()"></div>
 <div id="modal"><button class="close" onclick="closeDoc()">✕</button><div id="modalBody"></div></div>
+<div id="manageBg" onclick="closeManager()"></div>
+<div id="manageModal"><button class="close" onclick="closeManager()">✕</button><div id="manageBody"></div></div>
 <script>
 const TENANT = ${JSON.stringify(tenantKey)};
-async function api(path) {
+async function api(path, options = {}) {
   const sep = path.includes('?') ? '&' : '?';
-  const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT));
+  const config = Object.assign({}, options);
+  if (config.body && typeof config.body !== 'string') {
+    config.headers = Object.assign({'Content-Type':'application/json'}, config.headers || {});
+    config.body = JSON.stringify(config.body);
+  }
+  const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT), config);
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
@@ -418,6 +493,9 @@ function daysTo(d) {
   return Math.round((new Date(d) - new Date(new Date().toISOString().slice(0,10))) / 86400000);
 }
 let summary = [];
+let currentProjectId = '';
+let currentSetup = { spaces: [], trades: [] };
+let currentDrawings = { configured:false, groups:[] };
 async function loadSummary() {
   const data = await api('summary');
   summary = data.cards;
@@ -442,10 +520,15 @@ async function loadSummary() {
   if (summary.length) openProject(summary[0].id);
 }
 async function openProject(id) {
+  currentProjectId = id;
   summary.forEach(c => document.getElementById('pc-' + c.id)?.classList.toggle('active', c.id === id));
   const el = document.getElementById('detail');
   el.innerHTML = '<div class="empty">載入專案明細…</div>';
-  const d = await api('project?project=' + id);
+  const [d, setup] = await Promise.all([
+    api('project?project=' + id),
+    api('setup-options?project=' + id).catch(() => ({ spaces: [], trades: [] })),
+  ]);
+  currentSetup = setup;
   const tickets = d.openTickets.length ? d.openTickets.map(t => \`
     <div class="tcard"><b>\${esc(t.number)}</b> \${t.level?'['+esc(t.level.slice(0,1))+'級]':''} \${esc(t.status)}
       \${t.overdue?'<span class="red">逾期</span>':''} ・ 期限 \${esc(t.deadline||'未設')}
@@ -457,8 +540,8 @@ async function openProject(id) {
   const matrix = spaces.length ? \`<div class="matrix-wrap"><table>
       <tr><th>空間\\\\工種</th>\${trades.map(t => '<th>' + esc(t) + '</th>').join('')}</tr>
       \${spaces.map(s => '<tr><th>' + esc(s) + '</th>' + trades.map(t => {
-        const cell = d.matrix.find(m => m.space === s && m.trade === t);
-        return cell ? '<td class="s-' + esc(cell.status) + '" title="' + esc(cell.name) + '">' + esc(cell.status) + '</td>' : '<td></td>';
+        const cells = d.matrix.filter(m => m.space === s && m.trade === t);
+        return '<td>' + cells.map(cell => '<div class="s-' + esc(cell.status) + '"><a href="#" onclick="openDoc(\\\'' + esc(cell.id) + '\\\');return false">' + esc(cell.name) + ' · ' + esc(cell.status) + '</a></div>').join('') + '</td>';
       }).join('') + '</tr>').join('')}
     </table></div>\` : '<div class="empty">尚無工項(建立工項後這裡會長出矩陣)</div>';
 
@@ -466,12 +549,12 @@ async function openProject(id) {
     \`<button class="spacebtn" id="sb-\${s.id||'none'}" \${s.id?'onclick="loadPhotos(\\'' + s.id + '\\')"':''}>\${esc(s.name)}(\${s.count})</button>\`
   ).join('') : '<div class="empty">尚無照片</div>';
 
-  const sop = d.sopStages.map(stage => {
+  const sop = d.sopStages.map((stage, stageIndex) => {
     const done = stage.items.filter(it => d.sopState[it.id]).length;
     return \`<div class="tcard"><b>\${esc(stage.title)}</b> <span style="color:var(--dim)">\${done}/\${stage.items.length}</span>
       \${stage.items.map(it => \`<label style="display:block;margin-top:6px;font-size:13px">
         <input type="checkbox" \${d.sopState[it.id]?'checked':''} onchange="sopCheck('\${id}','\${it.id}',this.checked)"> \${esc(it.text)}
-      </label>\`).join('')}</div>\`;
+      </label>\`).join('')}\${stageIndex === 0 ? '<div id="drawingsArea" class="drawing-lib"><div class="empty">載入設計圖版本…</div></div>' : ''}</div>\`;
   }).join('');
 
   const meetings = d.meetings.length ? d.meetings.map(m => \`
@@ -489,6 +572,11 @@ async function openProject(id) {
     : '<div class="empty">此專案尚未建立行事曆</div>';
 
   el.innerHTML = \`
+    <div class="managebar"><strong>專案規劃設定</strong>
+      <button class="secondary" onclick="openManager('space')">＋ 新增空間</button>
+      <button class="secondary" onclick="openManager('trade')">＋ 新增工種</button>
+      <button onclick="openManager('workItem')">＋ 新增工項</button>
+    </div>
     <h3>專案行事曆(會議與行程,可訂閱同步手機)</h3>\${calendar}
     <h3>甘特圖(預計時程,依會議修正)</h3><div id="ganttArea"><div class="empty">載入中…</div></div>
     <h3>待辦任務(\${d.tasks.length})</h3>\${tasks}
@@ -499,6 +587,120 @@ async function openProject(id) {
     <h3>照片瀏覽(選空間看時間軸)</h3><div class="spaces">\${spacesBtns}</div>
     <div class="photos" id="photoArea"></div>\`;
   loadGantt(id).catch(() => {});
+  loadDrawings(id).catch((e) => {
+    const area = document.getElementById('drawingsArea');
+    if (area) area.innerHTML = '<div class="empty">設計圖版本載入失敗：' + esc(e.message) + '</div>';
+  });
+}
+function managerField(label, control, hint) {
+  return '<label>' + esc(label) + control + (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') + '</label>';
+}
+function managerActions() {
+  return '<div class="actions"><button type="button" class="manage-secondary" onclick="closeManager()">取消</button>'
+    + '<button id="manageSave" type="submit" class="manage-primary">儲存至 Notion</button></div>';
+}
+function openManager(kind) {
+  if (!currentProjectId) return;
+  window.currentManagerKind = kind;
+  const body = document.getElementById('manageBody');
+  let html = '';
+  if (kind === 'space') {
+    html = '<h2>新增空間</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('空間名稱 *','<input id="mName" maxlength="100" required placeholder="例如：3F-301浴室">')
+      + '<div class="grid2">'
+      + managerField('區／棟或樓層','<input id="mZone" maxlength="100" placeholder="例如：3F">')
+      + managerField('空間類型','<input id="mType" list="spaceTypeList" maxlength="50" placeholder="客房／公區／機房／外部"><datalist id="spaceTypeList"><option value="客房"><option value="公區"><option value="機房"><option value="外部"></datalist>')
+      + '</div>'
+      + managerField('別名','<input id="mAlias" maxlength="500" placeholder="例如：301房、三樓A房">','供 LINE 訊息與照片自動辨識使用，可用逗號分隔。')
+      + managerActions() + '</form>';
+  } else if (kind === 'trade') {
+    html = '<h2>新增工種</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('工種名稱 *','<input id="mName" maxlength="50" required placeholder="例如：空調">','新增後會成為此工程租戶所有案件可選用的工種。')
+      + managerActions() + '</form>';
+  } else if (kind === 'drawing') {
+    const names = (currentDrawings.groups || []).map(g => '<option value="' + esc(g.name) + '"></option>').join('');
+    html = '<h2>上傳設計圖新版本</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('圖面名稱 *','<input id="mName" list="drawingNameList" maxlength="150" required placeholder="例如：全區平面配置圖"><datalist id="drawingNameList">' + names + '</datalist>','相同圖面請沿用同一名稱，系統會把歷史版本收在一起。')
+      + '<div class="grid2">'
+      + managerField('版本 *','<input id="mVersion" maxlength="80" required placeholder="例如：V3 或 2026-09-14">')
+      + managerField('狀態','<select id="mStatus"><option>草稿</option><option>送審</option><option>定版</option><option>發包版</option><option>變更版</option><option>作廢</option></select>')
+      + '</div>'
+      + managerField('選擇檔案 *','<input id="mFile" type="file" required accept=".pdf,.dwg,.dxf,.zip,.jpg,.jpeg,.png,.tif,.tiff,.skp,.rvt,.ifc">','檔案本體會直接串流儲存到 Google Drive；單檔上限 500 MB。')
+      + managerField('版本說明','<input id="mNote" maxlength="500" placeholder="例如：調整 3F 浴室隔間與門向">')
+      + managerActions() + '</form>';
+  } else {
+    const spaces = currentSetup.spaces.map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</option>').join('');
+    const trades = currentSetup.trades.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+    html = '<h2>新增工項</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('工項名稱 *','<input id="mName" maxlength="100" required placeholder="例如：301浴室水電配管">')
+      + '<div class="grid2">'
+      + managerField('空間 *','<select id="mSpace" required><option value="">請選擇空間</option>' + spaces + '</select>')
+      + managerField('工種 *','<select id="mTrade" required><option value="">請選擇工種</option>' + trades + '</select>')
+      + '</div><div class="grid2">'
+      + managerField('預計開始 *','<input id="mStart" type="date" required>')
+      + managerField('預計完成 *','<input id="mEnd" type="date" required>')
+      + '</div><div class="grid2">'
+      + managerField('狀態','<select id="mStatus"><option>未開始</option><option>進行中</option><option>待複驗</option><option>完成</option></select>')
+      + managerField('負責工班','<input id="mContractor" maxlength="200" placeholder="工班或負責人">')
+      + '</div><div class="hint">工項儲存後會立即出現在甘特圖與空間 × 工種矩陣。</div>'
+      + managerActions() + '</form>';
+  }
+  body.innerHTML = html;
+  document.getElementById('manageBg').style.display = 'block';
+  document.getElementById('manageModal').style.display = 'block';
+  document.getElementById('mName')?.focus();
+}
+function closeManager() {
+  document.getElementById('manageBg').style.display = 'none';
+  document.getElementById('manageModal').style.display = 'none';
+}
+async function submitManager(event) {
+  event.preventDefault();
+  const kind = window.currentManagerKind;
+  const save = document.getElementById('manageSave');
+  save.disabled = true;
+  save.textContent = '儲存中…';
+  let result;
+  try {
+    let path;
+    let body;
+    if (kind === 'drawing') {
+      const file = document.getElementById('mFile').files[0];
+      if (!file) throw new Error('請選擇設計圖檔案');
+      const params = new URLSearchParams({
+        tenant:TENANT, project:currentProjectId,
+        name:document.getElementById('mName').value,
+        version:document.getElementById('mVersion').value,
+        status:document.getElementById('mStatus').value,
+        note:document.getElementById('mNote').value,
+        filename:file.name,
+      });
+      const response = await fetch('/dashboard/api/drawings/upload?' + params, {
+        method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream','X-AM-File-Size':String(file.size)}, body:file,
+      });
+      result = await response.json();
+      if (!response.ok) throw new Error(result.error || response.status);
+    } else if (kind === 'space') {
+      path = 'spaces';
+      body = { project:currentProjectId, name:document.getElementById('mName').value, zone:document.getElementById('mZone').value, type:document.getElementById('mType').value, alias:document.getElementById('mAlias').value };
+    } else if (kind === 'trade') {
+      path = 'trades';
+      body = { name:document.getElementById('mName').value };
+    } else {
+      path = 'work-items';
+      body = { project:currentProjectId, name:document.getElementById('mName').value, space:document.getElementById('mSpace').value, trade:document.getElementById('mTrade').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value, contractor:document.getElementById('mContractor').value };
+    }
+    result = await api(path, { method:'POST', body });
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+    save.disabled = false;
+    save.textContent = '儲存至 Notion';
+    return;
+  }
+  closeManager();
+  alert(kind === 'drawing' ? '設計圖已儲存到 Google Drive，版本紀錄已建立。' : (result.existed ? '這個工種已經存在，可以直接使用。' : '已儲存至 Notion。'));
+  try { await openProject(currentProjectId); }
+  catch (e) { alert('已儲存至 Notion，但畫面刷新失敗：' + e.message); }
 }
 async function openDoc(pageId) {
   document.getElementById('modalBg').style.display = 'block';
@@ -532,8 +734,24 @@ async function openDoc(pageId) {
           }
           return '<div class="blk">' + inner + '</div>';
         }).join('')
+      + renderConstructionHistory(d.constructionHistory)
       + '<div style="margin-top:12px;font-size:12px"><a href="' + esc(d.notionUrl) + '" target="_blank">在 Notion 中開啟 ↗</a></div>';
   } catch (e) { body.innerHTML = '<div class="empty">載入失敗:' + esc(e.message) + '</div>'; }
+}
+function renderConstructionHistory(history) {
+  if (!history) return '';
+  return '<section style="margin-top:20px;border-top:1px solid #d4e2da;padding-top:14px"><h3>施工日誌與進度紀錄</h3>'
+    + '<p><a href="' + esc(history.journalUrl) + '">＋ 填寫施工日誌／查看完整日誌</a></p>'
+    + history.items.map(w => '<h4>' + esc(w.name) + ' · ' + (w.percent == null ? '尚無完成率' : w.percent + '%') + '</h4>'
+      + w.records.map(r => '<div class="blk" style="padding:12px;background:#f4f8f5;margin:8px 0">'
+        + esc(r.date) + ' · ' + esc(r.status) + ' · ' + esc(r.crew) + ' · ' + (r.crewCount == null ? '人數待補' : r.crewCount + ' 人')
+        + ' · ' + esc(r.location) + '<br>' + esc(r.content)
+        + '<br>今日施作量：' + (r.quantity == null ? '未填' : r.quantity + ' ' + esc(r.unit))
+        + '；累計完成率：' + (r.percent == null ? '未填' : r.percent + '%')
+        + (r.blocker ? '<br>障礙：' + esc(r.blocker) : '') + (r.nextStep ? '<br>下一步：' + esc(r.nextStep) : '')
+        + '<br>' + r.photos.map(p => '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p.caption || '現場照片') + '</a>').join(' · ')
+        + (r.source?.reference ? '<br>來源：' + esc(r.source.reference) : '') + '</div>').join('')
+      + (w.records.length ? '' : '<p>尚無施工紀錄</p>')).join('') + '</section>';
 }
 async function editFld(i) {
   const f = window._docFields[i];
@@ -602,6 +820,33 @@ async function sopCheck(projectId, itemId, checked) {
     });
     if (!r.ok) throw new Error((await r.json()).error || r.status);
   } catch (e) { alert('勾核儲存失敗:' + e.message); }
+}
+function fileSize(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+async function loadDrawings(projectId) {
+  const area = document.getElementById('drawingsArea');
+  if (!area) return;
+  const d = await api('drawings?project=' + encodeURIComponent(projectId));
+  if (currentProjectId !== projectId) return;
+  currentDrawings = d;
+  if (!d.configured) {
+    area.innerHTML = '<div class="drawing-head"><strong>📐 設計圖版本庫</strong></div><div class="empty">尚未設定「設計圖版本」資料庫，請先完成此功能的安裝設定。</div>';
+    return;
+  }
+  const groups = d.groups.length ? d.groups.map(g => '<details class="drawing-group" ' + (d.groups.length === 1 ? 'open' : '') + '>'
+    + '<summary><b>' + esc(g.name) + '</b> ・ ' + g.versionCount + ' 個版本 ・ 最新：' + esc(g.latest.version) + ' (' + esc(g.latest.status) + ')</summary>'
+    + g.versions.map((v, i) => '<div class="drawing-version">'
+      + '<b>' + (i === 0 ? '最新 ' : '') + esc(v.version) + '</b>'
+      + '<span class="chip">' + esc(v.status) + '</span>'
+      + '<div><a href="' + esc(v.driveUrl) + '" target="_blank">' + esc(v.originalFilename) + ' ↗</a>'
+      + '<div class="drawing-meta">' + esc((v.uploadedAt || '').replace('T',' ').slice(0,16)) + ' ・ ' + esc(v.uploader || '未記錄') + ' ・ ' + fileSize(v.size)
+      + (v.note ? '<br>' + esc(v.note) : '') + '</div></div>'
+      + '<a href="' + esc(v.driveUrl) + '" target="_blank">開啟</a></div>').join('')
+    + '</details>').join('') : '<div class="empty">尚無設計圖，請上傳第一個版本。</div>';
+  area.innerHTML = '<div class="drawing-head"><strong>📐 設計圖版本庫（Google Drive）</strong><button onclick="openManager(\\'drawing\\')">＋ 上傳新版本</button></div>' + groups;
 }
 async function loadPhotos(spaceId) {
   document.querySelectorAll('.spacebtn').forEach(b => b.classList.toggle('active', b.id === 'sb-' + spaceId));

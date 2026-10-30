@@ -1,0 +1,74 @@
+{
+  "id": "AM-IMP-2026.0914.02",
+  "name": "Engineering LINE attachment Google Drive archive",
+  "type": "AM Platform / Engineering / LINE attachments / Google Drive",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-14",
+  "dependsOn": [
+    "AM-IMP-2026.0708.01"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "scope": [
+    "Google Drive source-of-truth policy for Engineering AM LINE group attachments",
+    "DWG and unsupported Notion format preservation",
+    "Large file and video streaming",
+    "Notion metadata and supported preview separation"
+  ],
+  "requiresDatabases": [
+    "Engineering tenant-local Messages data source",
+    "Engineering tenant-local Attachments data source"
+  ],
+  "requiresEnv": [
+    "ENG_ATTACHMENTS_DATA_SOURCE_ID",
+    "ENG_DRIVE_ROOT_FOLDER_ID",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [
+    "node tools/dryrun-collect-attachment-archive.mjs",
+    "node tools/dryrun-core.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.02",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The archive policy is enabled only in tenants/engineering.json. Every Drive destination comes from ctx.tenant.driveRootFolderId and every Notion row comes from ctx.tenant.dataSources.attachments. No cross-tenant file or record lookup is allowed."
+  },
+  "changes": [
+    "Enable mandatory Google Drive archival for Engineering AM LINE group attachments",
+    "Stream DWG, unsupported Notion formats, large files, and videos directly from LINE to Drive",
+    "Keep Notion as metadata and supported-preview storage instead of the sole file archive",
+    "Preserve the existing meeting-audio Drive stream archive without duplicate copies",
+    "Add deterministic DWG, PDF, video, group-scope, and size-limit verification"
+  ],
+  "definitionOfDone": [
+    "DWG, PDF, image, and video dry runs prove the expected Drive and Notion behavior",
+    "Core tenant isolation dry run still passes",
+    "Package validation and AMCore alignment audit pass",
+    "Production canary attachment rows contain working Engineering Drive links",
+    "No tenant data, files, IDs, or credentials are stored in AMCore"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:engineering": "Ready"
+  },
+  "files": [
+    "modules/collect/index.js",
+    "modules/collect/README.md",
+    "tenants/engineering.json",
+    "tools/dryrun-collect-attachment-archive.mjs",
+    "versions/AM-IMP-2026.0914.02/README.md",
+    "versions/AM-IMP-2026.0914.02/INSTALL.md",
+    "versions/AM-IMP-2026.0914.02/VERIFY.md",
+    "versions/AM-IMP-2026.0914.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0914.02/upgrade.json"
+  ]
+}

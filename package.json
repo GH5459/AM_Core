@@ -5,6 +5,7 @@
   "type": "module",
   "description": "AM Platform — 單一平台 + 多租戶(葉小蝸 AI 小幫手)。一支 OA → 一個 webhook → 依群組分流到各租戶 → 各租戶用自己的 Notion 頁。",
   "scripts": {
+    "test:attachment-recovery": "node --test tools/test-attachment-recovery.mjs",
     "start": "node server.js",
     "dev": "node --env-file=.env --watch server.js",
     "check": "node --check server.js",
@@ -14,6 +15,7 @@
     "dryrun:groups": "node tools/dryrun-groups.mjs"
   },
   "dependencies": {
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "sharp": "^0.35.5"
   }
 }

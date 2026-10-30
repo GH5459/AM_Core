@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tenant-local LINE Conversations semantic schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["databaseSemanticKey", "properties"],
+  "properties": {
+    "databaseSemanticKey": { "const": "conversations" },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["semanticKey", "suggestedName", "type", "required"],
+        "properties": {
+          "semanticKey": { "type": "string" },
+          "suggestedName": { "type": "string" },
+          "type": { "enum": ["title", "rich_text", "select", "date", "relation"] },
+          "required": { "type": "boolean" },
+          "requiredFor": { "type": "array", "items": { "enum": ["direct", "group", "room"] } },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "x-amcore-template": {
+    "databaseSemanticKey": "conversations",
+    "properties": [
+      { "semanticKey": "title", "suggestedName": "對話名稱", "type": "title", "required": true },
+      { "semanticKey": "tenantConversationId", "suggestedName": "Tenant Conversation ID", "type": "rich_text", "required": true },
+      { "semanticKey": "platformConversationId", "suggestedName": "Platform Conversation ID", "type": "rich_text", "required": true },
+      { "semanticKey": "conversationType", "suggestedName": "對話類型", "type": "select", "required": true, "options": ["個人", "群組", "聊天室"] },
+      { "semanticKey": "lineConnectionId", "suggestedName": "LINE Connection ID", "type": "rich_text", "required": true, "notes": "Namespace identifier only; never a channel secret." },
+      { "semanticKey": "bindingStatus", "suggestedName": "綁定狀態", "type": "select", "required": true, "options": ["啟用", "待綁定", "已解除", "封存"] },
+      { "semanticKey": "bindingStartedAt", "suggestedName": "綁定開始時間", "type": "date", "required": true },
+      { "semanticKey": "bindingEndedAt", "suggestedName": "綁定結束時間", "type": "date", "required": false },
+      { "semanticKey": "personIdentity", "suggestedName": "個人身分", "type": "relation", "required": false, "requiredFor": ["direct"] },
+      { "semanticKey": "groupBinding", "suggestedName": "群組綁定", "type": "relation", "required": false, "requiredFor": ["group", "room"] },
+      { "semanticKey": "project", "suggestedName": "所屬專案", "type": "relation", "required": false },
+      { "semanticKey": "goal", "suggestedName": "所屬目標", "type": "rich_text", "required": false },
+      { "semanticKey": "lastMessageAt", "suggestedName": "最近訊息時間", "type": "date", "required": true },
+      { "semanticKey": "lastMessageId", "suggestedName": "最近訊息 ID", "type": "rich_text", "required": false },
+      { "semanticKey": "summary", "suggestedName": "對話摘要", "type": "rich_text", "required": false },
+      { "semanticKey": "taskJudgmentStatus", "suggestedName": "任務判斷狀態", "type": "select", "required": true, "options": ["待判斷", "已判斷", "判斷失敗"] },
+      { "semanticKey": "lastTaskJudgedAt", "suggestedName": "最後任務判斷時間", "type": "date", "required": false },
+      { "semanticKey": "lastTaskJudgedMessageAt", "suggestedName": "最後任務判斷訊息時間", "type": "date", "required": false },
+      { "semanticKey": "privacyLevel", "suggestedName": "隱私級別", "type": "select", "required": true, "options": ["私人", "租戶群組", "敏感對話"] }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "id": "AM-IMP-2026.0808.01",
+  "name": "LINE Conversation Storage and Tenant Routing",
+  "type": "Core",
+  "portable": true,
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "requiresDatabases": [
+    "Project-local LINE Conversations",
+    "Project-local Messages with Tenant Conversation relation",
+    "Project-local Attachments",
+    "Project-local LINE Conversation Member Index",
+    "Platform Conversation and binding-period metadata store"
+  ],
+  "requiresEnv": [
+    "<PROJECT>_CONVERSATIONS_DATA_SOURCE_ID",
+    "<PROJECT>_MESSAGES_DATA_SOURCE_ID",
+    "<PROJECT>_ATTACHMENTS_DATA_SOURCE_ID",
+    "<PROJECT>_CONVERSATION_MEMBERS_DATA_SOURCE_ID",
+    "<PROJECT>_LINE_CONNECTION_ID",
+    "<PROJECT>_CONVERSATION_HASH_SECRET_REF"
+  ],
+  "requiresScripts": [
+    "tools/verify-line-conversation-routing.mjs",
+    "tools/backfill-conversations.mjs",
+    "tools/repair-conversation-projections.mjs"
+  ],
+  "dependencies": ["AM-IMP-2026.0610.05", "AM-IMP-2026.0807.03"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Unbound events fail closed; every tenant repository is locked to one tenant; Platform Conversation metadata contains no shared live message content; rebinding never moves old history."
+  },
+  "definitionOfDone": [
+    "Complete upgrade package contains semantic schemas, routing/storage reference code, fixtures, backfill and projection-repair tools",
+    "All 15 minimum routing, isolation, idempotency, repair, command and context-window cases pass",
+    "HOZO_AM and SEVEN_AM receive separate project-local configs, manifest rows and upgrade records",
+    "All runtime feature flags remain off until project-local schema and production canary verification",
+    "Alignment and manifest comparison complete without a new package error"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Installed",
+    "SEVEN_AM": "Installed"
+  },
+  "status": "Installed"
+}

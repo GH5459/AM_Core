@@ -25,5 +25,9 @@
     "Cross-group page ID, attachment ID, and batch dry-runs produce no unauthorized Notion PATCH",
     "Forest, engineering, HOZO_AM, and SevenAM are reviewed and verified separately before enforce mode"
   ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
   "status": "Ready"
 }

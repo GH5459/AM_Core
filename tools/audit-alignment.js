@@ -143,6 +143,12 @@ function main() {
   const projects = config.projects.map((project) => {
     const manifest = expandManifestRanges(parseManifestTable(readText(project.manifestPath)), packages);
     const packageJsonPath = path.join(project.localPath, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      const message = `${project.projectKey} project package.json is unavailable: ${packageJsonPath}`;
+      if (project.active === false) warnings.push(message);
+      else errors.push(message);
+      return { project, manifest, scripts: [] };
+    }
     const packageJson = JSON.parse(readText(packageJsonPath));
     const scripts = Object.keys(packageJson.scripts || {}).sort();
     return { project, manifest, scripts };

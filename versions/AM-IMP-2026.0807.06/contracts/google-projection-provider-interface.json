@@ -1,0 +1,35 @@
+{
+  "interface": "GoogleCalendarProjectionProvider",
+  "version": "2026-08-07.v1",
+  "methods": [
+    {
+      "name": "beginOAuth",
+      "requires": ["tenantId", "portalSessionId", "nonce", "redirectUri", "requestId"]
+    },
+    {
+      "name": "completeOAuth",
+      "requires": ["tenantId", "portalSessionId", "state", "authorizationCode", "requestId"]
+    },
+    {
+      "name": "ensureTargetCalendar",
+      "requires": ["tenantId", "targetType", "personId", "timezone", "credentialRef", "requestId"]
+    },
+    {
+      "name": "applyAcl",
+      "requires": ["tenantId", "targetCalendarId", "principalEmail", "role", "requestId"]
+    },
+    {
+      "name": "projectEvent",
+      "requires": ["tenantId", "targetCalendarId", "calendarItem", "payloadHash", "idempotencyKey", "requestId"]
+    },
+    {
+      "name": "cancelProjection",
+      "requires": ["tenantId", "targetCalendarId", "calendarItemId", "sourceVersion", "requestId"]
+    }
+  ],
+  "retryPolicy": {
+    "retryable": ["GOOGLE_429", "GOOGLE_5XX", "GOOGLE_TIMEOUT"],
+    "nonRetryableUntilReauth": ["GOOGLE_401", "GOOGLE_TOKEN_REVOKED"],
+    "nonRetryableUntilPermissionFix": ["GOOGLE_403"]
+  }
+}

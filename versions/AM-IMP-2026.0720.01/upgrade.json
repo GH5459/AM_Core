@@ -63,6 +63,10 @@
     "Host finalization is blocked until all todos are ready and owner-confirmed",
     "Created tasks preserve source meeting and group binding where available"
   ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
   "files": [
     "modules/meetings/index.js",
     "versions/AM-IMP-2026.0720.01/README.md",

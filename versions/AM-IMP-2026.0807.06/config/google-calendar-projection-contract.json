@@ -1,0 +1,29 @@
+{
+  "contractVersion": "2026-08-07.google-projection.v1",
+  "sourceOfTruth": "AM Calendar Hub or Rental Calendar, never Google Calendar",
+  "oauth": {
+    "flow": "authorization_code_offline",
+    "pkceRecommended": true,
+    "stateBinds": ["portalSession", "tenantId", "nonce"],
+    "redirectUri": "exactAllowlist",
+    "scopes": ["minimumCalendarScopeForSecondaryCalendarAndEventProjection"]
+  },
+  "targets": {
+    "company": "managed tenant company secondary calendar",
+    "person": "managed tenant person work secondary calendar",
+    "primaryCalendar": "disabledByDefault"
+  },
+  "eventMappingUnique": ["tenantId", "calendarItemId", "targetCalendarId", "personId"],
+  "extendedProperties": ["tenantId", "calendarItemId", "sourceVersion", "projectionVersion"],
+  "redaction": {
+    "descriptionMustExclude": ["privateNote", "rawLineUserId", "sourceEvidenceText", "tenantSecrets", "bankAccount", "otp", "attachments", "fullFinancialDetail"],
+    "title": "safeSummaryOnly"
+  },
+  "failureCodes": ["GOOGLE_401", "GOOGLE_403", "GOOGLE_429", "GOOGLE_5XX", "GOOGLE_TIMEOUT", "GOOGLE_TOKEN_REVOKED", "GOOGLE_SYNC_TOKEN_GONE"],
+  "featureFlags": [
+    "googleCalendar.connectionEnabled",
+    "googleCalendar.projectionEnabled",
+    "googleCalendar.companyCalendarsEnabled",
+    "googleCalendar.personalCalendarsEnabled"
+  ]
+}

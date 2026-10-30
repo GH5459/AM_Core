@@ -21,5 +21,9 @@
     "Groups dry-run and node syntax checks pass",
     "Portal project entry verifies its existing am-tenant permission before issuing a short-lived handoff"
   ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
   "status": "Ready"
 }

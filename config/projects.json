@@ -3,17 +3,17 @@
     {
       "projectKey": "HOZO_AM",
       "displayName": "HOZO AM",
-      "localPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook",
-      "manifestPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "upgradeRecordsPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\upgrades",
+      "localPath": "G:\\我的雲端硬碟\\Codex 共用\\HOZO-AM",
+      "manifestPath": "G:\\我的雲端硬碟\\Codex 共用\\HOZO-AM\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "G:\\我的雲端硬碟\\Codex 共用\\HOZO-AM\\docs\\upgrades",
       "dataBoundary": "HOZO AM owns its own LINE, Notion, Render, GitHub, and environment values."
     },
     {
       "projectKey": "SEVEN_AM",
       "displayName": "7AM",
-      "localPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook",
-      "manifestPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "upgradeRecordsPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\upgrades",
+      "localPath": "G:\\我的雲端硬碟\\Codex 共用\\SevenAM",
+      "manifestPath": "G:\\我的雲端硬碟\\Codex 共用\\SevenAM\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "G:\\我的雲端硬碟\\Codex 共用\\SevenAM\\docs\\upgrades",
       "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
     },
     {
@@ -22,9 +22,9 @@
       "active": false,
       "lifecycle": "Deprecated — rollback only until AM Platform cutover observation completes",
       "supersededBy": "AM_PLATFORM:engineering",
-      "localPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook",
-      "manifestPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "upgradeRecordsPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\upgrades",
+      "localPath": "G:\\我的雲端硬碟\\Codex 共用\\BuildAM",
+      "manifestPath": "G:\\我的雲端硬碟\\Codex 共用\\BuildAM\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "G:\\我的雲端硬碟\\Codex 共用\\BuildAM\\docs\\upgrades",
       "dataBoundary": "Legacy runtime only. Engineering data remains in its existing Notion parent but is served by AM Platform tenant engineering; no new feature work is installed here."
     },
     {
@@ -33,12 +33,12 @@
       "active": false,
       "lifecycle": "Deprecated — superseded by AM Platform tenant forest",
       "supersededBy": "AM_PLATFORM:forest",
-      "localPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook",
-      "manifestPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "upgradeRecordsPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\upgrades",
+      "localPath": "G:\\我的雲端硬碟\\Codex 共用\\ForestAM",
+      "manifestPath": "G:\\我的雲端硬碟\\Codex 共用\\ForestAM\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "G:\\我的雲端硬碟\\Codex 共用\\ForestAM\\docs\\upgrades",
       "dataBoundary": "Legacy rollback clone only. Forest data is served by AM Platform tenant forest; no new feature or authorization work is installed in this standalone clone."
     }
   ],
-  "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
-  "sharedUpgradePackageRoot": "D:\\Codex_project\\AM_Core\\versions"
+  "sharedRegistryPath": "G:\\我的雲端硬碟\\Codex 共用\\AM_Core\\docs\\AM_VERSION_CONTROL_TABLE.md",
+  "sharedUpgradePackageRoot": "G:\\我的雲端硬碟\\Codex 共用\\AM_Core\\versions"
 }

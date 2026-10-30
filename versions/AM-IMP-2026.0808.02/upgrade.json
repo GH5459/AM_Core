@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0808.02",
+  "name": "LINE Conversation Activation Readiness",
+  "type": "Core",
+  "portable": true,
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dependencies": ["AM-IMP-2026.0808.01"],
+  "requiresDatabases": [
+    "Project-local LINE Conversations",
+    "Project-local Messages",
+    "Project-local Attachments",
+    "Project-local LINE Conversation Member Index"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "<PROJECT>_CONVERSATIONS_DATA_SOURCE_ID",
+    "<PROJECT>_MESSAGES_DATA_SOURCE_ID",
+    "<PROJECT>_ATTACHMENTS_DATA_SOURCE_ID",
+    "<PROJECT>_LINE_GROUP_MEMBER_INDEX_DATA_SOURCE_ID",
+    "<PROJECT>_LINE_CONNECTION_ID",
+    "<PROJECT>_CONVERSATION_HASH_SECRET"
+  ],
+  "requiresScripts": [
+    "scripts/verify-line-conversation-readiness.mjs",
+    "src/line-conversation-readiness.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Readiness checks report missing project-local secrets and data sources by name only; no values are printed or stored."
+  },
+  "definitionOfDone": [
+    "HOZO_AM and SEVEN_AM expose lineConversationStorage health with flags off",
+    "HOZO_AM and SEVEN_AM include project-local readiness scripts",
+    "Readiness scripts fail closed in strict mode when production env is absent",
+    "Local syntax, config, package, manifest comparison and alignment checks pass",
+    "Package remains Installed until production Notion and Render proof are complete"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Installed",
+    "SEVEN_AM": "Installed"
+  },
+  "status": "Installed"
+}

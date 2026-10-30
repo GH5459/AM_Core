@@ -8,10 +8,12 @@ import { bootstrap } from './core/bootstrap.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
 import { sendJson, sendText, readBody } from './core/util.js';
+import { createLineIo, readLineIoBody, acceptLineWebhook } from './core/line-io/index.js';
 import {
   GROUP_ONBOARDING_BUILD,
   groupOnboardingProperties,
   groupOnboardingRepairProperties,
+  groupOnboardingSuccessMessage,
   parseGroupOnboardingCommand,
   supportedGroupOnboardingExamples,
   withResolvedGroupName,
@@ -19,6 +21,7 @@ import {
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
+const lineIo = await createLineIo({ tenants, line, router, logger });
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
 const portalServiceToken = process.env.AMCORE_PORTAL_SERVICE_TOKEN || '';
 
@@ -191,9 +194,13 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     const statusLabel = properties['狀態']?.select?.name || '影子記錄';
     const action = isCurrentBinding ? '已校正目前群組綁定' : wasExisting ? '已更新綁定' : '已綁定';
     logger.log(`AM Platform group ${isCurrentBinding ? 'repaired' : wasExisting ? 'updated' : 'bound'} (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
-    await replyLine(event, isCurrentBinding
-      ? `${action} ${tenant.displayName}：${onboardingCommand.groupName}`
-      : `${action} ${tenant.displayName}：${onboardingCommand.groupName}\n狀態：${statusLabel}`);
+    await replyLine(event, groupOnboardingSuccessMessage({
+      action,
+      tenantDisplayName: tenant.displayName,
+      command: onboardingCommand,
+      statusLabel,
+      includeStatus: !isCurrentBinding,
+    }));
   } catch (error) {
     logger.warn(`Group onboarding failed (tenant=${command.tenantKey}, group=${groupId}): ${error.message}`);
     await replyLine(event, `群組綁定失敗：${error.message.slice(0, 180)}`);
@@ -204,6 +211,7 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (await lineIo.handle(req, res, url)) return;
   // LINE opens a LIFF deep link at its registered endpoint and carries the
   // requested page in liff.state. Route only known public LIFF paths before
   // the normal portal home handler, otherwise a claims form becomes a login
@@ -351,19 +359,19 @@ const server = http.createServer(async (req, res) => {
 
   // ── LINE webhook(唯一入口)──
   if (req.method === 'POST' && pathname === '/webhook/line') {
-    const rawBody = await readBody(req);
-    if (!line.isValidSignature(rawBody, req.headers['x-line-signature'])) {
-      return sendJson(res, 401, { error: 'Invalid signature' });
-    }
-    let body;
+    let rawBody;
+    try { rawBody = await readLineIoBody(req, 1024 * 1024); }
+    catch (error) { return sendJson(res, error.status || 400, { error: 'Invalid webhook body' }); }
+    let events;
     try {
-      body = JSON.parse(rawBody);
+      // Durable input for external consumers commits before acknowledging LINE.
+      events = await acceptLineWebhook({ rawBody, signature: req.headers['x-line-signature'], line, lineIo });
     } catch (error) {
-      logger.error('Unable to parse LINE webhook body:', error);
-      return sendJson(res, 400, { error: 'Invalid JSON' });
+      if (error.status === 503) logger.warn('LINE I/O capture failed; webhook was not acknowledged.');
+      return sendJson(res, error.status || 503, { error: error.code || 'webhook_unavailable' });
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
-    Promise.all((body.events || []).map((event) => handleEvent(event)))
+    Promise.all(events.map((event) => handleEvent(event)))
       .catch((error) => logger.error('Unable to process LINE webhook events:', error));
     return;
   }
@@ -399,12 +407,16 @@ const server = http.createServer(async (req, res) => {
 
 // 收到一則事件 → 解析租戶/綁定 → 交分派器。未綁定 = 不落庫、不回話(照 BuildAM)。
 async function handleEvent(event) {
-  if (event.type !== 'message' || !event.message) return;
+  if (!['message', 'postback'].includes(event.type)) return;
   const groupId = event.source?.groupId || event.source?.roomId || '';
   const { tenant, binding } = await router.resolveGroupBinding(groupId);
-  if (await maybeHandleGroupOnboardingCommand(event, groupId, { tenant, binding })) return;
+  if (event.type === 'message' && await maybeHandleGroupOnboardingCommand(event, groupId, { tenant, binding })) return;
   if (!tenant) {
-    logger.log(`Unbound message ${event.message.id} (group=${groupId || 'direct'}) — ignored.`);
+    logger.log(`Unbound ${event.type} (group=${groupId || 'direct'}) — ignored.`);
+    return;
+  }
+  if (event.type === 'postback') {
+    await dispatcher.dispatchPostback({ tenant, binding, event });
     return;
   }
   await dispatcher.dispatchMessage({ tenant, binding, event });
