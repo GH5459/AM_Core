@@ -10,3 +10,5 @@
 - Tenant UUID: `6c421e02-7ef7-4f98-8acb-758224689b58`
 - PostgreSQL is shared at the service level only. Every Green Hotel row remains isolated by `tenant_id`, forced RLS and a tenant-specific runtime role.
 - Shadow mode creates only candidate operational-memory records. Formal tasks, reminders and automatic external replies remain disabled.
+
+| AM-IMP-2026.1008.07 | Deployed | 2026-10-08 | LINE mention DailyLog task service; reviewed root runtime 2931da7f; human LINE acceptance pending |

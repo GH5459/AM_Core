@@ -10,6 +10,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0803.01 | Deployed | Full workflow activation | Formal tasks, reminders, queue, group admin, triage, meeting todo creation | HOZO AM 2.0 tenant authorization is enabled, full workflow modules are loaded, meeting tasks can reach review-and-create mode, and new HOZO AM 2.0 group onboarding defaults to active full-function binding. |
 | AM-IMP-2026.0803.02 | Deployed | Group name repair | LINE group-summary name resolution and same-tenant binding repair | Production health reports `group-name-repair-2026-08-03`; legacy onboarding no longer writes a fixed historical group name. |
 | AM-IMP-2026.0804.01 | Deployed | Claims group governance | Claim capability, stable LINE sender allowlist, claims LIFF and Rental integration configuration | Claims is enabled only for the provisioned source group after the additive schema, secure runtime configuration, Rental intake, source, and approver checks were verified in production. |
+| AM-IMP-2026.0813.01 | Installed | Interactive LINE task control | Flex task list, task completion, progress/blocker/next-step/keyword capture, completed-task search | Shared runtime and HOZO tenant module configuration are installed. The HOZO-local Tasks schema has all five required fields, idempotent apply and follow-up dry-run passed, and shared dry-run/package/alignment checks passed. Production LINE canary and deployment verification remain before `Deployed`. |
 
 ## Tenant boundaries
 
