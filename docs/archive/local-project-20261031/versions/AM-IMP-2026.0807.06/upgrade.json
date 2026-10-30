@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0807.06",
+  "name": "Google Calendar Projection Provider",
+  "type": "Tenant-scoped one-way Calendar projection",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:forest", "AM_PLATFORM:green-hotel", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["AM Calendar Hub tables", "Tenant-scoped projection connection, target, event link and failure tables"],
+  "requiresEnv": ["<TENANT>_GOOGLE_CALENDAR_CREDENTIAL_REF", "<TENANT>_GOOGLE_OAUTH_CLIENT_SECRET_REF"],
+  "requiresScripts": ["tools/verify-am-platform-standardization.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Google projection stores only credential references and event mappings; refresh tokens remain in production secret storage and Google event descriptions must not contain private notes, raw source evidence or sensitive financial data."
+  },
+  "definitionOfDone": [
+    "OAuth state binds Portal session, tenant and nonce with exact redirect allowlist",
+    "Each tenant has isolated credential reference, targets, ACL, event mappings and failures",
+    "Secondary calendars are managed per tenant and per person/company target",
+    "Upsert and cancel are idempotent and use stable event links",
+    "401, 403, 429, 5xx, timeout and token revoke create failure records",
+    "Projection flag off leaves AM/Rental Calendar source records fully operational"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
+  "status": "Ready"
+}

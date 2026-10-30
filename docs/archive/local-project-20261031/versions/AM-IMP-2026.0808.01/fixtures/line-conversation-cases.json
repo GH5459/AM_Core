@@ -1,0 +1,22 @@
+{
+  "containsProductionData": false,
+  "lineConnectionId": "line-connection-fixture",
+  "tenants": ["tenant-a", "tenant-b"],
+  "cases": [
+    "direct-single-membership",
+    "direct-multiple-memberships-active-workspace",
+    "direct-multiple-memberships-no-active-workspace",
+    "unbound-direct-binding-code",
+    "unbound-direct-normal-message",
+    "bound-group-text-image-file",
+    "bound-room-message",
+    "unbound-group-onboarding",
+    "webhook-retry-idempotency",
+    "conversation-rebinding",
+    "projection-repair",
+    "cross-tenant-denial",
+    "incoming-outgoing-same-conversation",
+    "system-command-no-task",
+    "recent-twenty-message-window"
+  ]
+}

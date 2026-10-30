@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="1686" viewBox="0 0 2500 1686">
+  <rect width="2500" height="1686" fill="#F4F0E8"/>
+
+  <!-- 1. 我的今天 -->
+  <g transform="translate(18 18)">
+    <rect width="797" height="807" rx="40" fill="#20584E"/>
+    <rect x="60" y="58" width="270" height="66" rx="33" fill="#F5C963"/>
+    <text x="195" y="103" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="34" font-weight="700" fill="#173D37">葉小蝸 AI 小助手</text>
+    <g transform="translate(307 190)" fill="none" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="0" y="38" width="184" height="178" rx="24"/>
+      <path d="M42 0v72M142 0v72M0 94h184"/>
+      <path d="M49 137h28M107 137h28M49 177h28M107 177h28"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="92" font-weight="800" fill="#FFFFFF">我的今天</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="500" fill="#DDEDE8">AM・Rental・個人工作</text>
+    <text x="398.5" y="714" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="32" font-weight="600" fill="#F5C963">一鍵查看今日狀況</text>
+  </g>
+
+  <!-- 2. 我的行事曆 -->
+  <g transform="translate(851.5 18)">
+    <rect width="797" height="807" rx="40" fill="#DDEDE7"/>
+    <g transform="translate(307 176)" fill="none" stroke="#20584E" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="0" y="36" width="184" height="184" rx="24"/>
+      <path d="M42 0v68M142 0v68M0 92h184"/>
+      <path d="M43 133h28M107 133h28M43 176h28M107 176h28"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="86" font-weight="800" fill="#173D37">我的行事曆</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="600" fill="#49786F">今天・本週・本月</text>
+    <rect x="262" y="676" width="273" height="66" rx="33" fill="#FFFFFF"/>
+    <text x="398.5" y="721" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="31" font-weight="700" fill="#20584E">安排與工作紀錄</text>
+  </g>
+
+  <!-- 3. 新增待辦 -->
+  <g transform="translate(1685 18)">
+    <rect width="797" height="807" rx="40" fill="#F5C963"/>
+    <g transform="translate(309 178)" fill="none" stroke="#173D37" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="0" y="0" width="180" height="216" rx="28"/>
+      <path d="M45 62h90M45 112h64M45 162h45"/>
+      <circle cx="153" cy="181" r="61" fill="#F5C963"/>
+      <path d="M153 146v70M118 181h70"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="92" font-weight="800" fill="#173D37">新增待辦</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="600" fill="#5A5130">安排日期與時間</text>
+    <text x="398.5" y="714" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="32" font-weight="700" fill="#20584E">記下下一件要做的事</text>
+  </g>
+
+  <!-- 4. 昨天未完 -->
+  <g transform="translate(18 861)">
+    <rect width="797" height="807" rx="40" fill="#FFFDF8"/>
+    <g transform="translate(285 174)" fill="none" stroke="#D77B4F" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M218 55a128 128 0 1 1-36-34"/>
+      <path d="M182 21h74v74"/>
+      <path d="M128 68v78l52 34"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="92" font-weight="800" fill="#173D37">昨天未完</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="600" fill="#796A5F">承接・改期・追蹤</text>
+    <rect x="242" y="676" width="313" height="66" rx="33" fill="#F8E4D7"/>
+    <text x="398.5" y="721" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="31" font-weight="700" fill="#B45F38">不讓工作被漏掉</text>
+  </g>
+
+  <!-- 5. 我要請款 -->
+  <g transform="translate(851.5 861)">
+    <rect width="797" height="807" rx="40" fill="#E8895D"/>
+    <g transform="translate(307 168)" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 0h148v228l-25-18-25 18-24-18-25 18-25-18-24 18z"/>
+      <path d="M52 60h80M52 105h80M52 150h38"/>
+      <circle cx="139" cy="163" r="48" fill="#E8895D"/>
+      <path d="M139 136v54M120 146h26c17 0 17 21 0 21h-14c-17 0-17 21 0 21h27"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="92" font-weight="800" fill="#FFFFFF">我要請款</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="600" fill="#FFF1E8">安全開啟請款流程</text>
+    <text x="398.5" y="714" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="32" font-weight="700" fill="#4E2C21">送出前再次確認身分</text>
+  </g>
+
+  <!-- 6. 身分／設定 -->
+  <g transform="translate(1685 861)">
+    <rect width="797" height="807" rx="40" fill="#173D37"/>
+    <g transform="translate(302 167)" fill="none" stroke="#F5C963" stroke-width="23" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="96" cy="70" r="57"/>
+      <path d="M0 220c11-65 49-101 96-101s85 36 96 101"/>
+      <circle cx="168" cy="162" r="62" fill="#173D37"/>
+      <circle cx="168" cy="162" r="24"/>
+      <path d="M168 80v28M168 216v28M86 162h28M222 162h28M110 104l20 20M206 200l20 20M226 104l-20 20M130 200l-20 20"/>
+    </g>
+    <text x="398.5" y="535" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="84" font-weight="800" fill="#FFFFFF">身分／設定</text>
+    <text x="398.5" y="618" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="42" font-weight="500" fill="#DDEDE8">帳號・通知・安靜時段</text>
+    <rect x="257" y="676" width="283" height="66" rx="33" fill="#F5C963"/>
+    <text x="398.5" y="721" text-anchor="middle" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif" font-size="31" font-weight="800" fill="#173D37">葉小蝸與你同行</text>
+  </g>
+</svg>

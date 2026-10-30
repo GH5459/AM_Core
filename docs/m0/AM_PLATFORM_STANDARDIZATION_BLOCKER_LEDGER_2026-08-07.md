@@ -1,0 +1,10 @@
+# AM Platform Standardization Blocker Ledger
+
+Date: 2026-08-07
+
+| blocker_id | found_at | milestone | component | description | attempted | blocking | isolation | needed | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| B3-20260807-001 | 2026-08-07 | M0 | Git/source verification | `git fetch origin --prune` timed out from the Google Drive clone, so latest remote state was not freshly confirmed. | Checked local `origin/main` and confirmed it matches passdown commit `f261d0c`; switched to a clean non-cloud worktree. | Blocks production-source certainty, not package authoring. | Treat passdown production data as pending verification; keep packages `Ready`. | Stable fetch or GitHub app/CLI verification. | Open |
+| B3-20260807-002 | 2026-08-07 | M6 | Google Calendar OAuth | `hozosince2026@gmail.com` OAuth consent, client secret and refresh token are not available in AMCore and must not be requested through files/logs. | Created projection contract with credential reference only. | Blocks live Google projection deployment. | Build provider interface and failure tests; keep feature flags off. | User/admin completes OAuth in approved production flow and stores secrets in production secret store. | Open |
+| B2-20260807-003 | 2026-08-07 | M8/M9 | Forest, Green Hotel, Seven AM | Forest/Green Hotel appear shadow; Seven AM platform tenant manifest is missing. | Read available tenant manifests. | Blocks tenant production enablement, not shared package design. | Package contracts support tenant onboarding with flags off. | Tenant registry, memberships, admin approval and production proof per tenant. | Open |
+| B2-20260807-004 | 2026-08-07 | M0/M1 | Alignment tooling | AMCore alignment tooling/config still references historical `D:\Codex_project\...` paths and external shared registry locations. | Recorded the risk; package-level checks remain usable. | Blocks calling ecosystem alignment complete. | Use package checks and new standardization verifier as local evidence. | Portable tooling update or restored historical paths. | Open |

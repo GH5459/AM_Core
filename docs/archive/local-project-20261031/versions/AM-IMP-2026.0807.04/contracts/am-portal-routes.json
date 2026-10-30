@@ -1,0 +1,44 @@
+{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/portal/me/identity",
+      "capability": "member",
+      "scope": "authenticatedPerson"
+    },
+    {
+      "method": "POST",
+      "path": "/portal/me/line-binding-challenges",
+      "capability": "member",
+      "scope": "activeMembership",
+      "csrf": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/portal/me/line-bindings/current",
+      "capability": "member",
+      "scope": "authenticatedPerson",
+      "csrf": true
+    },
+    {
+      "method": "GET",
+      "path": "/portal/admin/tenants/:tenantId/connections",
+      "capability": "tenant.connection.read",
+      "scope": "tenant"
+    },
+    {
+      "method": "POST",
+      "path": "/portal/admin/tenants/:tenantId/line-connections",
+      "capability": "tenant.connection.write",
+      "scope": "tenant",
+      "csrf": true
+    },
+    {
+      "method": "POST",
+      "path": "/portal/admin/tenants/:tenantId/calendar-targets",
+      "capability": "calendar.admin",
+      "scope": "tenant",
+      "csrf": true
+    }
+  ]
+}

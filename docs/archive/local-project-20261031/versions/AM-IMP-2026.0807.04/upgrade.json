@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0807.04",
+  "name": "AM Portal identity and connection management",
+  "type": "Portal information architecture and authorization contract",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:forest", "AM_PLATFORM:green-hotel", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["AM Identity tables from AM-IMP-2026.0807.03", "Tenant membership and connection registry tables"],
+  "requiresEnv": ["<PROJECT>_PORTAL_SESSION_SECRET_REF"],
+  "requiresScripts": ["tools/verify-am-platform-standardization.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Portal actions derive person and membership from the server-side session, never from browser-supplied person_id or tenant_id alone."
+  },
+  "definitionOfDone": [
+    "Portal exposes personal identity, LINE binding, tenant workspace and Calendar/Google status pages",
+    "Tenant admins can manage members, roles, LINE official account and AI assistant connections, group bindings and Calendar targets",
+    "All mutation routes use CSRF protection, role/capability checks and request IDs",
+    "Secrets and full external subjects are never displayed",
+    "Rental Portal compatibility path is documented and feature-flagged",
+    "Unauthorized, inactive and cross-tenant users fail closed"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Ready"
+  },
+  "status": "Ready"
+}

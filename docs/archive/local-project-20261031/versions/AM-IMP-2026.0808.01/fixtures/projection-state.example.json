@@ -1,0 +1,23 @@
+{
+  "containsProductionData": false,
+  "conversations": [
+    {
+      "id": "fixture-conversation-1",
+      "projectedIdempotencyKeys": ["fixture-key-1"]
+    }
+  ],
+  "messages": [
+    {
+      "id": "fixture-message-1",
+      "tenantConversationId": "fixture-conversation-1",
+      "idempotencyKey": "fixture-key-1",
+      "occurredAt": "2026-08-08T08:00:00.000Z"
+    },
+    {
+      "id": "fixture-message-2",
+      "tenantConversationId": "fixture-conversation-1",
+      "idempotencyKey": "fixture-key-2",
+      "occurredAt": "2026-08-08T08:01:00.000Z"
+    }
+  ]
+}
