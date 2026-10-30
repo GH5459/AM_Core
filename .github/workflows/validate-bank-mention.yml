@@ -3,6 +3,7 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1030.03/**'
       - 'versions/AM-IMP-2026.1029.60/**'
       - 'tools/test-uof-entry-request.mjs'
       - 'versions/AM-IMP-2026.1029.51/**'
