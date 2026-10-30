@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
+import {createHash} from 'node:crypto';
 import {managementSignature} from '../modules/meetings/management-auth.js';
 import {embeddedRequest,dailylogActor} from '../modules/meetings/dailylog-embedded.js';
 import {meetingProxy,meetingAssets} from '../versions/AM-IMP-2026.1027.90/dailylog-meetings.mjs';
@@ -27,6 +28,15 @@ test('signed binary forwarding keeps original bytes, actor and original access c
  const forward=await embeddedRequest(req,u,{secret,platform,origin:'https://public.test',pool});
  assert.equal(forward.request[dailylogActor].id,line);assert.equal(forward.request.headers.origin,'https://public.test');assert.equal(forward.request.url,'/meetings/review/hub/api');const chunks=[];for await(const c of forward.request)chunks.push(c);assert.deepEqual(Buffer.concat(chunks),bytes);
  const replay=signed({bytes,nonce:u.searchParams.get('_dailylogNonce')});await assert.rejects(embeddedRequest(replay.req,replay.u,{secret,platform,origin,pool}),{status:403});
+});
+test('embedded binary chunk gets a digest derived from authenticated bytes',async()=>{
+ const bytes=Buffer.from([0,255,128,13,10]),path='/meetings/review/work/'+'a'.repeat(64)+'/hub?uploadId=example&offset=0';
+ const {req,u}=signed({path,bytes});req.headers['content-type']='application/octet-stream';req.headers['x-audio-sha256']='untrusted';
+ const result=await embeddedRequest(req,u,{secret,platform,origin:'https://public.test',pool});
+ assert.equal(result.request.headers['x-audio-sha256'],createHash('sha256').update(bytes).digest('hex'));
+ const forwarded=[];for await(const chunk of result.request)forwarded.push(chunk);assert.deepEqual(Buffer.concat(forwarded),bytes);
+ const tampered=signed({path,bytes,change:true});tampered.req.headers['content-type']='application/octet-stream';
+ await assert.rejects(embeddedRequest(tampered.req,tampered.u,{secret,platform,origin:'https://public.test',pool}),{status:403});
 });
 test('forged body, wrong account, wrong LINE, expired signature and unrelated routes rejected',async()=>{
  for(const v of [{change:true},{actor:'900002'},{person:'U'+'2'.repeat(32)},{timestamp:String(Date.now()-120000)},{path:'/api/management/users'}]){const {req,u}=signed(v);await assert.rejects(embeddedRequest(req,u,{secret,platform,origin,pool}),{status:403});}

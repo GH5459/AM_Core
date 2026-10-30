@@ -1,4 +1,5 @@
 import {Readable} from 'node:stream';
+import {createHash} from 'node:crypto';
 import {verifyManagementRequest} from './management-auth.js';
 
 // Only signed server requests may supply this actor. Browser headers and cookies
@@ -24,6 +25,10 @@ export async function embeddedRequest(req,url,{secret,platform,origin,pool}){
  const forwarded=Readable.from(bytes.length?[bytes]:[]);
  forwarded.method=req.method;forwarded.url=target.pathname+target.search;
  forwarded.headers={'content-type':req.headers['content-type']||'application/json',host:new URL(origin).host,origin};
+ // The DailyLog proxy authenticates the complete binary body but does not relay
+ // browser headers. Reconstruct the chunk digest only after signature validation.
+ if(req.method==='POST'&&/^\/meetings\/review\/work\/[a-f0-9]{64}\/hub$/.test(target.pathname)&&target.searchParams.has('uploadId')&&target.searchParams.has('offset')&&/^application\/octet-stream(?:\s*;|$)/i.test(forwarded.headers['content-type']))
+  forwarded.headers['x-audio-sha256']=createHash('sha256').update(bytes).digest('hex');
  if(req.method==='GET'&&req.headers.range)forwarded.headers.range=req.headers.range;
  forwarded[dailylogActor]={id:line,name:who.name||'同仁',meetingIdentity:who};
  return {request:forwarded,url:target};
