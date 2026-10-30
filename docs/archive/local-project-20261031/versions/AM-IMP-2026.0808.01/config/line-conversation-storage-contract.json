@@ -1,0 +1,77 @@
+{
+  "version": "AM-IMP-2026.0808.01",
+  "purpose": "Route every authorized LINE direct, group, or room event into one tenant-local Conversation and one tenant-local Messages database without crossing tenant boundaries.",
+  "dataSources": {
+    "conversations": { "requiredWhenEnabled": true, "envSuffix": "CONVERSATIONS_DATA_SOURCE_ID" },
+    "messages": { "requiredWhenEnabled": true, "envSuffix": "MESSAGES_DATA_SOURCE_ID" },
+    "attachments": { "requiredForMedia": true, "envSuffix": "ATTACHMENTS_DATA_SOURCE_ID" },
+    "conversationMembers": { "requiredForGroupAndRoom": true, "envSuffix": "CONVERSATION_MEMBERS_DATA_SOURCE_ID" }
+  },
+  "featureFlags": {
+    "lineConversationRegistry.enabled": false,
+    "lineConversationStorage.enabled": false,
+    "lineConversationDirectCapture.enabled": false,
+    "lineConversationDualWrite.enabled": false,
+    "lineConversationReadSource": "legacy",
+    "lineConversationProjectionRepair.enabled": false
+  },
+  "platformConversationUniqueKey": [
+    "line_connection_id",
+    "conversation_type",
+    "external_conversation_key_hash"
+  ],
+  "messageUniqueKey": [
+    "line_connection_id",
+    "line_message_id_or_generated_idempotency_key",
+    "direction"
+  ],
+  "conversationTypes": ["direct", "group", "room"],
+  "routeOrder": [
+    "verify-line-signature",
+    "derive-platform-conversation",
+    "upsert-platform-metadata-without-content",
+    "handle-pre-route-command",
+    "resolve-active-tenant-binding",
+    "fail-closed-when-unbound",
+    "lock-tenant-client",
+    "find-or-create-tenant-conversation",
+    "check-message-idempotency",
+    "create-tenant-message-related-to-conversation",
+    "append-conversation-projection-or-enqueue-repair",
+    "update-conversation-cursor",
+    "upsert-member-index",
+    "persist-tenant-local-attachments",
+    "continue-modules-with-conversation-context"
+  ],
+  "directRouting": {
+    "authority": "external identity -> person -> active membership/workspace",
+    "oneMembershipMayAutoSelect": true,
+    "multipleMembershipsRequireActiveWorkspace": true,
+    "bindingCommandsRunBeforeTenantRouting": true,
+    "missingRouteBehavior": "fail-closed"
+  },
+  "groupAndRoomRouting": {
+    "authority": "LINE connection + group/room binding",
+    "memberActiveWorkspaceMayOverride": false,
+    "oneActiveTenantBindingAtATime": true,
+    "groupAndRoomKeysMayNotBeMixed": true
+  },
+  "unboundPolicy": {
+    "storePlatformMetadata": true,
+    "storeTenantContent": false,
+    "quarantineEnabledByDefault": false
+  },
+  "rebindPolicy": {
+    "closeOldBindingPeriod": true,
+    "overwriteOldBinding": false,
+    "createNewTenantConversation": true,
+    "copyOldContent": false
+  },
+  "aiReadPolicy": {
+    "unit": "Tenant Conversation",
+    "defaultRecentMessageLimit": 20,
+    "searchActiveTasksBeforeCreating": true,
+    "systemCommandsCreateTasks": false,
+    "summaryMayReplaceEvidence": false
+  }
+}

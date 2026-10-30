@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Platform Conversation and binding period metadata contract",
+  "type": "object",
+  "required": ["platformConversation", "bindingPeriods"],
+  "properties": {
+    "platformConversation": {
+      "type": "object",
+      "required": ["id", "lineConnectionId", "conversationType", "externalConversationKeyHash", "firstSeenAt", "lastSeenAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "lineConnectionId": { "type": "string" },
+        "conversationType": { "enum": ["direct", "group", "room"] },
+        "externalConversationKeyHash": { "type": "string", "minLength": 32 },
+        "encryptedReplyTarget": { "type": ["string", "null"], "description": "Optional controlled encryption only; never plaintext in AMCore." },
+        "firstSeenAt": { "type": "string", "format": "date-time" },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "lastEventType": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "bindingPeriods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "platformConversationId", "tenantKey", "status", "startsAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "platformConversationId": { "type": "string" },
+          "tenantKey": { "type": "string" },
+          "status": { "enum": ["active", "ended", "revoked", "conflict"] },
+          "startsAt": { "type": "string", "format": "date-time" },
+          "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "auditRef": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "x-invariants": [
+    "At most one active binding period exists for a platform conversation at a given time unless an explicit mirror contract applies.",
+    "Rebinding ends the old period and creates a new period; it never overwrites history.",
+    "No live message content is stored in this platform metadata contract."
+  ]
+}

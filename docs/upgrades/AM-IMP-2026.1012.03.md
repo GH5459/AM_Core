@@ -1,0 +1,13 @@
+# AM-IMP-2026.1012.03 — First DailyLog login confirms LINE work identity
+
+Installed / Deployed, 2026-10-12 Asia/Taipei. PR287 passed complete CI and merged; production health commit `95b153aaa715edf89ebcd628bdc12480f2ca5211` matches. Original configured target login-health returned `line-first-work-login-v1`, manualPairingRequired=false, uofApprovalRequired=false; health read created no real tickets or identities. Both all-oa-groups scopes remain active.
+
+The original Leaf private entry issues a ten-minute opaque DailyLog link, and the original successful company login establishes a separate work-only native LINE/account identity. Unknown native users require fresh login; stale browser cookies, display names and front-end fresh flags cannot associate accounts. Both direction conflicts fail without replacing existing identities. Legacy confirmed identities remain valid. Real task intake still checks exact live group membership, unique task-service identities and current DailyLog access. UOF bindings/grants and Calendar are unchanged.
+
+DailyLog production `72a84eec-2755-409d-af4e-d3f74426fd78`, exact latest base `02358e3a`, complete fixed package at original target `.dailylog-data/line-work-login-release-20261012` with all 50 assets; only login.js changed. Latest account lifecycle/project identity/tree improvements remain. Original bindings/secrets/vars/cron match; no schema migration, automatic grants or full build of dirty checkout.
+
+Original OA default Rich Menu changed only the 工作日誌 tile to private postback. Definition, image hash, geometry and other actions verified; per-user menus were not mass-reset. Original associations/image and rollback receipts remain privately in `.local-data/line-work-menu-20261012`.
+
+77 root checks, private-assistant-pause server verification, 11 target SQLite/compiled worker-session/D1/UI tests and six widths passed. 15 target public/anonymous boundaries and login asset bytes verified. Package structure passed; cross-project alignment remains unclean for historical unrelated targets and does not install this into SevenAM/HOZO_AM. No real coworker login, identity claim, chat, task, journal or UOF test writes. Natural first login and subsequent new mention acceptance remain independent.
+
+Reviewed source is the merged main revision and package `versions/AM-IMP-2026.1012.03`; preserve the latest target wrapper, SharedManagementService/scheduled and complete fixed assets on later releases. Roll back using original private receipts after checking newer deployments; do not clear identities/grants or restore historical dirty source.

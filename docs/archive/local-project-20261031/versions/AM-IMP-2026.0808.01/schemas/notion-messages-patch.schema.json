@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tenant-local Messages additive patch",
+  "type": "object",
+  "x-migration-mode": "additive-only",
+  "x-on-type-mismatch": "report-and-stop",
+  "x-amcore-template": {
+    "databaseSemanticKey": "messages",
+    "properties": [
+      { "semanticKey": "tenantConversation", "suggestedName": "Tenant Conversation", "type": "relation", "required": true, "relationCardinality": "exactly-one" },
+      { "semanticKey": "lineMessageId", "suggestedName": "LINE 訊息 ID", "type": "rich_text", "required": true },
+      { "semanticKey": "direction", "suggestedName": "方向", "type": "select", "required": true, "options": ["incoming", "outgoing"] },
+      { "semanticKey": "occurredAt", "suggestedName": "時間", "type": "date", "required": true },
+      { "semanticKey": "sender", "suggestedName": "發送者", "type": "rich_text", "required": true },
+      { "semanticKey": "senderIdentity", "suggestedName": "發送者身分", "type": "relation", "required": false },
+      { "semanticKey": "messageType", "suggestedName": "訊息類型", "type": "select", "required": true, "options": ["文字", "圖片", "檔案", "語音", "貼圖", "位置", "其他"] },
+      { "semanticKey": "content", "suggestedName": "內容", "type": "rich_text", "required": false },
+      { "semanticKey": "attachment", "suggestedName": "附件", "type": "relation", "required": false },
+      { "semanticKey": "groupBinding", "suggestedName": "群組綁定", "type": "relation", "required": false },
+      { "semanticKey": "project", "suggestedName": "專案", "type": "relation", "required": false },
+      { "semanticKey": "mountStatus", "suggestedName": "掛載狀態", "type": "select", "required": false },
+      { "semanticKey": "routeAuditId", "suggestedName": "路由稽核 ID", "type": "rich_text", "required": true },
+      { "semanticKey": "systemOperationCommand", "suggestedName": "系統操作指令", "type": "checkbox", "required": true }
+    ]
+  }
+}

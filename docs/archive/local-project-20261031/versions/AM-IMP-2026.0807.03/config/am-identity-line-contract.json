@@ -1,0 +1,53 @@
+{
+  "contractVersion": "2026-08-07.identity-line.v1",
+  "terms": {
+    "person": "Platform-level human identity, independent of any single tenant",
+    "membership": "Tenant-scoped role and capability grant",
+    "lineConnection": "A LINE official account or shared assistant connection namespace",
+    "externalIdentity": "Provider and connection-scoped subject binding",
+    "activeWorkspace": "Private-chat tenant selection for a multi-tenant person"
+  },
+  "identityKeys": {
+    "externalIdentityUnique": ["provider", "connectionId", "externalSubjectHash"],
+    "membershipLookup": ["personId", "tenantId", "status"],
+    "lineGroupRoute": ["lineConnectionId", "groupIdHash"]
+  },
+  "actorContext": [
+    "personId",
+    "tenantId",
+    "membershipId",
+    "lineConnectionId",
+    "lineExternalIdentityId",
+    "conversationType",
+    "capabilities",
+    "requestId",
+    "routeSource"
+  ],
+  "bindingChallenge": {
+    "codeLength": 6,
+    "ttlSeconds": 300,
+    "storage": "hash-only",
+    "consume": "single-use transaction",
+    "rateLimits": ["portalAccount", "ipAddress", "lineExternalIdentity"],
+    "auditActions": ["issued", "consumeSucceeded", "consumeFailed", "expired", "revoked", "rebound"]
+  },
+  "routing": {
+    "preRouteCommands": ["bindingCode", "workspaceSwitch", "revokeBinding"],
+    "direct": "fail closed on zero memberships; auto-route one membership; require active workspace for multiple memberships",
+    "group": "route by group binding only; ignore private active workspace"
+  },
+  "standardErrors": [
+    "IDENTITY_NOT_BOUND",
+    "MEMBERSHIP_INACTIVE",
+    "TENANT_MISMATCH",
+    "CAPABILITY_DENIED",
+    "ITEM_READ_ONLY",
+    "IDEMPOTENCY_CONFLICT",
+    "BACKEND_UNAVAILABLE"
+  ],
+  "secretPolicy": {
+    "rawLineUserId": "never log or store in Git; hash for lookup; encrypt only when business push requires it",
+    "channelSecret": "secret reference only",
+    "logs": "redact external subjects, tokens and challenge codes"
+  }
+}

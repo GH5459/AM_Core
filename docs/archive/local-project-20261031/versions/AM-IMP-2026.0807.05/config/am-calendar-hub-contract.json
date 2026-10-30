@@ -1,0 +1,23 @@
+{
+  "contractVersion": "2026-08-07.calendar-hub.v1",
+  "statuses": ["planned", "in_progress", "waiting", "blocked", "done", "cancelled"],
+  "computedStates": ["overdue"],
+  "logActions": ["carried_over", "completed", "cancelled", "rescheduled", "blocked", "sync_failed"],
+  "visibility": ["private", "team", "role_based", "company", "admin_only"],
+  "actionPolicies": ["view_only", "personal_edit", "safe_writeback", "source_only"],
+  "canonicalDto": {
+    "required": ["tenantId", "calendarItemId", "title", "sourceSystem", "visibility", "actionPolicy", "timezone", "status"],
+    "dateFields": ["scheduledDate", "plannedDate", "plannedStartAt", "plannedEndAt", "startAt", "endAt", "dueAt"],
+    "sourceFields": ["sourceSystem", "sourceType", "sourceId", "sourceVersion", "sourceUrl", "sourceEvidenceRef"],
+    "actorFields": ["actorContext", "requestId", "idempotencyKey"]
+  },
+  "backendSelection": {
+    "hozo-am-2-0": "rentalCalendarV2Adapter",
+    "newTenantDefault": "amCalendarCore"
+  },
+  "featureFlags": [
+    "calendarHub.enabled",
+    "calendarHub.backend",
+    "calendarHub.legacyFallbackEnabled"
+  ]
+}

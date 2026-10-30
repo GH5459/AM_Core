@@ -1,0 +1,31 @@
+{
+  "interface": "CalendarBackendAdapter",
+  "version": "2026-08-07.v1",
+  "methods": [
+    {
+      "name": "queryItems",
+      "requires": ["tenantId", "actorContext", "range", "visibilityScope", "requestId"]
+    },
+    {
+      "name": "upsertItem",
+      "requires": ["tenantId", "actorContext", "canonicalItem", "idempotencyKey", "requestId"]
+    },
+    {
+      "name": "updateItemAction",
+      "requires": ["tenantId", "actorContext", "calendarItemId", "action", "sourceVersion", "idempotencyKey", "requestId"]
+    },
+    {
+      "name": "cancelItem",
+      "requires": ["tenantId", "actorContext", "calendarItemId", "sourceVersion", "idempotencyKey", "requestId"]
+    },
+    {
+      "name": "recordFailure",
+      "requires": ["tenantId", "backend", "operation", "requestId", "errorCode", "retryable"]
+    }
+  ],
+  "failureSemantics": {
+    "backendUnavailable": "record failure and return BACKEND_UNAVAILABLE",
+    "tenantMismatch": "deny without fallback",
+    "idempotencyConflict": "return IDEMPOTENCY_CONFLICT without side effect"
+  }
+}
