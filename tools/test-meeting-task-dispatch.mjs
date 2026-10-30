@@ -37,5 +37,13 @@ fields[todo2].ownerId='';await pool.query('UPDATE central_archive.meeting_worksp
 ids.set(one,{...identity(one),account:'other-account'});fields[todo1].content='變更內容';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb WHERE id=$1',[id,JSON.stringify(fields)]);const count=calls.length;await dispatch.run(id);assert.equal(calls.length,count);assert((await dispatch.status(await store.get(id))).message.includes('身分'));
 ids.set(one,{...identity(one),tenantKey:'another-service'});await dispatch.run(id);assert.equal(calls.length,count,'Cross-service copies are refused');
 ids.delete(host);await dispatch.run(id);assert((await dispatch.status(await store.get(id))).message.includes('主持人'));
+// A host-confirmed participant can be assigned by work account before LINE is linked.
+ids.set(host,identity(host));ids.set(one,identity(one));fields[todo1].content='核對資料';fields[todo2].ownerId='account:333';
+await pool.query("UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,receipt=receipt||$3::jsonb,revision=8 WHERE id=$1",[id,JSON.stringify(fields),JSON.stringify({taskParticipants:[{account:'333',tenantKey:'fixture',name:'參與者'}]})]);
+let connected=false;platform.meetingOrganization=async()=>({tenantKey:'fixture',people:[{account:'111'},{account:'333'}]});platform.meetingShareRecipient=async()=>connected?{userId:two}:null;
+const priorCalls=calls.length;await dispatch.run(id);assert.equal(calls.length,priorCalls,'Unlinked participant stays pending');
+connected=true;await dispatch.run(id);assert.equal(calls.length,priorCalls+1);assert.equal(calls.at(-1).tasks[0].owner.account,'333');assert.equal(tasks.get(todo2).evidence,'錄音 02:30 決議');
+await dispatch.run(id);assert.equal(calls.length,priorCalls+1,'No duplicate task delivery');
+ids.set(two,{...identity(two),bindingId:'changed-binding'});fields[todo2].content='後續變更';await pool.query('UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb WHERE id=$1',[id,JSON.stringify(fields)]);await dispatch.run(id);assert.equal(calls.length,priorCalls+1,'A changed binding never silently takes over the same account assignment');assert((await dispatch.status(await store.get(id))).message.includes('身分'));
 assert.equal((await store.get(id)).state,'published');assert.equal((await store.get(id)).receipt.notionId,'same-notion-page');
 await pg.close();console.log('Deferred meeting tasks: partial readiness, latest edits, original due/evidence, lost reply/restart idempotency, cancellation, identity/service refusal and published meeting preservation passed.');
