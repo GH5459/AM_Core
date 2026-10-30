@@ -99,7 +99,7 @@ async function runVisibleEvent({client,config,checked,check,save,prompt,clock=Da
  const accepted=await client.call('send_message_to_thread',input);save('chat-dispatch.response.private.json',accepted);
  let cursor=before.cursor;
  while(clock()<deadline){await check();const response=await client.call('wait_threads',{targets:[{threadId:route.threadId,hostId:route.hostId,...cursor?{afterCursor:cursor}:{}}],timeoutMs:60000});save('chat-progress.private.json',response);const p=pollFor(response,route.threadId);cursor=p.cursor||cursor;
-  if(p.latestTurn?.id&&p.latestTurn.id!==before.latestTurn?.id&&!active(p)){if(p.latestTurn.status!=='completed')throw Error('專用聊天本次處理未完成');save('chat-completed.private.json',{threadId:route.threadId,turnId:p.latestTurn.id,at:new Date(clock()).toISOString()});return {threadId:route.threadId,turnId:p.latestTurn.id};}
+  if(p.latestTurn?.id&&p.latestTurn.id!==before.latestTurn?.id&&!active(p)){if(p.latestTurn.status!=='completed')throw Error('專用聊天本次處理未完成');save('chat-completed.private.json',{threadId:route.threadId,turnId:p.latestTurn.id,at:new Date(clock()).toISOString()});return {threadId:route.threadId,turnId:p.latestTurn.id,...accepted?.threadId===route.threadId&&accepted?.turnId===p.latestTurn.id&&accepted.reporterReply?{reporterReply:accepted.reporterReply}:{}};}
  }
  throw Error('本次聊天結果尚未確認，停止事件且不重送');
 }
