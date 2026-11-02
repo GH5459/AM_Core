@@ -16,6 +16,14 @@ export function matchesExplicitDate(text,at,chosen){
  return false;
 }
 function taipeiDateOnly(at){if(!Number.isFinite(at))throw new Error('invalid_source_timestamp');return new Date(at+8*3600000).toISOString().slice(0,10);}
+// With no date in the original command the deadline is 48 actual hours later.
+export function immediateTaskDates(sourceTimestamp){
+  if(!Number.isSafeInteger(sourceTimestamp)||sourceTimestamp<0)throw new Error('invalid_source_timestamp');
+  const shifted=new Date(sourceTimestamp+48*3600000+8*3600000);
+  const iso=shifted.toISOString();
+  const dueAt=iso.slice(0,sourceTimestamp%1000?23:19)+'+08:00';
+  return {executionDate:taipeiDateOnly(sourceTimestamp),dueDate:dueAt.slice(0,10),dueAt};
+}
 export function taskDates(executionDate, sourceTimestamp) {
   if(typeof executionDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(executionDate))throw new Error('invalid_execution_date');
   const start=Date.parse(executionDate+'T00:00:00Z');

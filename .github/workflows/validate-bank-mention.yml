@@ -7,6 +7,14 @@ on:
       - 'tools/build-auto-onboarding-workers.cjs'
       - 'tools/test-auto-onboarding-workers.cjs'
       - 'tools/test-auto-onboarding-confirm.mjs'
+      - 'core/group-command.js'
+      - 'versions/AM-IMP-2026.1102.02/**'
+      - 'tools/line-group-command-scope.cjs'
+      - 'tools/test-line-group-command-scope.cjs'
+      - 'tools/test-group-command-policy.mjs'
+      - 'tools/fixtures/leaf-groups.mjs'
+      - 'docs/LINE_QUICK_CREATE_GUIDE.md'
+      - 'docs/upgrades/line-group-commands-20261102.md'
       - 'versions/AM-IMP-2026.1030.03/**'
       - 'versions/AM-IMP-2026.1029.60/**'
       - 'tools/test-uof-entry-request.mjs'
@@ -237,7 +245,39 @@ on:
 permissions:
   contents: read
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      affected_only: ${{ steps.scope.outputs.affected_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tools/line-group-command-scope.cjs
+  validate-group-commands:
+    needs: scope
+    if: needs.scope.outputs.affected_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --check core/group-command.js && node --check core/group-quick-create.js && node --check core/leaf-groups.js && node --check core/leaf-tasks.js && node --check core/line-self-task-worker.mjs && node --check modules/meetings/conversation-service.js
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1102.02
+      - run: node --test tools/test-line-group-command-scope.cjs tools/test-line-task-dates.mjs tools/test-line-activity-agenda.mjs tools/test-leaf-tasks.mjs tools/test-leaf-task-edit.mjs tools/test-line-work-login.mjs tools/test-line-quoted-progress.mjs tools/test-meeting-share-recipient.mjs
+      - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs tools/test-group-quick-create.mjs tools/test-group-command-policy.mjs
+      - run: node tools/test-conversation-meetings.mjs
+      - run: node tools/test-meeting-audio-receipt.mjs
   validate:
+    needs: scope
+    if: needs.scope.outputs.affected_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

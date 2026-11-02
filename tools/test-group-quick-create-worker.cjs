@@ -23,6 +23,12 @@ const folder=process.argv[2],runtime=require(process.argv[3]||'miniflare');
   assert.equal((await call({...input,draft:{...input.draft,dueDate:'2026-02-30'}})).status,400);
   assert.equal((await call({...input,draft:{...input.draft,dueAt:'2026-10-23T25:00:00+08:00'}})).status,400);
   assert.equal((await call(input,{'x-revoke-late':'1'})).status,403);
+  // New undated commands use the original message time, including its time of day.
+  const immediateAt=at-60000+123,immediateDate=new Date(immediateAt+8*3600000).toISOString().slice(0,10),immediateDue=new Date(immediateAt+48*3600000+8*3600000).toISOString().slice(0,23)+'+08:00';
+  const immediate={...input,id:'f'.repeat(64),contract:'line-group-bot-direct-create-v2',source:{...input.source,text:'@小葉 任務 盤點用品',timestamp:immediateAt},draft:{title:'盤點用品',description:'盤點用品',acceptance:'',executionDate:immediateDate,dueDate:immediateDue.slice(0,10),dueAt:immediateDue}};delete immediate.confirmation;
+  let immediateResult=await call(immediate);assert.equal(immediateResult.status,200,await immediateResult.clone().text());let immediateReceipt=await immediateResult.json();assert.equal((await call(immediate,{'x-revoked':'1'})).status,403);immediateResult=await call(immediate);assert.deepEqual((await immediateResult.json()).taskIds,immediateReceipt.taskIds);const immediateStored=JSON.parse((await db.prepare('SELECT value FROM work_items WHERE id=?').bind(immediateReceipt.taskIds[0]).first()).value);assert.equal(immediateStored.dueAt,immediateDue);
+  const nextDay={...immediate,id:'9'.repeat(64),source:{...immediate.source,messageId:'next-day-details'}};let nextResult=await call(nextDay,{'x-clock':String(immediateAt+24*3600000)});assert.equal(nextResult.status,200,await nextResult.clone().text());const expired={...immediate,id:'8'.repeat(64),source:{...immediate.source,messageId:'expired-details'}};assert.equal((await call(expired,{'x-clock':String(immediateAt+48*3600000+1)})).status,400);
+  await db.exec("DELETE FROM work_items; DELETE FROM documents WHERE namespace='line-self-task-receipts';");
   assert.equal((await db.prepare('SELECT count(*) n FROM work_items').first()).n,0);
   const direct={...input,id:'d'.repeat(64),contract:'line-group-bot-direct-create-v2',source:{...input.source,messageId:'direct-message'},draft:{...input.draft,executionDate:'2026-10-23',dueDate:'2026-10-25',dueAt:'2026-10-25T23:59:00+08:00'}};delete direct.confirmation;
   assert.equal((await call({...direct,draft:{...direct.draft,dueDate:'2026-10-26'}})).status,400);
