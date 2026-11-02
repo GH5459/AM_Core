@@ -71,6 +71,14 @@ test('combined group extraction uses original mention indices and does not call 
   await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,{...confirmation,userId:recipient},1));f.revoke();await assert.rejects(()=>service.submitSelfTask(tenant,e,prior,draft,confirmation,1));
  });
 
+test('quoted progress uses the verified sender and original group, and rejects a revoked identity',async()=>{
+ const f=await fixture(),base=f.options.fetchImpl,seen=[];f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);
+ f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/quoted-progress')){seen.push(JSON.parse(init.body));return Response.json({ok:true,recorded:true});}return base(url,init);};
+ const service=f.restart(),e=event('回覆原文');e.message.id='12345678901234568';e.message.quotedMessageId='12345678901234567';e.source.userId=recipient;
+ await service.recordQuotedProgress(tenant,e);assert.equal(seen.length,1);assert.equal(seen[0].actor.userId,recipient);assert.equal(seen[0].actor.account,'recipient');assert.equal(seen[0].source.groupId,group);assert.equal(seen[0].source.quotedMessageId,e.message.quotedMessageId);assert.equal(seen[0].source.text,e.message.text);
+ f.revoke();await assert.rejects(()=>service.recordQuotedProgress(tenant,e));assert.equal(seen.length,1);
+});
+
 test('direct group task and reply use current verified group identities and exact service contracts',async()=>{
  const f=await fixture(),e=event('@同仁 任務 明天盤點'),base=f.options.fetchImpl,seen=[];f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID='U'+'0'.repeat(32);
  f.options.fetchImpl=async(url,init)=>{const path=new URL(url).pathname.split('/').at(-1);if(path==='self-create'||path==='direct-update'){const value=JSON.parse(init.body);seen.push({path,value});return Response.json({ok:true,contract:value.contract,taskIds:['work-12345678-1234-1234-1234-123456789abc'],taskId:'work-12345678-1234-1234-1234-123456789abc'});}return base(url,init);};

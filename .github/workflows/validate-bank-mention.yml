@@ -15,6 +15,9 @@ on:
       - 'versions/AM-IMP-2026.1029.30/**'
       - 'core/line-task-dates.mjs'
       - 'core/line-task-reply-worker.mjs'
+      - 'core/line-quoted-progress-worker.mjs'
+      - 'versions/AM-IMP-2026.1102.01/**'
+      - 'tools/test-line-quoted-progress.mjs'
       - 'tools/test-line-task-dates.mjs'
       - 'tools/test-line-activity-agenda.mjs'
       - 'versions/AM-IMP-2026.1029.future-nav/**'
@@ -412,6 +415,9 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.01
       - run: node --experimental-vm-modules --test tools/test-group-quick-create.mjs
       - run: node --test tools/test-line-task-dates.mjs tools/test-line-activity-agenda.mjs
+      - run: node --test tools/test-line-quoted-progress.mjs
+      - run: node --experimental-vm-modules --test tools/test-leaf-groups.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1102.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1029.30
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1013.03

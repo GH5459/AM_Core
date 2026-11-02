@@ -44,6 +44,7 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
   async function owned(id,group,user){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group'
     AND j.payload->'${marker}'->>'id'=$3 AND (j.payload->'event'->'source'->>'userId'=$4 OR (j.payload->'${marker}'->>'mode'='meeting' AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(j.payload->'${marker}'->'people','[]'::jsonb)) person WHERE person->>'userId'=$4)))`,[bot,group,id,user])).rows[0]||null);}
   async function notice(group,messageId){if(!/^\d{15,30}$/.test(messageId||''))return null;return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group' AND j.payload->'${marker}'->>'phase'='done' AND (j.payload->'${marker}'->>'noticeMessageId'=$3 OR COALESCE(j.payload->'${marker}'->'noticeMessageIds','[]'::jsonb) ? $3) AND j.payload->'${marker}'->>'directSelfTask'='true'`,[bot,group,messageId])).rows[0]||null);}
+  async function assignmentSource(group,messageId){if(!/^\d{15,30}$/.test(messageId||''))return null;return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group' AND j.payload->'event'->'message'->>'id'=$3 AND j.payload->'${marker}'->>'phase'='done' AND j.payload->'${marker}'->>'mode' IN ('task','directtask') AND COALESCE(j.payload->'${marker}'->>'sourceRemoved','false')<>'true'`,[bot,group,messageId])).rows[0]||null);}
   async function byId(group,id){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group' AND j.payload->'${marker}'->>'id'=$3`,[bot,group,id])).rows[0]||null);}
   async function drafts(group,user,topic='',mode='meeting'){return tx(async c=>(await c.query(`${select} WHERE c.bot_id=$1 AND c.source_id=$2 AND c.source_kind='group'
     AND j.payload->'event'->'source'->>'userId'=$3 AND j.payload->'${marker}'->>'mode'=$5
@@ -76,5 +77,5 @@ export function createGroupStore({env=process.env,pool:injected,now=Date.now}){
     await c.query(`UPDATE central_archive.jobs j SET payload=jsonb_set(payload,'{${marker},sourceRemoved}','true'::jsonb,true)
       FROM central_archive.conversations c WHERE j.conversation_key=c.key AND c.bot_id=$1 AND c.source_id=$2 AND j.key=$3 AND j.payload->'${marker}' IS NOT NULL`,[bot,event.source.groupId,key]);
   });}
-  return {insert,lease,save,checkpoint,active,owned,notice,byId,drafts,control,removed,close:async()=>{if(!injected&&pool)await pool.end();}};
+  return {insert,lease,save,checkpoint,active,owned,notice,assignmentSource,byId,drafts,control,removed,close:async()=>{if(!injected&&pool)await pool.end();}};
 }
