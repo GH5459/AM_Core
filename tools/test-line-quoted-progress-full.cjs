@@ -15,7 +15,7 @@ test('full Worker records the original quoted reply once with original permissio
   const call=(body,token=key)=>f.mf.dispatchFetch('http://example.test/api/integrations/leaf-snail/tasks/quoted-progress',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
   assert.equal((await call(payload,'wrong')).status,401);
   for(let i=0;i<2;i++){r=await call(payload);assert.equal(r.status,200,await r.clone().text());assert.equal((await r.json()).recorded,true);}
-  const stored=JSON.parse((await f.db.prepare('SELECT value FROM work_items WHERE id=?').bind(task.id).first()).value),comments=stored.history.filter(h=>h.kind==='comment');assert.equal(comments.length,1);assert.equal(comments[0].actor.account,'900001');assert.equal(comments[0].text,'LINE 群組回覆：\n聯絡資料已提供');assert.notEqual(stored.status,'done');
+  const stored=JSON.parse((await f.db.prepare('SELECT value FROM work_items WHERE id=?').bind(task.id).first()).value),comments=stored.history.filter(h=>h.kind==='comment');assert.equal(comments.length,1);assert.equal(comments[0].actor.account,'900001');assert.equal(comments[0].text,'LINE 群組回覆：\n聯絡資料已提供');assert.equal(comments[0].progressReport,true);assert.notEqual(stored.status,'done');
   payload.source.messageId='12345678901234569';payload.actor.account='900003';r=await call(payload);assert.equal((await r.json()).recorded,false,'requester is not the executor');
   payload.actor.account='900002';r=await call(payload);assert.notEqual((await r.json()).recorded,true);
   payload.actor.account='900001';payload.source.groupId='C'+'3'.repeat(32);r=await call(payload);assert.equal((await r.json()).recorded,false);
@@ -23,5 +23,7 @@ test('full Worker records the original quoted reply once with original permissio
   await f.db.prepare('UPDATE line_assignment_intake SET input=?,state=?').bind(JSON.stringify(source),'queued').run();r=await call(payload);assert.equal(r.status,503,'wait while the original task is still being created');
   await f.db.prepare('UPDATE line_assignment_intake SET state=?,result=?').bind('issued',JSON.stringify({taskIds:[task.id,'work-'+crypto.randomUUID()]})).run();r=await call(payload);assert.equal((await r.json()).reason,'ambiguous');
   assert.equal(JSON.parse((await f.db.prepare('SELECT value FROM work_items WHERE id=?').bind(task.id).first()).value).history.filter(h=>h.kind==='comment').length,1);
+  const own=stored.participantProgress.find(p=>p.account==='900001');r=await f.send('900001','/api/tasks/'+task.id,{kind:'personal_status',status:'done',text:'',version:stored.version,operationId:'op-'+crypto.randomUUID(),personalVersion:own.version,executionRevision:stored.executionRevision||0});assert.equal(r.status,200,await r.clone().text());
+  const view=await f.send('900003','/api/tasks/'+task.id);assert.equal(view.status,200);const viewed=(await view.json()).task;assert.equal(viewed.status,'done');assert.equal(viewed.latestMessage.text,'LINE 群組回覆：\n聯絡資料已提供');
  }finally{await f.close();}
 });
