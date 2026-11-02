@@ -1,6 +1,6 @@
 # LINE 群組任務與行事曆指令
 
-新版統一規則已整理；正式啟用狀態見 `docs/upgrades/line-group-commands-20261102.md`。
+新版統一規則已於2026年11月2日正式啟用；部署證據見 `docs/upgrades/line-group-commands-20261102.md`。
 
 在有小葉的 LINE 群組中，先輸入 @ 並從 LINE 名單選取本人要標註的對象，再接命令詞。直接打名字不算標註。
 
