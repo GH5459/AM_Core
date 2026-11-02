@@ -211,6 +211,15 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       const body=req.method==='GET'?'':await limitedBody(req);
       if(body.length>20000)return sendJson(res,413,{error:'設定資料過大。'}),true;
       if(!verifyManagementRequest(secret,req,body))return sendJson(res,401,{error:'Unauthorized'}),true;
+      if(req.method==='POST'&&url.pathname==='/integrations/meeting-management/auto-onboarding'){
+        if(String(req.headers['x-meeting-actor'])!=='0')return sendJson(res,403,{error:'不支援此操作。'}),true;
+        const input=JSON.parse(body);
+        if(!input||Object.keys(input).length!==2||input.botUserId!==botId||typeof input.lineUserId!=='string'||!/^U[a-f0-9]{32}$/i.test(input.lineUserId))return sendJson(res,400,{error:'本人連線無法確認。'}),true;
+        const result=await store.enableConfirmedPersonal(input.lineUserId);
+        if(result.status==='enabled')await ensureDatabase(await store.get(result.key));
+        else if(result.status==='already_enabled'){const row=await store.get(result.key);if(row?.updated_by==='auto-onboarding'&&!row.database_id)await ensureDatabase(row);}
+        return sendJson(res,200,result),true;
+      }
       if(req.method==='POST'&&url.pathname==='/integrations/meeting-management/task-origins'){
         return sendJson(res,200,await readTaskOrigins(JSON.parse(body),{pool,botId})),true;
       }

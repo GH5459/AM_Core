@@ -3,6 +3,10 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/auto-onboarding/**'
+      - 'tools/build-auto-onboarding-workers.cjs'
+      - 'tools/test-auto-onboarding-workers.cjs'
+      - 'tools/test-auto-onboarding-confirm.mjs'
       - 'versions/AM-IMP-2026.1030.03/**'
       - 'versions/AM-IMP-2026.1029.60/**'
       - 'tools/test-uof-entry-request.mjs'
@@ -297,6 +301,7 @@ jobs:
       - run: node tools/test-portal-command-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-conversation-meetings.mjs
+      - run: node --test versions/auto-onboarding/*.test.mjs
       - run: node tools/test-meeting-group-names.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1030.04
       - run: node tools/test-meeting-audio-receipt.mjs

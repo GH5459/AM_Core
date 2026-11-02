@@ -12,6 +12,28 @@ export function validateChange(input) {
 }
 export function createMeetingConversationStore(pool,botId) {
   async function transaction(work){const db=await pool.connect();try{await db.query('BEGIN');const result=await work(db);await db.query('COMMIT');return result;}catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}finally{db.release();}}
+  // The caller must have independently verified the same person's LINE identity.
+  // Existing edited settings, including explicit opt-outs, are never overwritten.
+  async function enableConfirmedPersonal(userId) {
+    if(!/^U[a-f0-9]{32}$/i.test(userId||''))throw Object.assign(Error('本人連線無法確認。'),{status:400});
+    const key=keyFor(botId,{type:'user',userId});
+    return transaction(async db=>{
+      await db.query('INSERT INTO central_archive.conversations(key,bot_id,source_kind,source_id) VALUES($1,$2,\'user\',$3) ON CONFLICT DO NOTHING',[key,botId,userId]);
+      const source=(await db.query('SELECT key,bot_id,source_kind,source_id FROM central_archive.conversations WHERE key=$1 FOR UPDATE',[key])).rows[0];
+      if(!source||source.bot_id!==botId||source.source_kind!=='user'||source.source_id!==userId)throw Object.assign(Error('本人對話無法確認。'),{status:409});
+      await db.query('INSERT INTO central_archive.meeting_settings(conversation_key,enabled) VALUES($1,false) ON CONFLICT DO NOTHING',[key]);
+      await db.query('SELECT conversation_key FROM central_archive.meeting_settings WHERE conversation_key=$1 FOR UPDATE',[key]);
+      const row=await get(key,db);
+      if(!row||['left','blocked'].includes(row.connection_state))return {status:'unavailable',key};
+      if(row.enabled)return {status:'already_enabled',key};
+      if(Number(row.version)!==1||row.updated_by)return {status:'manual_hold',key};
+      const changed=await db.query("UPDATE central_archive.meeting_settings SET enabled=true,version=version+1,updated_by='auto-onboarding',updated_at=now() WHERE conversation_key=$1 AND version=1 AND enabled=false AND updated_by='' RETURNING version",[key]);
+      if(!changed.rows.length)return {status:'manual_hold',key};
+      const result={ok:true,key,version:Number(changed.rows[0].version)};
+      await db.query('INSERT INTO central_archive.meeting_changes(operation_id,conversation_key,actor,input_hash,result) VALUES($1,$2,$3,$4,$5::jsonb)', ['auto-onboarding-'+key,key,'auto-onboarding',hash({key,enabled:true,policy:'auto-onboarding-v1'}),JSON.stringify(result)]);
+      return {status:'enabled',key};
+    });
+  }
   async function seed(keys=null){await pool.query(`INSERT INTO central_archive.meeting_settings(conversation_key,enabled)
     SELECT c.key,c.source_kind IN ('group','room') FROM central_archive.conversations c
     WHERE c.bot_id=$1 AND c.source_kind IN ('user','group','room') AND ($2::text[] IS NULL OR c.key=ANY($2))
@@ -45,5 +67,5 @@ export function createMeetingConversationStore(pool,botId) {
       return result;
     });
   }
-  return {seed,list,get,change,transaction};
+  return {seed,list,get,change,transaction,enableConfirmedPersonal};
 }
