@@ -1,7 +1,7 @@
 import {createPersonalCompletionReporter,PERSONAL_COMPLETION_POLICY} from './line-personal-completion-report.js';
 import crypto from 'node:crypto';
 import {createCalendarStore} from './leaf-calendar/store.js';
-import {parseAttachmentRequest} from './attachment-retrieval.js';
+import {groupCreateCommand} from './group-command.js';
 import {createTaskPhotos,taskEditNotice,PHOTO_CONTRACT,TASK_EDIT_CONTRACT} from './leaf-task-photos.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,TASK_SPEED_POLICY} from './task-judgment.js';
@@ -62,6 +62,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const c=await config(t);if(!c||!participants.length||participants[0].userId!==event.source.userId)throw Error('task_sender_required');
   if((await call(t,c,'health')).directTaskContract!=='line-group-bot-direct-v2')throw Error('direct_task_service_unavailable');
   const ids=[...new Set(event.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')&&m.userId!==env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).map(m=>m.userId))];
+  if(groupCreateCommand(event,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID)?.includeSelf&&!ids.includes(event.source.userId))ids.unshift(event.source.userId);
   const recipients=ids.map(id=>participants.find(p=>p.userId===id));if(!recipients.length||recipients.some(p=>!p))throw Error('task_recipient_required');
   for(const prior of [participants[0],...recipients]){const current=await taskIdentity(prior.userId,t,event.source.groupId,c);if(!current||current.account!==prior.account||current.bindingId!==prior.bindingId)throw taskIneligible();}
   const clean=p=>({userId:p.userId,account:p.account,bindingId:p.bindingId});
@@ -121,20 +122,14 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
   const url=new URL(result.loginUrl);if(url.origin!==c.base||url.pathname!=='/line-login'||result.contract!=='line-first-work-login-v1')throw Error('work_login_target_invalid');
   return {type:'uri',label:'開啟工作日誌',uri:url.href};
  }
- async function capture(events){if(!secret)return;eventsLoop:for(const e of events){
+ async function capture(events){if(!secret)return;for(const e of events){
   if(e.source?.type==='group'&&['unsend','edit'].includes(e.type)){
    const routed=await route(e.source.groupId,[e.source.userId]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
    const messageId=e.unsend?.messageId||e.message?.id;if(!messageId)continue;
    await call(t,c,'source',{id:hash(t.tenantId+':'+e.source.groupId+':'+messageId),groupId:e.source.groupId,kind:e.type});continue;
   }
-  if(!mentionCandidate(e)||parseAttachmentRequest(e)?.explicitSelf)continue;
-  const ids=[...new Set(e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&idPattern.test(m.userId||'')).map(m=>m.userId))],mentions=[];
-  if(e.message.mention.mentionees.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!idPattern.test(m.userId||'')))continue;
-  const routed=await route(e.source.groupId,[e.source.userId,...ids]);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
-  const sender=await identity(e.source.userId,t,e.source.groupId,{readOnly:true});if(!sender)continue;
-  for(const userId of ids){const person=await identity(userId,t,e.source.groupId,{readOnly:true});if(!person){logger.warn?.('[leaf-tasks] mention identity unresolved; assignment not issued');continue eventsLoop;}mentions.push(person);}
-  const id=hash(t.tenantId+':'+e.source.groupId+':'+e.message.id),input={id,eventId:String(e.webhookEventId||e.message.id),messageId:String(e.message.id),groupId:e.source.groupId,sender,mentions,text:e.message.text,timestamp:e.timestamp,...(e.message.quotedMessageId?{quotedMessageId:String(e.message.quotedMessageId)}:{})};
-  try{await call(t,c,'intake',input);}catch(error){if(error.status===403){logger.warn?.('[leaf-tasks] current access prevents assignment');continue;}throw error;}
+  // New task creation belongs exclusively to leaf-groups' keyword gate.
+  // Keep only unsend/edit handling above for previously queued task sources.
  }}
  async function judge(t,job){
   const source=job.input,explicit=quotedExplanationTask(source,source.mentions.length);

@@ -20,13 +20,15 @@ async function fixture({failFirstTenant=false,businessResolution='active',missin
  const priorIdentity=options.resolveIdentity;options.resolveIdentity=async(u,t,opts)=>missingRecipient&&u===recipient?null:priorIdentity(u,t,opts);
  if(duplicateService)options.tenants.push({...tenant,key:'duplicate'});
  let service=createLeafTasks(options);await service.configureService({tenantKey:'fixture',baseUrl:'https://dailylog.example/',apiKey:'synthetic-service-key-with-at-least-32-bytes'});
- return {service,paths,options,counts:()=>({judgments,issues,notices}),restart:()=>createLeafTasks(options),failNotice:()=>{failNotice=true;},revoke:()=>{revoked=true;}};}
+ const queueLegacy=async(e=event())=>{const people=await Promise.all([e.source.userId,...e.message.mention.mentionees.filter(m=>!m.isSelf).map(m=>m.userId)].map(id=>service.resolveGroupIdentity(id,tenant,e.source.groupId)));if(people.some(x=>!x))return;try{await service.submitGroupTask(tenant,e,people);}catch(error){if(error.code==='ACCESS_DISABLED')return;throw error;}};
+ return {service,queueLegacy,paths,options,counts:()=>({judgments,issues,notices}),restart:()=>createLeafTasks(options),failNotice:()=>{failNotice=true;},revoke:()=>{revoked=true;}};}
+test('policy fallback never creates a task for group mentions',async()=>{const f=await fixture();for(const text of ['@同仁 請整理','@同仁 任務 整理'])await f.service.capture([event(text)]);await f.service.drain();assert(!f.paths.includes('intake'));assert.equal(f.counts().issues,0);});
 test('true colleague mention is required; private, bot, @all, typed @ are excluded',()=>{assert(mentionCandidate(event()));assert(!mentionCandidate({...event(),source:{type:'user',userId:sender}}));for(const mentions of [[],[{type:'all'}],[{type:'user',isSelf:true,userId:recipient}],[{type:'user'}]])assert(!mentionCandidate({...event(),message:{...event().message,mention:{mentionees:mentions}}}));});
-test('purpose-specific setup, encrypted config, persisted intake, judgment and immediate issue',async()=>{const f=await fixture();assert(f.service.adminAuthorized(taskAdminKey(secret)));assert(!f.service.adminAuthorized('wrong'));await f.service.capture([event()]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});assert(f.paths.indexOf('intake')<f.paths.indexOf('judgment'));assert(f.paths.indexOf('judgment')<f.paths.indexOf('issue'));assert.deepEqual(f.service.health().configuredTenants,['fixture']);});
-test('same-event replay does not issue again; general greeting is suppressed',async()=>{const f=await fixture(),e=event();await f.service.capture([e]);await f.service.drain();await f.service.capture([e]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});const greeting=await fixture();await greeting.service.capture([event('@同仁 早安')]);await greeting.service.drain();assert.deepEqual(greeting.counts(),{judgments:1,issues:0,notices:0});});
-test('notice retry after restart never reclassifies or reissues the task',async()=>{const f=await fixture();f.failNotice();await f.service.capture([event()]);await f.service.drain();await f.restart().drain();assert.equal(f.counts().judgments,1);assert.equal(f.counts().issues,1);assert.equal(f.counts().notices,1);});
-test('revoke before intake and unsend after capture do not issue work',async()=>{const f=await fixture();f.revoke();await f.service.capture([event()]);assert(!f.paths.includes('intake'));const g=await fixture();await g.service.capture([event()]);await g.service.capture([{type:'unsend',source:event().source,unsend:{messageId:'fixture-message'}}]);await g.service.drain();assert.equal(g.counts().issues,0);});
-test('unavailable non-enrolled tenant cannot stop an enrolled tenant drain',async()=>{const f=await fixture({failFirstTenant:true});assert.deepEqual(f.service.health().configuredTenants,['fixture']);await f.service.capture([event()]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});});
+test('historical queue: purpose-specific setup, encrypted config, persisted intake, judgment and immediate issue',async()=>{const f=await fixture();assert(f.service.adminAuthorized(taskAdminKey(secret)));assert(!f.service.adminAuthorized('wrong'));await f.queueLegacy();await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});assert(f.paths.indexOf('intake')<f.paths.indexOf('judgment'));assert(f.paths.indexOf('judgment')<f.paths.indexOf('issue'));assert.deepEqual(f.service.health().configuredTenants,['fixture']);});
+test('historical queue: same-event replay does not issue again; general greeting is suppressed',async()=>{const f=await fixture(),e=event();await f.queueLegacy(e);await f.service.drain();await f.queueLegacy(e);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});const greeting=await fixture();await greeting.queueLegacy(event('@同仁 早安'));await greeting.service.drain();assert.deepEqual(greeting.counts(),{judgments:1,issues:0,notices:0});});
+test('historical queue: notice retry after restart never reclassifies or reissues the task',async()=>{const f=await fixture();f.failNotice();await f.queueLegacy();await f.service.drain();await f.restart().drain();assert.equal(f.counts().judgments,1);assert.equal(f.counts().issues,1);assert.equal(f.counts().notices,1);});
+test('historical queue: revoke before intake and unsend after capture do not issue work',async()=>{const f=await fixture();f.revoke();await f.queueLegacy();assert(!f.paths.includes('intake'));const g=await fixture();await g.queueLegacy();await g.service.capture([{type:'unsend',source:event().source,unsend:{messageId:'fixture-message'}}]);await g.service.drain();assert.equal(g.counts().issues,0);});
+test('historical queue: unavailable non-enrolled tenant cannot stop an enrolled tenant drain',async()=>{const f=await fixture({failFirstTenant:true});assert.deepEqual(f.service.health().configuredTenants,['fixture']);await f.queueLegacy();await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});});
 test('source diagnostics expose gate results without task writes or private IDs/content',async()=>{
  const f=await fixture(),e=event(),before=f.paths.length;
  const result=await f.service.inspectSource({key:'in:synthetic',event:e});
@@ -35,16 +37,16 @@ test('source diagnostics expose gate results without task writes or private IDs/
  for(const privateValue of [sender,recipient,group,e.message.text])assert(!JSON.stringify(result).includes(privateValue));
  f.revoke();assert.equal((await f.service.inspectSource({key:'in:synthetic',event:e})).senderResolved,false);
 });
-for(const businessResolution of ['not_found','inactive','ambiguous','lookup_failed'])test('confirmed mention work uses its own service in any OA group: '+businessResolution,async()=>{
- const f=await fixture({businessResolution});await f.service.capture([event()]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});
+for(const businessResolution of ['not_found','inactive','ambiguous','lookup_failed'])test('historical queued work retains service in any OA group: '+businessResolution,async()=>{
+ const f=await fixture({businessResolution});await f.queueLegacy();await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});
 });
 test('unbound recipient and ambiguous task-service identities cannot issue work',async()=>{
  for(const option of [{missingRecipient:true},{duplicateService:true}]){const f=await fixture(option);await f.service.capture([event()]);assert(!f.paths.includes('intake'));}
 });
-test('bot file operations are excluded while a request directed at a colleague remains work',async()=>{
+test('file requests without the task keyword never reenter legacy work capture',async()=>{
  const f=await fixture({businessResolution:'not_found'});await f.service.capture([event('@同仁 請幫我找回「example.pdf」')]);
  // A recognized assistant operation with a confirmed self mention is outside work intake.
- const count=f.paths.filter(p=>p==='intake').length;assert.equal(count,1);
+ const count=f.paths.filter(p=>p==='intake').length;assert.equal(count,0);
  const e=event('葉小蝸 請幫我找回「example.pdf」');await f.service.capture([e]);assert.equal(f.paths.filter(p=>p==='intake').length,count);
 });
 test('group readiness reads native actors and live membership without changing identities or creating work',async()=>{
@@ -56,7 +58,7 @@ test('group readiness reads native actors and live membership without changing i
  await assert.rejects(f.service.inspectGroup({groupId:'bad'},[]),/invalid_group_probe/);
 });
 
-test('group helper freezes same legacy intake identity and preserves source requester and mentions',async()=>{const f=await fixture();const e=event();assert.deepEqual((await f.service.groupServices()).map(t=>t.key),['fixture']);const ids=[sender,recipient];const people=await Promise.all(ids.map(id=>f.service.resolveGroupIdentity(id,tenant,group)));await f.service.submitGroupTask(tenant,e,people);await f.service.capture([e]);await f.service.drain();assert.equal(f.counts().issues,1);assert.equal(f.paths.filter(p=>p==='intake').length,2);});
+test('group helper freezes same legacy intake identity and preserves source requester and mentions',async()=>{const f=await fixture();const e=event();assert.deepEqual((await f.service.groupServices()).map(t=>t.key),['fixture']);const ids=[sender,recipient];const people=await Promise.all(ids.map(id=>f.service.resolveGroupIdentity(id,tenant,group)));await f.service.submitGroupTask(tenant,e,people);await f.service.capture([e]);await f.service.drain();assert.equal(f.counts().issues,1);assert.equal(f.paths.filter(p=>p==='intake').length,1);});
 test('combined group extraction uses original mention indices and does not call AI again; malformed indices cannot enter intake',async()=>{
  const f=await fixture(),e=event(),people=await Promise.all([sender,recipient].map(id=>f.service.resolveGroupIdentity(id,tenant,group))),judgment={policy:'line-task-fast-notice-v1',assignments:[{title:'整理清單',description:'整理本週客訴清單',recipientIndices:[0]}]};
  await assert.rejects(f.service.submitGroupTask(tenant,e,people,{...judgment,assignments:[{...judgment.assignments[0],recipientIndices:[1]}]}),/invalid_task_judgment/);
@@ -92,12 +94,20 @@ test('direct task is not sent while the DailyLog service is still on the older c
  const service=f.restart(),people=await Promise.all([sender,recipient].map(id=>service.resolveGroupIdentity(id,tenant,group)));
  await assert.rejects(()=>service.submitDirectGroupTask(tenant,e,people,{title:'盤點'},1),/direct_task_service_unavailable/);assert(!f.paths.includes('self-create'));
 });
+test('mixed bot and colleague task commands include the sender only when explicitly mentioned through the bot',async()=>{
+ const f=await fixture(),base=f.options.fetchImpl,seen=[];const bot='U'+'0'.repeat(32);f.options.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID=bot;
+ f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/self-create')){const v=JSON.parse(init.body);seen.push(v);return Response.json({ok:true,contract:v.contract,taskIds:['work-12345678-1234-1234-1234-123456789abc']});}return base(url,init);};
+ const service=f.restart(),e=event('@小葉 @甲 任務 整理清單');e.message.mention.mentionees=[{type:'user',userId:bot,isSelf:true,index:0,length:3},{type:'user',userId:recipient,index:4,length:2}];
+ const people=await Promise.all([sender,recipient].map(id=>service.resolveGroupIdentity(id,tenant,group)));await service.submitDirectGroupTask(tenant,e,people,{title:'整理清單'},1);assert.deepEqual(seen[0].recipients.map(p=>p.userId),[sender,recipient]);
+});
 
-test('current disabled recipient is silently rejected before intake, and unavailable roster is not labeled ineligible',async()=>{
+test('current disabled recipient is rejected by task identity checks; an unavailable roster remains an error',async()=>{
  const f=await fixture(),base=f.options.fetchImpl;let disabled=true,outage=false;
  f.options.fetchImpl=async(url,init)=>{if(new URL(url).pathname.endsWith('/meeting-person')){const a=JSON.parse(init.body).account;if(outage)return Response.json({ok:false,code:'SERVICE_UNAVAILABLE'},{status:503});return Response.json({ok:true,person:disabled&&a==='recipient'?null:{name:'合成'}});}return base(url,init);};
- const s=f.restart();await s.capture([event()]);assert(!f.paths.includes('intake'));assert.equal(f.counts().notices,0);outage=true;await assert.rejects(s.capture([event()]));assert(!f.paths.includes('intake'));outage=false;disabled=false;await s.capture([event()]);await s.drain();assert.equal(f.counts().issues,1);
+ const service=f.restart(),people=[{userId:sender,account:'sender',bindingId:'bound-'+sender},{userId:recipient,account:'recipient',bindingId:'bound-'+recipient}];
+ await assert.rejects(service.submitGroupTask(tenant,event(),people),e=>e.code==='TASK_INELIGIBLE');assert(!f.paths.includes('intake'));outage=true;await assert.rejects(service.submitGroupTask(tenant,event(),people));assert(!f.paths.includes('intake'));outage=false;disabled=false;await service.submitGroupTask(tenant,event(),people);await service.drain();assert.equal(f.counts().issues,1);
 });
-test('eligibility lost after queue receipt is terminal and never turns into a deferred login task',async()=>{
- const f=await fixture();await f.service.capture([event()]);f.revoke();await f.service.drain();assert(f.paths.includes('suppress'));assert(!f.paths.includes('issue'));assert(!f.paths.includes('defer'));assert.equal(f.counts().notices,0);await f.restart().drain();assert.equal(f.counts().issues,0);
+
+test('historical queue: eligibility lost after queue receipt is terminal and never turns into a deferred login task',async()=>{
+ const f=await fixture();await f.queueLegacy();f.revoke();await f.service.drain();assert(f.paths.includes('suppress'));assert(!f.paths.includes('issue'));assert(!f.paths.includes('defer'));assert.equal(f.counts().notices,0);await f.restart().drain();assert.equal(f.counts().issues,0);
 });

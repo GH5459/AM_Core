@@ -72,6 +72,11 @@ try{
 }finally{global.fetch=originalFetch;await central?.close();}
 pages.set('private-page',{parent:{data_source_id:target.dbId}});const owner=await platform.resolveConversationMeetingOwner('private-page');assert.equal(owner.config.meetings.conversationOwnerId,user);
 assert.equal((await service.capture([event('audio','group','disabled')])).length,1);assert.equal((await pool.query('SELECT * FROM central_archive.meeting_events')).rows.length,0);
+// A pending audio roster must not swallow an explicit new group command.
+await pool.query(`INSERT INTO central_archive.meeting_events(event_key,conversation_key,event_at,payload,state) VALUES($1,$2,now(),$3::jsonb,'pending')`,['synthetic-queued-audio',disabledGroupKey,JSON.stringify({message:{type:'audio'}})]);
+const groupCommand=event('text','group','command-during-audio');groupCommand.message={...groupCommand.message,text:'@同仁 任務 整理資料',mention:{mentionees:[{type:'user',userId:user,index:0,length:3}]}};
+assert.equal((await service.capture([groupCommand])).length,0);assert.equal((await service.capture([event('text','group','actual-roster')])).length,1);
+await pool.query('DELETE FROM central_archive.meeting_events WHERE event_key=$1',['synthetic-queued-audio']);
 await service.capture([event('audio')]);await service.capture([event('text','user','roster1')]);await service.drain();assert.equal(calls.filter(c=>c.audio).length,1);assert.equal(calls.filter(c=>c.roster).length,1);
 await service.capture([event('audio')]);await service.drain();assert.equal(calls.filter(c=>c.audio).length,1,'Redelivery must not process twice');
 await service.capture([event('audio','user','a2')]);await service.drain();memory.clear();await service.drain();assert(memory.has(user),'Wait restored after memory loss');

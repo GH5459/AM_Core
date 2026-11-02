@@ -4,6 +4,7 @@ import {readTaskOrigins} from './task-origins.js';
 import {sendJson} from '../../core/util.js';
 import {createMeetingWorkspace} from './workspace-service.js';
 import {currentGroupNames} from './group-names.js';
+import {groupCreateCommand} from '../../core/group-command.js';
 
 export const CONVERSATION_MEETINGS_CONTRACT='all-line-conversations-meetings-v1';
 const id=v=>String(v||'').replaceAll('-','');
@@ -130,7 +131,7 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
       const queuedAudio=(await pool.query(`SELECT 1 FROM central_archive.meeting_events WHERE conversation_key=$1 AND state='pending' AND payload->'message'->>'type' IN ('audio','file') LIMIT 1`,[key])).rows.length>0;
       // New workspaces collect settings on the web. Do not consume subsequent
       // group discussion as a legacy roster reply while an audio job is queued.
-      const roster=event.message?.type==='text'&&(pending?.state==='waiting'||queuedAudio&&!(event.timestamp>=Number(env.AMCORE_MEETING_WORKSPACE_CUTOVER_AT||'0')&&await workspace.accepts(event)));
+      const roster=event.message?.type==='text'&&!groupCreateCommand(event,botId)&&(pending?.state==='waiting'||queuedAudio&&!(event.timestamp>=Number(env.AMCORE_MEETING_WORKSPACE_CUTOVER_AT||'0')&&await workspace.accepts(event)));
       if(!audio&&!roster)continue;
       claimed.push(event);
       if(!row.enabled)continue;

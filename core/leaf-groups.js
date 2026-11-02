@@ -1,20 +1,19 @@
-import {quickCreateIntent,directGroupTaskIntent,taskSupplement,extractSelfTask,extractDirectSelfTask,extractTaskReply,selfTaskCard,QUICK_CREATE_CONTRACT} from './group-quick-create.js';
+import {taskSupplement,extractSelfTask,extractDirectSelfTask,extractTaskReply,selfTaskCard,QUICK_CREATE_CONTRACT} from './group-quick-create.js';
 import {digest} from './central-archive/store.js';
 import {createGroupStore} from './leaf-groups-store.js';
-import {mentionCandidate} from './leaf-tasks.js';
 import {extractEvents,prepareEvent,preview,supplementRequest} from './leaf-calendar/extract.js';
-import {explicitCalendarRequest} from './leaf-calendar/date-intent.js';
 import {parseAttachmentRequest} from './attachment-retrieval.js';
 import {quotedExplanationTask,quotedTaskContext,QUOTED_TASK_POLICY} from './quoted-task-intent.js';
 import {checkedAssignments,assignmentSchema,TASK_SPEED_POLICY} from './task-judgment.js';
 import {GROUP_INVITE_TIMEOUT_MS,GROUP_INVITE_TIMEOUT_POLICY,invitationTimedOut,cancelTimedOutInvitation} from './group-invite-policy.js';
 import {TASK_ELIGIBILITY_POLICY,isTaskIneligible,wasWaitingForTaskIdentity,ignoreTask} from './task-eligibility-policy.js';
 import {GROUP_RETRY_POLICY,GROUP_RETRY_LIMIT,groupConnectionRequired,stopGroupRetry,retryGroupFailure} from './group-retry-policy.js';
+import {groupCreateCommand,GROUP_COMMAND_POLICY} from './group-command.js';
 export const GROUP_MENTION_CONTRACT='line-group-mention-meetings-tasks-v1';
 const user=/^U[a-f0-9]{32}$/i,group=/^C[a-f0-9]{32}$/i;
+const namedActivity=topic=>typeof topic==='string'&&topic.trim()&&!/^(活動|會議|待定|待確認|未提供)$/u.test(topic.trim());
 const command=e=>String(e.postback?.data||'').match(/^(?:groupcal|grouptask):(confirm|cancel):([a-f0-9]{48}):(\d{1,8})$/u);
 const peers=(e,bot)=>[...new Set([e.source.userId,...e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf&&m.userId!==bot&&user.test(m.userId||'')).map(m=>m.userId)])];
-const explicitActivity=e=>{let text=e.message?.text||'';for(const m of [...(e.message?.mention?.mentionees||[])].sort((a,b)=>b.index-a.index))if(Number.isInteger(m.index)&&Number.isInteger(m.length))text=text.slice(0,m.index)+text.slice(m.index+m.length);return explicitCalendarRequest(text);};
 const retryKey=value=>{const h=digest(value);return [h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20,32)].join('-');};
 export function createLeafGroups({env=process.env,platform,line,tasks,calendar,store:injected,llm,logger=console,now=Date.now}){
   const enabled=env.AMCORE_LEAF_GROUPS_ENABLED!=='0'&&Boolean(env.LINE_CHANNEL_SECRET)&&user.test(env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID||'');
@@ -35,22 +34,21 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     for(const e of events){if(e.source?.type!=='group'||!group.test(e.source.groupId||''))continue;
       if(['unsend','edit'].includes(e.type)){await store.removed(e);continue;}
       if(!user.test(e.source.userId||''))continue;
-      if(e.message?.type==='text'&&e.message.quotedMessageId){const parent=await store.notice(e.source.groupId,e.message.quotedMessageId);if(parent){await store.insert(e,'taskreply',{parentId:parent.dispatch.id});claimed.push(e);continue;}}
-      if(e.message?.type==='text'&&e.message.quotedMessageId){const parent=await store.assignmentSource(e.source.groupId,e.message.quotedMessageId),mentions=e.message.mention?.mentionees||[];if(parent&&mentions.every(m=>m.type==='user'&&!m.isSelf&&m.userId===parent.event.source.userId)){await store.insert(e,'quotedprogress',{parentId:parent.dispatch.id});claimed.push(e);continue;}}
+      const cmd=groupCreateCommand(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
+      if(!cmd&&e.message?.type==='text'&&e.message.quotedMessageId){const parent=await store.notice(e.source.groupId,e.message.quotedMessageId);if(parent){await store.insert(e,'taskreply',{parentId:parent.dispatch.id});claimed.push(e);continue;}}
+      if(!cmd&&e.message?.type==='text'&&e.message.quotedMessageId){const parent=await store.assignmentSource(e.source.groupId,e.message.quotedMessageId),mentions=e.message.mention?.mentionees||[];if(parent&&mentions.every(m=>m.type==='user'&&!m.isSelf&&m.userId===parent.event.source.userId)){await store.insert(e,'quotedprogress',{parentId:parent.dispatch.id});claimed.push(e);continue;}}
       const action=command(e),taskEdit=e.message?.type==='text'?taskSupplement(e.message.text.normalize('NFKC').trim()):null,supplement=e.message?.type==='text'?supplementRequest(e.message.text.normalize('NFKC').trim()):null;
       if(action){await store.insert(e,'control',{action:action[1],target:action[2],targetRevision:Number(action[3])});claimed.push(e);continue;}
       if(supplement||taskEdit){const edit=taskEdit||supplement;const matches=taskEdit?[...await store.drafts(e.source.groupId,e.source.userId,edit.topic,'selftask'),...await store.drafts(e.source.groupId,e.source.userId,edit.topic,'directtask')]:await store.drafts(e.source.groupId,e.source.userId,edit.topic,'meeting');
         if(matches.length===1&&edit.text){await store.insert(e,'control',{action:'edit',target:matches[0].dispatch.id,targetRevision:matches[0].dispatch.revision,correction:edit.text});claimed.push(e);}continue;}
-      const directGroup=directGroupTaskIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
-      const proposed=directGroup?{kind:'directtask',direct:true}:quickCreateIntent(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID);
-      // A bot mention must not turn a colleague assignment into a self-task
-      // preview and bypass the all-recipient eligibility gate.
-      const quick=proposed?.kind==='selftask'&&peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>1?null:proposed;
-      if((!quick&&!mentionCandidate(e))||parseAttachmentRequest(e)?.explicitSelf)continue;
+      if(!cmd)continue;
+      const proposed=cmd.kind==='task'?{kind:'directtask',direct:true}:{kind:cmd.kind,...(cmd.kind==='selftask'?{direct:true}:{})};
+      const quick=proposed;
+      if(parseAttachmentRequest(e)?.explicitSelf)continue;
       const mentions=e.message.mention.mentionees;
       if(mentions.some(m=>m.type==='all'||m.type==='user'&&!m.isSelf&&!user.test(m.userId||''))||peers(e,env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID).length>21||e.message.text.length>10000)continue;
-      const explicitMeeting=explicitActivity(e);
-      await store.insert(e,'message',{...(quick?{quickKind:quick.kind,directSelfTask:quick.direct===true}:explicitMeeting?{quickKind:'meeting'}:{}),...(explicitMeeting?{activityResultsV2:true}:{})});claimed.push(e);
+      const explicitMeeting=cmd.kind==='meeting';
+      await store.insert(e,'message',{...(quick?{quickKind:quick.kind,directSelfTask:quick.direct===true}:{}),commandV1:true,...(explicitMeeting?{activityResultsV2:true}:{})});claimed.push(e);
     }return claimed;
   }
   async function classify(event,engine){
@@ -86,7 +84,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     body[0].text=p.prepared.missing.length?(p.activityResultsV2?'請補充群組活動資料':'請確認群組活動日期與時間'):'確認群組會議／活動';
     if(p.people.length===1)body.push({type:'text',text:'本次僅加入本人行事曆，沒有邀請其他群組同仁。',wrap:true,size:'sm'});
     body.splice(1,0,{type:'text',text:'發起人與受邀人：'+p.people.map(x=>x.name+(x.state==='login'?'（待登入）':'')).join('、'),size:'sm',wrap:true,color:'#263B33'});
-    body.push({type:'text',text:'發起人或被邀請同仁按「建立」後加入各自的 Google 行事曆。',size:'xs',wrap:true,color:'#698176'});
+    body.push({type:'text',text:p.commandV1?'請發起人輸入「補充活動：」及缺少的資料，補齊後會加入各自的 Google 行事曆。':'發起人或被邀請同仁按「建立」後加入各自的 Google 行事曆。',size:'xs',wrap:true,color:'#698176'});
     body.push({type:'text',text:'請在卡片發出後 10 分鐘內確認；逾時將自動取消本次邀約。補充或修改活動不會延長期限。',size:'xs',wrap:true,color:'#698176'});
     for(const b of value.contents.footer.contents)b.action.data=b.action.data.replace(/^leafcal:/u,'groupcal:');
     value.contents.footer.contents.at(-1).action.label='取消邀約';value.altText='群組活動確認：'+p.prepared.event.topic;return value;
@@ -107,7 +105,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     let prepared;if(p.action==='edit'){
       if(pp.mode==='selftask'||pp.mode==='directtask')prepared=pp.directSelfTask?await extractDirectSelfTask({text:p.correction,at:row.event.timestamp,llm:context.tenant?platform.llmForTenant?.(context.tenant)||llm:llm,existing:{...pp.prepared.draft,missing:pp.prepared.missing},group:pp.mode==='directtask'}):await extractSelfTask({text:p.correction,at:row.event.timestamp,llm:context.tenant?platform.llmForTenant?.(context.tenant)||llm:llm,existing:{...pp.prepared.draft,missing:pp.prepared.missing}});
       else {const events=await extractEvents({text:p.correction,at:row.event.timestamp,llm:context.tenant?platform.llmForTenant?.(context.tenant)||llm:llm,groupInvitation:true,existing:{...pp.prepared.event,needsClarification:pp.prepared.missing,confirmationNotes:pp.prepared.confirmationNotes}});
-      if(events.length!==1)throw Error('group_edit_requires_one_event');prepared=prepareEvent(events[0],pp.prepared.event.requestId,{requiredLocation:pp.activityResultsV2===true});}
+      if(events.length!==1)throw Error('group_edit_requires_one_event');prepared=prepareEvent(events[0],pp.prepared.event.requestId,{requiredLocation:pp.activityResultsV2===true&&!pp.commandV1});if(pp.commandV1&&!namedActivity(events[0].topic))prepared.missing.push('活動名稱');}
     }
     const result=await store.control(p.target,row.event,p.action,p.targetRevision,prepared);
     if(result.code==='busy'){await store.save(row,p,2);return 'saved';}
@@ -146,7 +144,7 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       if(p.mode==='none'){p.phase='ignored';return store.save(row,p);}
       if(p.mode==='meeting'){let events;try{events=await extractEvents({text:row.event.message.text,at:row.event.timestamp,llm:engine,groupInvitation:true});}catch{await notify(row,p,'小葉暫時無法整理活動資料，尚未建立行事曆活動。請稍後重新傳送，並註明活動名稱、日期、時間與地點。','calendar-extraction-unavailable');p.phase='ignored';return store.save(row,p);}
         if(events.length!==1){await notify(row,p,'請一次提供一場會議／活動，並註明日期與時間。','one-event');p.phase='ignored';return store.save(row,p);}
-        p.prepared=prepareEvent(events[0],'groupcal:'+p.id,{requiredLocation:p.activityResultsV2===true});p.phase='preview';
+        p.prepared=prepareEvent(events[0],'groupcal:'+p.id,{requiredLocation:p.activityResultsV2===true&&!p.commandV1});if(p.commandV1&&!namedActivity(events[0].topic))p.prepared.missing.push('活動名稱');p.phase='preview';
       }else if(p.mode==='selftask'||p.mode==='directtask'){p.prepared=p.directSelfTask?await extractDirectSelfTask({text:row.event.message.text,at:row.event.timestamp,llm:engine,group:p.mode==='directtask'}):await extractSelfTask({text:row.event.message.text,at:row.event.timestamp,llm:engine});p.phase='preview';}else p.phase='task';
     }
     if(p.phase==='confirmation')return store.save(row,p,5);
@@ -170,7 +168,8 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
     if(invitationTimedOut(row,p,now()))return store.save(row,cancelTimedOutInvitation(p,now()));
     if(!context.tenant||(groupConnectionRequired(p)&&!(p.activityResultsV2&&['fanout','results','preview','confirmation'].includes(p.phase)))){if(p.directSelfTask)await notify(row,p,'任務尚未建立，請確認工作日誌身分及使用權限。','task-identity');return store.save(row,stopGroupRetry(p,now(),'identity_required'));}
     if(p.phase==='preview'){
-      if(['selftask','directtask'].includes(p.mode)&&p.directSelfTask&&!p.prepared.missing.length){p.phase=p.mode==='selftask'?'selfissue':'directissue';if(!await store.checkpoint(row,p))return;}
+      if(p.mode==='meeting'&&p.commandV1&&!p.prepared.missing.length){p.confirmation={userId:row.event.source.userId,eventId:row.event.webhookEventId||row.event.message.id,timestamp:row.event.timestamp};p.phase='fanout';if(!await store.checkpoint(row,p))return;}
+      else if(['selftask','directtask'].includes(p.mode)&&p.directSelfTask&&!p.prepared.missing.length){p.phase=p.mode==='selftask'?'selfissue':'directissue';if(!await store.checkpoint(row,p))return;}
       else if(['selftask','directtask'].includes(p.mode)&&p.directSelfTask){await notify(row,p,'任務尚未建立，請補充：\n'+p.prepared.missing.join('\n')+'\n請輸入「補充任務：」及補充內容。','self-missing');p.phase='confirmation';return store.save(row,p,5);}
       else {
       // Freeze the first delivery attempt before external I/O. Crash/retry and
@@ -230,5 +229,5 @@ export function createLeafGroups({env=process.env,platform,line,tasks,calendar,s
       }
       if(isTaskIneligible(error)||error.lineStatus===404||error.message==='group_identity_changed'||error.message==='group_member_changed'){await store.save(row,stopGroupRetry(p,now(),'identity_or_membership_changed'));continue;}
       const retry=retryGroupFailure(p,now());if(retry.value.phase==='ignored'&&(p.directSelfTask||p.kind==='taskreply')){try{await notify(row,retry.value,p.updated?'任務已更新，但通知未完成；請在工作日誌查看。':p.directResult||p.selfResult?'任務已建立，但通知未完成；請在工作日誌查看。':'目前無法確認操作結果，請先在工作日誌查看；如需協助請重新傳送。','task-uncertain');}catch{}}logger.warn?.('[leaf-groups] bounded retry; original source retained');await store.save(row,retry.value,retry.delay);}}})().finally(()=>running=null);return running;}
-  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,retryPolicy:GROUP_RETRY_POLICY,retryLimit:GROUP_RETRY_LIMIT,identityNoticePolicy:'silent-stop-unlinked-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,calendarMode:'organizer-confirmation-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
+  return {capture,drain,isControl:e=>Boolean(command(e)||e.message?.type==='text'&&(supplementRequest(e.message.text.normalize('NFKC').trim())||taskSupplement(e.message.text.normalize('NFKC').trim()))),health:()=>({enabled,contract:GROUP_MENTION_CONTRACT,taskEligibilityPolicy:TASK_ELIGIBILITY_POLICY,retryPolicy:GROUP_RETRY_POLICY,retryLimit:GROUP_RETRY_LIMIT,identityNoticePolicy:'silent-stop-unlinked-v1',quickCreateContract:QUICK_CREATE_CONTRACT,quotedTaskPolicy:QUOTED_TASK_POLICY,speedPolicy:TASK_SPEED_POLICY,commandPolicy:GROUP_COMMAND_POLICY,calendarMode:'command-after-details-per-person',confirmationTimeoutSeconds:GROUP_INVITE_TIMEOUT_MS/1000,confirmationTimeoutPolicy:GROUP_INVITE_TIMEOUT_POLICY,pendingRetentionDays:30}),close:()=>store.close()};
 }

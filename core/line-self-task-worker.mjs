@@ -1,5 +1,5 @@
 // Called inside the original task-service authentication boundary only.
-import {taskDates} from './line-task-dates.mjs';
+import {taskDates,immediateTaskDates,explicitDateHint} from './line-task-dates.mjs';
 export const SELF_TASK_CONTRACT='line-group-bot-quick-create-v1';
 export const DIRECT_SELF_TASK_CONTRACT='line-group-bot-direct-create-v2';
 export const DIRECT_GROUP_TASK_CONTRACT='line-group-bot-direct-assignment-v2';
@@ -14,9 +14,9 @@ export async function createLineSelfTask(value,env,{now=Date.now,directory,permi
  const recipients=group?value.recipients:[a];
  if(!Array.isArray(recipients)||recipients.length<1||recipients.length>20||recipients.some(p=>!uid(p.userId)||!text(p.account,100)||!text(p.bindingId,200))||new Set(recipients.map(p=>p.account)).size!==recipients.length||new Set(recipients.map(p=>p.userId)).size!==recipients.length)throw fail('INVALID_RECIPIENT');
  if(group&&(!trustedInputs||!assignmentContract))throw fail('ASSIGNMENT_SERVICE_UNAVAILABLE',503);
- if(direct){let dates;try{dates=taskDates(d.executionDate,s.timestamp);}catch{throw fail('INVALID_EXECUTION_DATE');}if(d.dueDate!==dates.dueDate||d.dueAt!==dates.dueAt)throw fail('INVALID_DUE_DATE');}
+ if(direct){let dates;try{dates=explicitDateHint(s.text)?taskDates(d.executionDate,s.timestamp):immediateTaskDates(s.timestamp);}catch{throw fail('INVALID_EXECUTION_DATE');}if(d.executionDate!==dates.executionDate||d.dueDate!==dates.dueDate||d.dueAt!==dates.dueAt)throw fail('INVALID_DUE_DATE');}
  if(d.dueDate!==null&&!date(d.dueDate))throw fail('INVALID_DUE_DATE');
- if(d.dueAt!==null&&(!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\+08:00$/.test(d.dueAt||'')||!Number.isFinite(Date.parse(d.dueAt))||d.dueAt.slice(0,10)!==d.dueDate))throw fail('INVALID_DUE_DATE');
+ if(d.dueAt!==null&&(!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{3})?)?\+08:00$/.test(d.dueAt||'')||!Number.isFinite(Date.parse(d.dueAt))||d.dueAt.slice(0,10)!==d.dueDate))throw fail('INVALID_DUE_DATE');
  // Roster and current eligibility are checked on replays too; a receipt grants no access.
  const members=await directory(),actor=members.people.find(p=>p.account===a.account);
  if(!actor||!permission(a.account)||recipients.some(p=>!members.people.some(m=>m.account===p.account)||!permission(p.account)))throw fail('ACCESS_DISABLED',403);
@@ -24,7 +24,7 @@ export async function createLineSelfTask(value,env,{now=Date.now,directory,permi
  const prior=await db.prepare('SELECT value FROM documents WHERE namespace=? AND key=?').bind(namespace,key).first();
  async function replay(receipt){if(receipt.hash!==inputHash)throw fail('IDEMPOTENCY_CONFLICT',409);await members.assertCurrent?.();if(!permission(a.account)||recipients.some(p=>!permission(p.account)))throw fail('ACCESS_DISABLED',403);const current=await db.prepare('SELECT value FROM work_items WHERE id=?').bind(receipt.taskIds[0]).first();if(!current)throw fail('TASK_NOT_FOUND',409);publish(JSON.parse(current.value));return {ok:true,taskIds:receipt.taskIds,contract:value.contract};}
  if(prior)return replay(JSON.parse(prior.value));
- if(direct){try{taskDates(d.executionDate,now());}catch{throw fail('INVALID_EXECUTION_DATE');}}
+ if(direct){try{if(explicitDateHint(s.text))taskDates(d.executionDate,now());else if(now()>Date.parse(d.dueAt))throw Error('deadline_passed');}catch{throw fail('INVALID_EXECUTION_DATE');}}
  const raw=await hash('self-task:'+key),id='work-'+[raw.slice(0,8),raw.slice(8,12),raw.slice(12,16),raw.slice(16,20),raw.slice(20,32)].join('-');
  const sourceDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now()));
  const description=[d.description,'',group?'來源：LINE 群組交辦任務。':direct?'來源：LINE 群組本人任務指令。':'來源：LINE 群組，由本人確認建立。','原始訊息：'+s.text.slice(0,6000)+(s.text.length>6000?'（完整原文保留於原群組來源）':''),'原始時間：'+new Date(s.timestamp).toISOString()].join('\n');
