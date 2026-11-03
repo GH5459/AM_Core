@@ -104,3 +104,5 @@ This record does not install changes into SevenAM or other OA credentials. Their
 | `AM-IMP-2026.1023.01` | Engineering reminders disabled; legacy BuildAM workflow removed | Deployed | 2026-10-23 | `versions/AM-IMP-2026.1023.01/`; `tools/test-engineering-reminders-disabled.mjs` | Tenant isolation, blocked reminder I/O, explicit meeting tasks and engineering convergence tests passed; production ecfe1b9 verified on both origins; LINE official webhook Verify succeeded; legacy workflow deleted. |
 
 | AM-IMP-2026.1027.80 | LINE 本人重新驗證與綁定回覆 | Deployed | PR477／CI40464534333；AM0ca80695兩站及Render Live，DailyLog9a6f6034完整87／UOF74e09afb完整16，精確本人資格已登記、本人新驗證待完成；原資料與並行更新保持。 |
+
+| AM-IMP-2026.1103.01 | 三工具首次使用 LINE 與 UOF 綁定 | Deployed | PR549／CI41564062138通過；AM6381dc0兩站、UOF8dd62bfd／23模組、DailyLog5b3dac56／112模組回讀；原權限與自動開通保持。 |
