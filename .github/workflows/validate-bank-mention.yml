@@ -292,7 +292,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm ci --prefix tools/fixtures/xiaoye-repro --ignore-scripts
       - run: node --test --test-force-exit tools/test-xiaoye-repro-fixture.cjs
-      - run: node --test tools/test-xiaoye-line.mjs tools/test-xiaoye-proposal-card.mjs tools/test-xiaoye-intake-controls.mjs tools/test-xiaoye-external-browser.mjs
+      - run: node --test tools/test-xiaoye-line.mjs tools/test-xiaoye-proposal-card.mjs tools/test-xiaoye-intake-controls.mjs tools/test-xiaoye-binding-priority.mjs tools/test-xiaoye-external-browser.mjs
       - run: node --check core/xiaoye-secretary-dailylog.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.52
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1022.53
