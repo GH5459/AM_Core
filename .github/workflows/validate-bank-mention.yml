@@ -3,6 +3,10 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'core/first-use*'
+      - 'tools/build-first-use-workers.cjs'
+      - 'tools/test-first-use-workers.cjs'
+      - 'versions/AM-IMP-2026.1103.01/**'
       - 'versions/auto-onboarding/**'
       - 'tools/build-auto-onboarding-workers.cjs'
       - 'tools/test-auto-onboarding-workers.cjs'
@@ -341,6 +345,7 @@ jobs:
       - run: node tools/test-portal-command-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1019.07
       - run: node tools/test-conversation-meetings.mjs
+      - run: node --test core/first-use-binding.test.js core/first-use-uof.test.mjs core/first-use-gates.test.mjs
       - run: node --test versions/auto-onboarding/*.test.mjs
       - run: node tools/test-meeting-group-names.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1030.04
