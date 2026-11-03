@@ -57,7 +57,7 @@ meetingConfig.liffEndpointUrl='https://registered.example.test/meetings/review';
 const moved=await page(platform.publicBaseUrl);assert.equal(moved.status,302);assert.equal(moved.headers.Location,'https://registered.example.test/meetings/review/work/'+id);assert.equal(moved.headers['Cache-Control'],'no-store');
 const canonical=await page('https://registered.example.test');assert.equal(canonical.status,200);assert(canonical.html.includes('123-fixture'));assert(!canonical.headers.Location);
 assert(canonical.html.includes('"loginUrl":"https://registered.example.test/meetings/review/work/'+id+'"'));
-assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('if(!BOOT.publicAvailable&&!await login())'));
+assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('if((!BOOT.publicAvailable||BOOT.firstUseRequired)&&!await login())'));
 const primary=await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id));assert.equal(primary.handled,true);assert.equal(primary.status,200);assert.equal(primary.html,canonical.html);assert(!primary.headers.Location);
 assert(primary.html.includes("'/meetings/review/work/'+BOOT.id+'/api'"));assert(primary.html.includes('preload="metadata"'));assert(!primary.html.includes("location.pathname+'/api'"));
 assert.equal((await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id+'/api'))).handled,false);
@@ -102,6 +102,11 @@ assert.equal(r.fields[todo].due,'2026-10-25');assert.equal((await api({action:'p
 const blocks=pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].text.content);assert.equal(blocks.filter(s=>s==='會議記錄').length,1);assert(blocks.some(s=>s.includes('編輯者')));assert.equal(pushes.filter(p=>p.key==='workspace-published:'+id).length,1);
 assert.equal((await api({action:'edit',field:'record',value:'舊頁偷改',version:1})).status,409);
 foreign=true;assert.equal((await api({action:'read'},'member')).status,403);
+await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=true WHERE id=$1',[id]);
+firstUseLinked=false;assert.equal((await api({action:'read'},'outside')).status,428,'shared documents also require verified binding');
+firstUseLinked=true;assert.equal((await api({action:'read'},'outside')).value.access,'public','binding preserves original shared reading permission');
+assert.equal((await api({action:'read'},'')).status,401,'anonymous shared read cannot bypass first-use verification');
+await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=false WHERE id=$1',[id]);
 if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
 export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,pushes,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');
