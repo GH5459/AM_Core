@@ -225,7 +225,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    }
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
    const input=await readBody(req);let current=r,actor;
-   try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action));}catch(e){if(input.action==='read'&&canReadShared(r)){
+   try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action));}catch(e){if(e.code?.startsWith('FIRST_USE_'))throw e;if(input.action==='read'&&canReadShared(r)){
     sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null});return true;
    }throw e;}
    const experience=await locale.profile(actor);

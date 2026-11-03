@@ -4,6 +4,7 @@ import {Readable} from 'node:stream';
 import {PGlite} from '@electric-sql/pglite';
 import {createMeetingWorkspace} from '../modules/meetings/workspace-service.js';
 import {meetingToday} from '../modules/meetings/workspace-model.js';
+import {createFirstUseMeetingGuard} from '../core/first-use-meetings.js';
 const pg=new PGlite(),originalFetch=globalThis.fetch;
 for(const f of ['core/central-archive/schema.sql','modules/meetings/workspace.sql'])await pg.exec(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'));
 await pg.exec("CREATE FUNCTION pg_try_advisory_lock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true'; CREATE FUNCTION pg_advisory_unlock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true';");
@@ -45,6 +46,12 @@ await service.choice({source:{...event.source,userId:member},postback:{data:'mee
 await service.choice({source:event.source,postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'setup');assert(pushes[1].message.includes('/meetings/review/work/'+id));
 async function api(input,token='host',origin=platform.publicBaseUrl){let status=200,encoded='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};const res={headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},get statusCode(){return status;},end(v){encoded=v;}};await service.handle(req,res,new URL(platform.publicBaseUrl+'/meetings/review/work/'+id+'/api'));return {status,value:JSON.parse(encoded)};}
 async function page(origin,path='/meetings/review/work/'+id){const headers={};let status=200,html='';const handled=await service.handle({method:'GET',headers:{host:new URL(origin).host}},{writeHead(v,h){status=v;Object.assign(headers,h);},setHeader(k,v){headers[k]=v;},set statusCode(v){status=v;},get statusCode(){return status;},end(v){html=v||'';}},new URL(origin+path));return {status,headers,html,handled};}
+let firstUseLinked=false;
+platform.ensureFirstUseBinding=createFirstUseMeetingGuard(async()=>({ok:true,linked:firstUseLinked}));
+const beforeFirstUse=JSON.stringify(await service.store.get(id));
+const firstUseBlocked=await api({action:'read'});assert.equal(firstUseBlocked.status,428);assert(firstUseBlocked.value.onboardingUrl.startsWith('https://uof-line.ghotel.tw/first-use?'));
+assert.equal(JSON.stringify(await service.store.get(id)),beforeFirstUse);
+firstUseLinked=true;
 assert.equal((await page(platform.publicBaseUrl)).status,200);
 meetingConfig.liffEndpointUrl='https://registered.example.test/meetings/review';
 const moved=await page(platform.publicBaseUrl);assert.equal(moved.status,302);assert.equal(moved.headers.Location,'https://registered.example.test/meetings/review/work/'+id);assert.equal(moved.headers['Cache-Control'],'no-store');
