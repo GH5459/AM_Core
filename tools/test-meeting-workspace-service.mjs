@@ -107,6 +107,7 @@ firstUseLinked=false;assert.equal((await api({action:'read'},'outside')).status,
 firstUseLinked=true;assert.equal((await api({action:'read'},'outside')).value.access,'public','binding preserves original shared reading permission');
 assert.equal((await api({action:'read'},'')).status,401,'anonymous shared read cannot bypass first-use verification');
 await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=false WHERE id=$1',[id]);
+delete platform.ensureFirstUseBinding;
 if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
 export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,pushes,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');
