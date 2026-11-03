@@ -5,9 +5,18 @@ export function firstUseUrl(value){const target=firstUseReturn(value);if(!target
 function blocked(request,state){const target=firstUseUrl(request.url);if(state==='inactive')return Response.json({error:'此帳號目前停用或無效。'},{status:403});if(['GET','HEAD'].includes(request.method)&&!new URL(request.url).pathname.startsWith('/api/'))return new Response(null,{status:303,headers:{Location:target,'Cache-Control':'no-store'}});return Response.json({error:'請先完成本人 LINE 與 UOF 綁定。',code:'FIRST_USE_BINDING_REQUIRED',onboardingUrl:target},{status:428,headers:{'Cache-Control':'no-store'}});}
 export async function firstUseUofGate(app,request,status){
  const p=new URL(request.url).pathname;
- if(p.startsWith('/_ops/')||p.startsWith('/first-use')||['/Account/Login','/Line/Setup','/api/health','/api/uof-review/login','/api/uof-review/logout','/api/uof-review/session','/api/uof-review/bootstrap'].includes(p)||p.startsWith('/api/line-io/binding/')||p.startsWith('/login-continuation/')||/\.(js|css|png|svg|ico)$/.test(p))return null;
+ if(p.startsWith('/_ops/')||p.startsWith('/first-use')||['/Account/Login','/Line/Setup','/api/health','/api/uof-review/login','/api/uof-review/logout','/api/uof-review/session'].includes(p)||p.startsWith('/api/line-io/binding/')||p.startsWith('/login-continuation/')||/\.(js|css|png|svg|ico)$/.test(p))return null;
  const s=await app.session(request);if(!s?.account)return null;
  try{const v=await status(app,{account:s.account});return v?.ok&&v.linked?null:blocked(request,v?.reason);}catch{return Response.json({error:'綁定狀態暫時無法確認，請稍後重試。'},{status:503,headers:{'Cache-Control':'no-store'}});}
+}
+export function firstUseUofClientAssets(html){
+ const script=`(()=>{const original=window.fetch;window.fetch=async function(input,options){const r=await original.call(this,input,options);try{const source=new URL(input?.url||input,location.href);if(r.status===428&&source.origin===location.origin&&source.pathname.startsWith('/api/')){const j=await r.clone().json(),u=new URL(j.onboardingUrl);if(u.origin==='https://uof-line.ghotel.tw'&&u.pathname==='/first-use'){u.searchParams.set('return',location.href);location.replace(u.href);}}}catch{}return r;};})();`;
+ return html.replace('</head>','<script>'+script+'</script></head>');
+}
+export async function firstUseHtmlResponse(response){
+ if(!response.headers.get('Content-Type')?.includes('text/html'))return response;
+ const headers=new Headers(response.headers);headers.delete('Content-Length');headers.delete('ETag');
+ return new Response(firstUseUofClientAssets(await response.text()),{status:response.status,statusText:response.statusText,headers});
 }
 export async function firstUseDailyGate(request,env){
  const p=new URL(request.url).pathname;
