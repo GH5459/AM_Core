@@ -1,3 +1,4 @@
+import * as firstUseMeetings from '../core/first-use-meetings.js';
 import * as commonLineEntry from '../core/common-line-entry.js';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
@@ -91,6 +92,7 @@ try {
       './core/leaf-calendar/index.js':leafCalendar,
       './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
       './core/common-line-entry.js':commonLineEntry,
+      './core/first-use-meetings.js':firstUseMeetings,
       './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
       './core/leaf-tasks.js':leafTasks,
       './core/util.js':{readBody:async r=>r.rawBody,sendJson:(r,status)=>{r.status=status;},sendText:(r,status)=>{r.status=status;acked=true;}},
