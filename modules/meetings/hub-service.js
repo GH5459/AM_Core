@@ -125,7 +125,9 @@ if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>600
   const who=await identity(actor.id);let query;
   if(v.action==='calendar-week'){
    if(typeof v.start!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v.start)||!Number.isFinite(Date.parse(v.start+'T00:00:00+08:00')))throw failure(400,'請選擇有效週次。');
-   const start=new Date(v.start+'T00:00:00+08:00'),end=new Date(+start+7*86400000);query={action:'calendar-week',account:who.account,start:start.toISOString(),end:end.toISOString()};
+   if(v.calendarId!==undefined&&(typeof v.calendarId!=='string'||!v.calendarId||v.calendarId.length>1024||/[\\/\x00-\x1f]/.test(v.calendarId)||['.','..'].includes(v.calendarId)))throw failure(400,'日曆來源不正確。');
+   if(v.googleAccount!==undefined&&(typeof v.googleAccount!=='string'||!v.googleAccount||v.googleAccount.length>254||/[\s\x00-\x1f]/.test(v.googleAccount)))throw failure(400,'Google 帳號來源不正確。');
+   const start=new Date(v.start+'T00:00:00+08:00'),end=new Date(+start+7*86400000);query={action:'calendar-week',account:who.account,start:start.toISOString(),end:end.toISOString(),...(v.calendarId?{calendarId:v.calendarId}:{}),...(v.googleAccount?{googleAccount:v.googleAccount}:{})};
   }else{
    if(typeof v.calendarRef!=='string'||v.calendarRef.length>6000)throw failure(400,'請重新讀取日曆。');
    const [encoded,signature]=v.calendarRef.split('.'),expected=crypto.createHmac('sha256',platform.publicLinkSecret).update(encoded).digest('hex');
