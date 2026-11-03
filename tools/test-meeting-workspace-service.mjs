@@ -4,6 +4,7 @@ import {Readable} from 'node:stream';
 import {PGlite} from '@electric-sql/pglite';
 import {createMeetingWorkspace} from '../modules/meetings/workspace-service.js';
 import {meetingToday} from '../modules/meetings/workspace-model.js';
+import {createFirstUseMeetingGuard} from '../core/first-use-meetings.js';
 const pg=new PGlite(),originalFetch=globalThis.fetch;
 for(const f of ['core/central-archive/schema.sql','modules/meetings/workspace.sql'])await pg.exec(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'));
 await pg.exec("CREATE FUNCTION pg_try_advisory_lock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true'; CREATE FUNCTION pg_advisory_unlock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true';");
@@ -45,12 +46,18 @@ await service.choice({source:{...event.source,userId:member},postback:{data:'mee
 await service.choice({source:event.source,postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'setup');assert(pushes[1].message.includes('/meetings/review/work/'+id));
 async function api(input,token='host',origin=platform.publicBaseUrl){let status=200,encoded='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};const res={headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},get statusCode(){return status;},end(v){encoded=v;}};await service.handle(req,res,new URL(platform.publicBaseUrl+'/meetings/review/work/'+id+'/api'));return {status,value:JSON.parse(encoded)};}
 async function page(origin,path='/meetings/review/work/'+id){const headers={};let status=200,html='';const handled=await service.handle({method:'GET',headers:{host:new URL(origin).host}},{writeHead(v,h){status=v;Object.assign(headers,h);},setHeader(k,v){headers[k]=v;},set statusCode(v){status=v;},get statusCode(){return status;},end(v){html=v||'';}},new URL(origin+path));return {status,headers,html,handled};}
+let firstUseLinked=false;
+platform.ensureFirstUseBinding=createFirstUseMeetingGuard(async()=>({ok:true,linked:firstUseLinked}));
+const beforeFirstUse=JSON.stringify(await service.store.get(id));
+const firstUseBlocked=await api({action:'read'});assert.equal(firstUseBlocked.status,428);assert(firstUseBlocked.value.onboardingUrl.startsWith('https://uof-line.ghotel.tw/first-use?'));
+assert.equal(JSON.stringify(await service.store.get(id)),beforeFirstUse);
+firstUseLinked=true;
 assert.equal((await page(platform.publicBaseUrl)).status,200);
 meetingConfig.liffEndpointUrl='https://registered.example.test/meetings/review';
 const moved=await page(platform.publicBaseUrl);assert.equal(moved.status,302);assert.equal(moved.headers.Location,'https://registered.example.test/meetings/review/work/'+id);assert.equal(moved.headers['Cache-Control'],'no-store');
 const canonical=await page('https://registered.example.test');assert.equal(canonical.status,200);assert(canonical.html.includes('123-fixture'));assert(!canonical.headers.Location);
 assert(canonical.html.includes('"loginUrl":"https://registered.example.test/meetings/review/work/'+id+'"'));
-assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('if(!BOOT.publicAvailable&&!await login())'));
+assert(canonical.html.indexOf('location.replace(BOOT.loginUrl)')<canonical.html.indexOf('if((!BOOT.publicAvailable||BOOT.firstUseRequired)&&!await login())'));
 const primary=await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id));assert.equal(primary.handled,true);assert.equal(primary.status,200);assert.equal(primary.html,canonical.html);assert(!primary.headers.Location);
 assert(primary.html.includes("'/meetings/review/work/'+BOOT.id+'/api'"));assert(primary.html.includes('preload="metadata"'));assert(!primary.html.includes("location.pathname+'/api'"));
 assert.equal((await page('https://registered.example.test','/meetings/review?liff.state='+encodeURIComponent('/work/'+id+'/api'))).handled,false);
@@ -95,6 +102,12 @@ assert.equal(r.fields[todo].due,'2026-10-25');assert.equal((await api({action:'p
 const blocks=pages.get('fixture-page').children.map(b=>b.paragraph.rich_text[0].text.content);assert.equal(blocks.filter(s=>s==='會議記錄').length,1);assert(blocks.some(s=>s.includes('編輯者')));assert.equal(pushes.filter(p=>p.key==='workspace-published:'+id).length,1);
 assert.equal((await api({action:'edit',field:'record',value:'舊頁偷改',version:1})).status,409);
 foreign=true;assert.equal((await api({action:'read'},'member')).status,403);
+await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=true WHERE id=$1',[id]);
+firstUseLinked=false;assert.equal((await api({action:'read'},'outside')).status,428,'shared documents also require verified binding');
+firstUseLinked=true;assert.equal((await api({action:'read'},'outside')).value.access,'public','binding preserves original shared reading permission');
+assert.equal((await api({action:'read'},'')).status,401,'anonymous shared read cannot bypass first-use verification');
+await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=false WHERE id=$1',[id]);
+delete platform.ensureFirstUseBinding;
 if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
 export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,pushes,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');

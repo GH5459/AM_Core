@@ -1,3 +1,4 @@
+import * as firstUseMeetings from '../core/first-use-meetings.js';
 import * as commonLineEntry from '../core/common-line-entry.js';
 import assert from 'node:assert/strict';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
@@ -83,6 +84,7 @@ const dependencies = {
   './core/portal-command-entry.js': portalCommandEntry,
   './core/work-journal-entry.js': workJournalEntry,
   './core/common-line-entry.js': commonLineEntry,
+      './core/first-use-meetings.js':firstUseMeetings,
   './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
   './core/uof-setup-entry.js': uofSetupEntry,
   './core/direct-line.js': directLine,

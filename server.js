@@ -12,6 +12,7 @@ import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createLeafTasks } from './core/leaf-tasks.js';
 import {createCommonLineEntry} from './core/common-line-entry.js';
+import {createFirstUseMeetingGuard} from './core/first-use-meetings.js';
 import {createLoginContinuationHttp} from './core/login-continuation-http.js';
 import { createLeafGroups } from './core/leaf-groups.js';
 import { createPortalCommandEntry } from './core/portal-command-entry.js';
@@ -50,6 +51,7 @@ const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger
 const xiaoyeSecretary=leafTasks.secretary||{capture:async()=>[],drain:async()=>{},health:()=>({enabled:false})};
 await xiaoyeSecretary.restore?.();
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
+platform.ensureFirstUseBinding=createFirstUseMeetingGuard(input=>leafTasks.commonLink(input));
 const loginContinuation=createLoginContinuationHttp({pool:centralArchive.pool,authority:v=>leafTasks.continuationAuthority(v),lineIdentity:id=>leafTasks.meetingShareIdentity(id),onError:error=>logger.warn('login_continuation_rejected',{phase:error.continuationPhase||'ROUTE',status:error.status||null,reason:['task_service_unavailable','continuation_service_ambiguous'].includes(error.message)?error.message:['42501','42P01','23505'].includes(error.code)?error.code:'REJECTED'})});
 platform.loginContinuationActor=req=>loginContinuation.actor(req);
 Object.assign(platform,{secretaryEvidenceCheck:leafTasks.secretaryEvidenceCheck,meetingTaskIdentity:leafTasks.meetingIdentity,meetingTaskDirectory:leafTasks.meetingDirectory,meetingShareIdentity:leafTasks.meetingShareIdentity,meetingOrganization:leafTasks.meetingOrganization,meetingShareRecipient:leafTasks.meetingShareRecipient,publishMeetingTasks:leafTasks.publishMeetingTasks,readMeetingTaskProgress:leafTasks.readMeetingTaskProgress});

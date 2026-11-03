@@ -1,3 +1,4 @@
+import * as firstUseMeetings from '../core/first-use-meetings.js';
 import * as commonLineEntry from '../core/common-line-entry.js';
 import * as portalCommandEntry from '../core/portal-command-entry.js';
 import * as usageGuideEntry from '../core/usage-guide-entry.js';
@@ -68,6 +69,7 @@ for (const fails of [false, true]) {
     './core/leaf-calendar/index.js': leafCalendar,
     './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
       './core/common-line-entry.js':commonLineEntry,
+      './core/first-use-meetings.js':firstUseMeetings,
       './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
       './core/leaf-tasks.js': leafTasks,
     './core/access-directory.js': {createAccessDirectory:()=>({})},

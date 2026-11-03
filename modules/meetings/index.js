@@ -29,6 +29,7 @@ import {
   resolveMeetingRolloutPolicy,
 } from './policy.js';
 
+import {firstUseReviewBoot} from '../../core/first-use-review-boot.js';
 let platform = null;
 let meetingAdminHandler = null;
 function init(injected) {
@@ -1193,6 +1194,7 @@ async function resolveReviewActor(session, body) {
   const profile = await lineProfileFromAccessToken(body.liffAccessToken, { expectedClientId: reviewLiffChannelId(session) });
   if (!profile?.userId) throw Object.assign(new Error('請先用 LINE 登入後再操作。'), { statusCode: 401 });
   const actorUserId = profile.userId;
+  await platform.ensureFirstUseBinding?.(actorUserId);
   const actorName = profile.displayName || session.hostName || 'LINE 使用者';
   await assertReviewGroupMember(session, actorUserId, actorName);
   return { actorUserId, actorName };
@@ -1774,7 +1776,7 @@ function renderReviewHtml(session) {
 <section class="panel"><div class="actions"><button id="finalize" class="danger">${createsFormalTasks ? '主持人最終確認並建立待辦' : '主持人最終確認清單'}</button></div><p class="meta">${createsFormalTasks ? '只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。' : '目前為確認試行；完成負責人與主持人確認後，會保存確認版清單，但不建立正式待辦。'}</p></section>
 <div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>' : ''}<script>
 const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='',identityVerified=false,toastTimer=0;
-const api=async(body,timeoutMs=25000)=>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);try{const r=await fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,liffAccessToken:lineAccessToken}),signal:controller.signal});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j}catch(e){if(controller.signal.aborted)throw Error('連線逾時，請重新整理頁面後再試。');throw e}finally{clearTimeout(timer)}};
+const api=async(body,timeoutMs=25000)=>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);try{const r=await fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,liffAccessToken:lineAccessToken}),signal:controller.signal});const j=await r.json().catch(()=>({}));if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}if(!r.ok)throw Error(j.error||'操作失敗');return j}catch(e){if(controller.signal.aborted)throw Error('連線逾時，請重新整理頁面後再試。');throw e}finally{clearTimeout(timer)}};
 const within=(promise,timeoutMs,message)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error(message)),timeoutMs);Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value)},error=>{clearTimeout(timer);reject(error)})});
 function show(msg,duration=2800){const el=document.getElementById('toast');clearTimeout(toastTimer);el.textContent=msg;el.style.display='block';if(duration>0)toastTimer=setTimeout(()=>el.style.display='none',duration)}
 function showError(msg){const el=document.getElementById('errorBox');el.textContent=msg;el.style.display='block'}
@@ -1839,7 +1841,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = nu
   }
   if (req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(renderReviewHtml(session));
+    res.end(platform.ensureFirstUseBinding?firstUseReviewBoot(reviewLiffId(session)):renderReviewHtml(session));
     return true;
   }
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' }), true;
@@ -1849,6 +1851,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = nu
     action = String(body.action || '');
     console.log(`Meeting review action=${action || 'unknown'} session=${sessionId.slice(0, 8)} status=${session.status}`);
     const { actorName, actorUserId } = await resolveReviewActor(session, body);
+    if(action==='first-use-bootstrap')return sendJson(res,200,{ok:true,html:renderReviewHtml(session)}),true;
     const actorHash = actorUserId ? crypto.createHash('sha256').update(actorUserId).digest('hex').slice(0, 10) : '-';
     console.log(`Meeting review actor resolved action=${action || 'unknown'} session=${sessionId.slice(0, 8)} actorHash=${actorHash} hostMatch=${!session.hostUserId || session.hostUserId === actorUserId}`);
     if (action === 'identify') {
@@ -1920,7 +1923,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = nu
     return sendJson(res, 400, { error: '未知的操作。' }), true;
   } catch (error) {
     console.warn(`Meeting review request failed action=${action || 'unknown'} session=${sessionId.slice(0, 8)} status=${session.status} statusCode=${error.statusCode || 500}: ${error.message || error}`);
-    return sendJson(res, error.statusCode || 500, { error: error.message || '會議待辦確認失敗。' }), true;
+    return sendJson(res, error.statusCode || 500, { error: error.message || '會議待辦確認失敗。', ...(error.onboardingUrl?{onboardingUrl:error.onboardingUrl}:{}) }), true;
   }
 }
 
