@@ -48,7 +48,8 @@ const DEFAULT_TIMEOUT_MS = 120_000; // 單一請求
 const DEFAULT_BUDGET_MS = 300_000;  // complete() 整條鏈
 
 // ── 失敗分類:四種失敗的正確處置各不相同,別混為一談 ───────────
-//   transient 429 / 5xx / 網路例外        → 退避後重試同一後端(失敗得快,重試便宜)
+//   transient 5xx / 網路例外        → 退避後重試同一後端(失敗得快,重試便宜)
+//   rate-limit HTTP 429 → 供應商共用冷卻，立即沿既有鏈備援
 //   timeout   請求掛住到逾時               → 不重試,立刻換下一個後端(見下)
 //   parse     JSON 解不出來 / 回傳空內容    → 立刻重試,sleep 是純浪費
 //   fatal     400 / 401 / 403(金鑰錯、模型不存在)→ 不重試,直接換下一個後端
@@ -69,10 +70,11 @@ const TRANSIENT_BASE_DELAY_MS = 8000;
 
 const sleepReal = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function httpError(name, status, detail) {
+function httpError(name, status, detail, retryAfterMs = 0) {
   const transient = status === 429 || status >= 500;
   const e = new Error(`${name} ${status}: ${detail}`);
   e.status = status;
+  e.retryAfterMs = retryAfterMs;
   e.retryable = transient;
   e.kind = transient ? 'transient' : 'fatal';
   return e;
@@ -171,7 +173,9 @@ async function postJson(url, { headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) 
       signal: controller.signal,
     });
     const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, data };
+    const retryAfter=res.headers.get('retry-after');
+    const delay=retryAfter&&/^\d+(\.\d+)?$/.test(retryAfter)?Number(retryAfter)*1000:Date.parse(retryAfter||'')-Date.now();
+    return { ok: res.ok, status: res.status, data, retryAfterMs: Number.isFinite(delay)?Math.max(0,delay):0 };
   } catch (error) {
     // 逾時自成一類:掛住的後端不健康,換人比重試划算(見上方 kind 說明)。
     if (error?.name === 'AbortError') throw taggedError('timeout', `請求逾時(${timeoutMs}ms)`);
@@ -217,12 +221,12 @@ function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
         }
         userMessage = parts;
       }
-      const { ok, status, data } = await postJson(url, {
+      const { ok, status, data, retryAfterMs } = await postJson(url, {
         headers: { authorization: `Bearer ${apiKey}` },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: userMessage }] },
         timeoutMs,
       });
-      if (!ok) throw httpError('MiniMax', status, brief(data?.error || data?.base_resp || data));
+      if (!ok) throw httpError('MiniMax', status, brief(data?.error || data?.base_resp || data), retryAfterMs);
       // MiniMax 有兩種錯誤面貌:HTTP 錯誤碼,或 200 但 base_resp.status_code != 0。
       if (data?.base_resp && Number(data.base_resp.status_code) !== 0) {
         const code = Number(data.base_resp.status_code);
@@ -255,11 +259,11 @@ function geminiBackend({ apiKey, model }) {
         parts.push({ inline_data: { mime_type: mime, data: base64 } });
       }
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const { ok, status, data } = await postJson(url, {
+      const { ok, status, data, retryAfterMs } = await postJson(url, {
         body: { contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } },
         timeoutMs,
       });
-      if (!ok) throw httpError('Gemini', status, brief(data?.error || data));
+      if (!ok) throw httpError('Gemini', status, brief(data?.error || data), retryAfterMs);
       const content = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
       if (!content) throw taggedError('parse', `Gemini 無內容 (finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`);
       return content;
@@ -285,12 +289,12 @@ function assemblyaiBackend({ apiKey, model }) {
     available: Boolean(apiKey),
     supportsImages: false, // 未驗證 gateway 的多模態請求形狀,先關;要開請先實測(scripts/check-llm.mjs)
     async callRaw({ prompt, maxTokens, timeoutMs }) {
-      const { ok, status, data } = await postJson('https://llm-gateway.assemblyai.com/v1/chat/completions', {
+      const { ok, status, data, retryAfterMs } = await postJson('https://llm-gateway.assemblyai.com/v1/chat/completions', {
         headers: { authorization: apiKey },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
         timeoutMs,
       });
-      if (!ok) throw httpError('AssemblyAI Gateway', status, brief(data?.error || data));
+      if (!ok) throw httpError('AssemblyAI Gateway', status, brief(data?.error || data), retryAfterMs);
       const cleaned = stripThink(data?.choices?.[0]?.message?.content);
       if (!cleaned) throw taggedError('parse', `AssemblyAI Gateway 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
       return cleaned;
@@ -312,12 +316,12 @@ function anthropicBackend({ apiKey, model }) {
         content.push({ type: 'image', source: { type: 'base64', media_type: mime, data: base64 } });
       }
       content.push({ type: 'text', text: prompt });
-      const { ok, status, data } = await postJson('https://api.anthropic.com/v1/messages', {
+      const { ok, status, data, retryAfterMs } = await postJson('https://api.anthropic.com/v1/messages', {
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] },
         timeoutMs,
       });
-      if (!ok) throw httpError('Anthropic', status, brief(data?.error || data));
+      if (!ok) throw httpError('Anthropic', status, brief(data?.error || data), retryAfterMs);
       const textBlock = (data?.content || []).find((b) => b.type === 'text');
       if (!textBlock) throw taggedError('parse', `Anthropic 無文字區塊 (stop_reason: ${data?.stop_reason || 'unknown'})`);
       return textBlock.text;
@@ -359,6 +363,9 @@ export function createLlm({
     }),
   ];
   const byName = new Map(all.map((b) => [b.name, b]));
+  // Shared by all calls in this runtime, across profiles. A 429 must not cause
+  // every concurrent job to resend its full prompt on an 8s/16s loop.
+  const rateLimitedUntil=new Map();
 
   // 鏈序 = 成本閥門。只保留「有金鑰」的後端。
   const chain = String(env.AMCORE_LLM_CHAIN || DEFAULT_CHAIN)
@@ -437,6 +444,11 @@ export function createLlm({
     }
 
     for (const backend of candidates) {
+      const cooldown=rateLimitedUntil.get(backend.name)||0;
+      if(cooldown>now()){
+        failures.push({backend:backend.name,kind:'rate-limit',message:'provider cooldown'});
+        continue;
+      }
       let transientTries = 0;
       let parseTries = 0;
       let timeoutTries = 0;
@@ -448,6 +460,10 @@ export function createLlm({
       for (;;) {
         // 預算用盡就別再發請求了 —— 使用者不該為一條注定失敗的鏈再等一個逾時。
         if (remainingMs() <= 0) throw budgetError();
+        if((rateLimitedUntil.get(backend.name)||0)>now()){
+          failures.push({backend:backend.name,kind:'rate-limit',message:'provider cooldown'});
+          break;
+        }
 
         totalAttempts += 1;
         try {
@@ -457,6 +473,13 @@ export function createLlm({
           return { data, backend: backend.name, attempts: totalAttempts };
         } catch (error) {
           const kind = classify(error);
+          if(error.status===429){
+            const delay=Math.max(60000,Number(error.retryAfterMs)||0);
+            rateLimitedUntil.set(backend.name,Math.max(rateLimitedUntil.get(backend.name)||0,now()+delay));
+            failures.push({backend:backend.name,kind:'rate-limit',message:'HTTP 429'});
+            logger.warn(`[llm] ${backend.name} HTTP 429; cooldown ${Math.ceil(delay/1000)}s; trying configured fallback`);
+            break;
+          }
 
           if (kind === 'transient' && transientTries + 1 < TRANSIENT_ATTEMPTS) {
             const delay = (transientTries + 1) * backoffBase;

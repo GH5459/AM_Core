@@ -1,0 +1,25 @@
+{
+  "id": "AM-IMP-2026.1104.01",
+  "name": "背景重試與對外流量統計",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "AM Platform"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Tenant retry isolation and recovery tested",
+    "429 cooldown preserves configured fallback",
+    "Bounded HTTP telemetry excludes secrets",
+    "Reviewed main deployed and read back",
+    "Forest internal database TLS connectivity verified"
+  ]
+}

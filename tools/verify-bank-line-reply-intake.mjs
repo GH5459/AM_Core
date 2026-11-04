@@ -80,6 +80,7 @@ try {
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval,parseAttachmentRequest},
       'node:http':{default:{createServer(fn){callback=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
+      './core/outbound-traffic.js':{OUTBOUND_TRAFFIC_CONTRACT:'outbound-http-counters-v1',createOutboundTraffic:()=>({snapshot:()=>({contract:'outbound-http-counters-v1',totals:{requests:0}})})},
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic',attachmentArchive:createAttachmentArchive({platform:{},router:{},logger})},logger})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},
       './core/line-io/index.js':{createLineIo,readLineIoBody:async r=>r.rawBody},
