@@ -1,5 +1,5 @@
 {
-  "id": "AM-IMP-2026.1104.01",
+  "id": "AM-IMP-2026.1104.02",
   "name": "背景重試與對外流量統計",
   "type": "runtime",
   "portable": true,
