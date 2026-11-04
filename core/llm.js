@@ -174,7 +174,7 @@ async function postJson(url, { headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) 
       signal: controller.signal,
     });
     const data = await res.json().catch(() => ({}));
-    const retryAfter=res.headers.get('retry-after');
+    const retryAfter=res.headers?.get?.('retry-after');
     const delay=retryAfter&&/^\d+(\.\d+)?$/.test(retryAfter)?Number(retryAfter)*1000:Date.parse(retryAfter||'')-Date.now();
     return { ok: res.ok, status: res.status, data, retryAfterMs: Number.isFinite(delay)?Math.max(0,delay):0 };
   } catch (error) {
