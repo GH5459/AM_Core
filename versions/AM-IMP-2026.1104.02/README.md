@@ -1,0 +1,2 @@
+# Leaf task service recovery
+Status: Ready. Root AM Platform only (VENDORED.md). Investigation: direct health and queue polls are healthy, but the runtime discards the cause of per-tenant failures. Add sanitized tenant/phase/error-code/status diagnostics plus an existing-admin-key-protected read-only service-health endpoint. No service enrollment, credentials, identities, jobs, task contents or photo policies are changed. Follow-up root repair must use observed production evidence.

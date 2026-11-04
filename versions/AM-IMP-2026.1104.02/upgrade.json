@@ -1,0 +1,24 @@
+{
+  "id": "AM-IMP-2026.1104.02",
+  "name": "Leaf task service recovery diagnostics",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "Root AM Platform"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Sanitized diagnosis identifies production cause",
+    "Root repair verified",
+    "Full regression CI passes",
+    "Production readback and warning observation pass"
+  ]
+}

@@ -111,3 +111,18 @@ test('current disabled recipient is rejected by task identity checks; an unavail
 test('historical queue: eligibility lost after queue receipt is terminal and never turns into a deferred login task',async()=>{
  const f=await fixture();await f.queueLegacy();f.revoke();await f.service.drain();assert(f.paths.includes('suppress'));assert(!f.paths.includes('issue'));assert(!f.paths.includes('defer'));assert.equal(f.counts().notices,0);await f.restart().drain();assert.equal(f.counts().issues,0);
 });
+
+test('service health reports sanitized per-tenant failures without claiming jobs or writing work',async()=>{
+ const f=await fixture({failFirstTenant:true}),before=f.paths.length;
+ const result=await f.service.serviceHealth();assert.equal(result.noWrites,true);
+ assert.deepEqual(result.services[0],{tenant:'unavailable',phase:'config',code:'42501',status:null,available:false});
+ assert.equal(result.services[1].available,true);assert(f.paths.slice(before).every(p=>p==='health'));
+ assert.deepEqual(f.counts(),{judgments:0,issues:0,notices:0});
+});
+test('scheduler diagnostics identify tenant and phase while excluding raw error secrets',async()=>{
+ const f=await fixture(),logs=[];f.options.logger.warn=x=>logs.push(x);
+ f.options.store.service=async()=>{throw Object.assign(Error('postgres://private-user:private-password@private-host'),{code:'ECONNRESET'});};
+ const service=f.restart();await service.drain();await service.drainPhotos();
+ assert(logs.some(x=>x.includes('"phase":"config"')&&x.includes('"code":"ECONNRESET"')&&x.includes('"tenant":"fixture"')));
+ for(const x of logs)assert(!/private-|postgres:/.test(x));
+});
