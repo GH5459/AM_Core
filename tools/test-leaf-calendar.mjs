@@ -343,7 +343,8 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
       'node:http':{default:{createServer(fn){handler=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
       './core/resource-gate.js':{llmGate:{snapshot:()=>({active:0,pending:0})},previewGate:{snapshot:()=>({active:0,pending:0})}},
-  './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:(raw,s)=>s===sign(raw)},router:{resolveGroupBinding:async()=>({tenant,binding:{status:'啟用'}})},
+      './core/outbound-traffic.js':{OUTBOUND_TRAFFIC_CONTRACT:'outbound-http-counters-v1',createOutboundTraffic:()=>({snapshot:()=>({contract:'outbound-http-counters-v1',totals:{requests:0}})})},
+      './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:(raw,s)=>s===sign(raw)},router:{resolveGroupBinding:async()=>({tenant,binding:{status:'啟用'}})},
         dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>groups.push(event)},portal:{},modules:new Map(),platform:f.platform,llm:{available:false,backends:[]},logger:{log(){},warn(){},error(){}}})},
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
@@ -351,7 +352,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './core/common-line-entry.js':commonLineEntry,
       './core/first-use-meetings.js':firstUseMeetings,
       './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
-      './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:()=>false})},
+      './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:v=>v==='fixture-admin',backgroundRetries:()=>[]})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
       './core/portal-command-entry.js':portalCommandEntry,
@@ -366,6 +367,8 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
     const context=vm.createContext({URL,Buffer,console,process:{env:{}},setInterval:()=>({unref(){}})});
     const module=new vm.SourceTextModule(await readFile(new URL('../server.js',import.meta.url),'utf8'),{context});
     await module.link(name=>new vm.SyntheticModule(Object.keys(dependencies[name]),function(){for(const [key,value] of Object.entries(dependencies[name]))this.setExport(key,value);},{context}));await module.evaluate();
+    const statsDenied={};await handler({method:'GET',url:'/portal/admin/outbound-traffic',headers:{}},statsDenied);assert.equal(statsDenied.status,403);
+    const stats={setHeader(k,v){this[k]=v;}};await handler({method:'GET',url:'/portal/admin/outbound-traffic',headers:{authorization:'Bearer fixture-admin'}},stats);assert.equal(stats.status,200);assert.equal(stats['Cache-Control'],'no-store');assert.equal(stats.body.contract,'outbound-http-counters-v1');
     const event=message('webhook-calendar','10/8 專案會議 14:00 台中');const group={...message('group-msg','群組'),source:{type:'group',groupId:'synthetic-group',userId:U}};
     const raw=JSON.stringify({events:[event,group]});const denied={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':'invalid'}},denied);assert.equal(denied.status,401);
     const res={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':sign(raw)}},res);assert.equal(res.status,200);await f.service.drain();await new Promise(resolve=>setImmediate(resolve));

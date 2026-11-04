@@ -279,6 +279,9 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node --test tools/test-background-backoff.mjs tools/test-outbound-traffic.mjs tools/test-llm-cooldown.mjs
+      - run: node scripts/check-llm.mjs --offline
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1104.02
       - run: node --test tools/test-memory-pressure.mjs
       - run: node --check core/group-command.js && node --check core/group-quick-create.js && node --check core/leaf-groups.js && node --check core/leaf-tasks.js && node --check core/line-self-task-worker.mjs && node --check modules/meetings/conversation-service.js
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1102.02
@@ -297,6 +300,9 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node --test tools/test-background-backoff.mjs tools/test-outbound-traffic.mjs tools/test-llm-cooldown.mjs
+      - run: node scripts/check-llm.mjs --offline
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1104.02
       - run: node --test tools/test-memory-pressure.mjs
       - run: npm ci --prefix tools/fixtures/xiaoye-repro --ignore-scripts
       - run: node --test --test-force-exit tools/test-xiaoye-repro-fixture.cjs

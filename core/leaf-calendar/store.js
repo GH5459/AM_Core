@@ -13,7 +13,7 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
         max: 3, connectionTimeoutMillis: 8000, idleTimeoutMillis: 30000, application_name: 'am-leaf-calendar' });
       pool.on?.('error',()=>{});
       return pool;
-    })());
+    })().catch(error=>{pools.delete(cfg.databaseUrl);throw error;}));
     return pools.get(cfg.databaseUrl);
   }
   async function tx(tenant, work) {

@@ -63,7 +63,8 @@ const dependencies = {
   'node:http': { default: { createServer(fn) { handler = fn; return { listen() {} }; } } },
   'node:crypto': { default: crypto },
   './core/resource-gate.js':{llmGate:{snapshot:()=>({active:0,pending:0})},previewGate:{snapshot:()=>({active:0,pending:0})}},
-  './core/bootstrap.js': { bootstrap: async () => ({
+  './core/outbound-traffic.js':{OUTBOUND_TRAFFIC_CONTRACT:'outbound-http-counters-v1',createOutboundTraffic:()=>({snapshot:()=>({contract:'outbound-http-counters-v1',totals:{requests:0}})})},
+      './core/bootstrap.js': { bootstrap: async () => ({
     tenants: [tenant], line: { configured: true, isValidSignature: (raw, signature) => signature === sign(raw), replyLineMessage: forbidden,
       lineGet: async path => { journalReads.push(path);return path.startsWith('/v2/bot/user/') ? { richMenuId: 'richmenu-' + 'a'.repeat(32) } : { areas: [{ action: { type: 'uri', label: '工作日誌', uri: 'https://journal.example.com/?openExternalBrowser=1' } }] }; },
       replyLineMessages: async (token, messages) => journalReplies.push({ token, messages }),

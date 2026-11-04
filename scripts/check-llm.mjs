@@ -78,13 +78,13 @@ console.log('── 空回應(<think> 吃光 max_tokens)──');
 // ── 重試分類:三種失敗的處置必須不同 ──
 console.log('\n── 重試分類(transient / parse / fatal)──');
 {
-  // 429 → 暫時性:同一後端試 3 次,退避 8s + 16s
+  // 429 → 共用供應商冷卻，不立即重送
   const hits = {}; const delays = [];
   fakeFetch(hits, (who) => (who === 'minimax' ? R({ error: 'rate limited' }, 429) : R(GEMINI_OK)));
   const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms) });
   const out = await llm.completeText({ system: 's', userContent: 'u' });
-  check(out === '{"title":"OK"}' && hits.minimax === 3 && delays.join(',') === '8000,16000',
-    '429 → 退避 8s,16s 後換人', `hits=${JSON.stringify(hits)} delays=[${delays}]`);
+  check(out === '{"title":"OK"}' && hits.minimax === 1 && delays.length === 0,
+    '429 → 供應商冷卻並立即換備援', `hits=${JSON.stringify(hits)} delays=[${delays}]`);
 }
 {
   // 500 → 暫時性
@@ -288,8 +288,8 @@ console.log('\n── 預算飢餓(生產比例 120:8:300,÷1000)──');
     fakeFetch(hits, (who) => (who === 'minimax' ? R({}, 429) : R(GEMINI_OK)));
     const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms) });
     await llm.completeText({ system: 's', userContent: 'u' });
-    check(hits.minimax === 3 && delays.join(',') === '8000,16000',
-      '429 不受影響,仍退避重試 3 次', `hits=${JSON.stringify(hits)} delays=[${delays}]`);
+    check(hits.minimax === 1 && delays.length === 0,
+      '429 不在同一次呼叫重送', `hits=${JSON.stringify(hits)} delays=[${delays}]`);
   }
 }
 

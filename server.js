@@ -4,6 +4,7 @@ import { llmGate, previewGate } from './core/resource-gate.js';
 // core 只做底座 + 路由 + 租戶解析 + 隔離;功能邏輯全在 modules/。
 
 import http from 'node:http';
+import {createOutboundTraffic,OUTBOUND_TRAFFIC_CONTRACT} from './core/outbound-traffic.js';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
@@ -36,6 +37,7 @@ import {
   withResolvedGroupName,
 } from './core/group-onboarding.js';
 
+const outboundTraffic=createOutboundTraffic();
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
@@ -281,6 +283,11 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if(req.method==='GET'&&pathname==='/portal/admin/outbound-traffic'){
+    if(!leafTasks.adminAuthorized(String(req.headers.authorization||'').replace(/^Bearer /,'')))return sendJson(res,403,{error:'Forbidden'});
+    res.setHeader('Cache-Control','no-store');
+    return sendJson(res,200,{...outboundTraffic.snapshot(),backgroundRetries:leafTasks.backgroundRetries()});
+  }
   if (await conversationMeetings.handle(req,res,url)) return;
   if (await lineIo.handle(req, res, url)) return;
   // LINE opens a LIFF deep link at its registered endpoint and carries the
@@ -303,6 +310,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
+      outboundTraffic:{contract:OUTBOUND_TRAFFIC_CONTRACT,intervalSeconds:60},
       multilingualText:{contract:'employee-three-language-text-v1',locales:['zh-Hant','en','id'],foreignTaskStatus:true,foreignDefinitionEdit:false},
       build: GROUP_ONBOARDING_BUILD,
       financeMentionRegistry: 'claims-group-members-v1',
