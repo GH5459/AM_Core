@@ -17,7 +17,13 @@ test('real HTTP string, multipart and streamed uploads are observed without chan
     await(await fetch(base+'/limited',{method:'POST',duplex:'half',body:new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('stream-body'));c.close();}})})).text();
     const report=monitor.snapshot();
     assert.equal(report.totals.requests,3);assert.equal(report.totals.rateLimited,1);
-    assert.equal(report.totals.bodyBytes,received.reduce((a,b)=>a+b,0));assert(report.totals.headerBytes>0);
+    // Node 22 lacks chunk diagnostics: known lengths remain exact and the
+    // unmeasurable stream must be explicitly reported, never silently lost.
+    assert([0,1].includes(report.totals.unknownBodies));
+    assert.equal(report.totals.bodyBytes,received.reduce((a,b)=>a+b,0)-(report.totals.unknownBodies?received[2]:0));
+    const streamed=report.destinations.find(r=>r.feature==='other');
+    assert.equal(streamed.bodyBytes,streamed.unknownBodies?0:received[2]);
+    assert(report.totals.headerBytes>0);
     assert(report.destinations.some(r=>r.feature==='tasks'));assert(report.destinations.some(r=>r.feature==='upload'));
     monitor.flush();assert.equal(monitor.snapshot().destinations.reduce((a,r)=>a+r.requests,0),0);
     assert.equal(monitor.snapshot().totals.requests,3);
