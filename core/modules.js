@@ -3,6 +3,7 @@
 //   (回傳 true 短路);掛載各模組 routes;提供 tick 排程。
 // 模組不綁死租戶:同一份模組實例服務所有租戶,租戶脈絡每次由 ctx.tenant 帶入。
 
+import { singleFlight } from './resource-gate.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -314,5 +315,5 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
-  return { dispatchMessage, dispatchDirectMessage, dispatchDirectPostback, dispatchPostback, collectRoutes, runTicks, runFastTicks };
+  return { dispatchMessage, dispatchDirectMessage, dispatchDirectPostback, dispatchPostback, collectRoutes, runTicks: singleFlight(runTicks), runFastTicks: singleFlight(runFastTicks) };
 }

@@ -180,6 +180,7 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
  const platform={...f.options.platform,attachmentArchive:{setTransportResolver(){},capture:async()=>[],health:()=>({})}};
  const deps={
   'node:http':{default:{createServer(fn){handler=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
+  './core/resource-gate.js':{llmGate:{snapshot:()=>({active:0,pending:0})},previewGate:{snapshot:()=>({active:0,pending:0})}},
   './core/bootstrap.js':{bootstrap:async()=>({tenants:[],line:{configured:true,isValidSignature:(raw,s)=>s===sign(raw)},router:{resolveGroupBinding:async()=>({tenant:{key:'fixture'},binding:{status:'啟用'}})},dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>business.push(event)},portal:{},modules:new Map(),platform,llm:f.options.llm,logger:{log(){},warn(){},error(){}}})},
   './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:events=>f.archive.capture(events),health:()=>({})})},
