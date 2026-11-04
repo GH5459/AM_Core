@@ -1,3 +1,4 @@
+import { llmGate, previewGate } from './core/resource-gate.js';
 // AM Platform 伺服器入口(ESM、無框架 node:http,比照 BuildAM)
 // 一支 OA → 一個 webhook(/webhook/line)是唯一入口 → 依群組分流到各租戶 → 各租戶落自己的 Notion 頁。
 // core 只做底座 + 路由 + 租戶解析 + 隔離;功能邏輯全在 modules/。
@@ -727,6 +728,13 @@ async function handleEvent(event) {
   }
   await dispatcher.dispatchMessage({ tenant, binding, event });
 }
+
+// Numeric-only telemetry distinguishes retained JS data from binary/native pressure.
+const memoryTimer = setInterval(() => {
+  const { rss, heapUsed, external, arrayBuffers } = process.memoryUsage();
+  logger.log('[runtime-memory] '+JSON.stringify({rss,heapUsed,external,arrayBuffers,llm:llmGate.snapshot(),preview:previewGate.snapshot()}));
+}, 60000);
+memoryTimer.unref();
 
 // 巡邏排程:每 10 分鐘跑一次 tick(模組如 reminders 用)。
 const tickTimer = setInterval(() => {

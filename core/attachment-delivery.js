@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp from 'sharp';
+import { previewGate } from './resource-gate.js';
 import {mediaFilename,asciiDownloadFilename,normalizedMediaType} from './media-filename.js';
 
 export const ATTACHMENT_DELIVERY_CONTRACT = 'line-quoted-image-signed-download-v1';
@@ -82,7 +83,7 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    let valid = false;
+    let valid = false, releasePreview;
     try {
       const p = verify(tenant, url.searchParams.get('token')); valid = true;
       const event = { type: 'message', source: p.source, message: { type: 'text' } };
@@ -92,6 +93,8 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
       if (file.fileId !== p.fileId || file.md5 !== p.md5 || file.size !== p.size) { valid = false; fail(); }
       const contentType = await mime(file);
       if (p.mode !== 'download' && (!['image/jpeg', 'image/png'].includes(contentType) || file.size > IMAGE_MAX)) fail();
+      // Revalidate access after waiting, before opening the original.
+      if (p.mode === 'preview') releasePreview = await previewGate.acquire(15000);
       const latest = await resolveConversation(event,p.command);
       if (latest?.tenant?.key !== tenant.key || latest.binding?.status !== '啟用' || latest.binding?.outputEnabled===false || latest.tenant.runtimeEnabled === false) { valid = false; fail(); }
       const token = await platform.getDriveAccessToken();
@@ -122,7 +125,7 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
       res.statusCode = valid ? 503 : 403;
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.end(valid ? '目前無法讀取原檔備份，請稍後再試。' : '連結已失效，請回到 LINE 原訊息再次回覆取回。');
-    }
+    } finally { releasePreview?.(); }
   }
   return { messages, handleDownload, contract: ATTACHMENT_DELIVERY_CONTRACT, filenameContract:ATTACHMENT_FILENAME_CONTRACT, ready };
 }

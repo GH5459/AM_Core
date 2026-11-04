@@ -1,0 +1,2 @@
+# Verify
+Run node --test tools/test-memory-pressure.mjs tools/test-attachment-delivery.mjs; node tools/dryrun-media.mjs; node --experimental-vm-modules tools/dryrun-core.mjs and tools/dryrun-meetings.mjs. Run node tools/reproduce-memory-burst.mjs in a separate process (mock network only). Full existing CI must pass. Verify production live commit and numeric runtime-memory log. Natural production traffic/observation remains necessary; do not claim historical request attribution.
