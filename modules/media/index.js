@@ -94,7 +94,7 @@ function buildSlug({ dateStr, place, topic }) {
 
 // 視覺判讀:寫暫存檔 → platform.llm(imagePaths)→ 清檔。任何失敗回 null(不擋關聯)。
 async function visionJudge(ctx) {
-  const media = ctx.media;
+  let media = ctx.media;
   const llm = platform?.llmForTenant?.(ctx.tenant) || platform?.llm;
   if (!media?.buffer || !llm?.available) return null;
   const ct = media.contentType || '';
@@ -102,6 +102,9 @@ async function visionJudge(ctx) {
   const tmp = path.join(os.tmpdir(), `media-${crypto.randomBytes(8).toString('hex')}${ext}`);
   try {
     fs.writeFileSync(tmp, Buffer.from(media.buffer));
+    // Disk owns the input during AI queueing/retries; release the binary context.
+    delete ctx.media;
+    media = null;
     const v = await llm.completeJson({
       system: visionSystem(ctx.tenant), userContent: '判讀這張照片。', schema: VISION_SCHEMA,
       imagePaths: [tmp], profile: 'cheap', maxTokens: 800, budgetMs: 60_000,

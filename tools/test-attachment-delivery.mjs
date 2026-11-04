@@ -22,7 +22,7 @@ async function fixture(options = {}) {
     resolveOriginal: async (t, input, cmd) => { calls.push(['source', t.key, input, cmd]); if (!original) throw Error('missing'); return original; },
     fetchImpl: async input => {
       const url = new URL(input); calls.push(['drive']);
-      if (url.searchParams.get('alt') === 'media') return new Response(bytes);
+      if (url.searchParams.get('alt') === 'media') return options.mediaResponse ? options.mediaResponse(bytes) : new Response(bytes);
       return Response.json({ id: file.fileId, size: file.size, md5Checksum: file.md5,
         mimeType: 'image/png', trashed: false, ...options.metadata });
     },
@@ -131,4 +131,13 @@ test('new LINE media names gain the MIME extension; original explicit filenames 
   assert.equal(line.resolveLineFilename({},'audio','synthetic','audio/mp4'),'audio-synthetic.m4a');
   assert.equal(line.resolveLineFilename({fileName:'original.mov'},'video','synthetic','video/mp4'),'original.mov');
   assert.equal(line.resolveLineFilename({},'file','synthetic','application/octet-stream'),'file-synthetic');
+});
+
+test('concurrent preview requests serialize binary fetch/decode and retain all outputs', async () => {
+  let active=0,peak=0;
+  const f=await fixture({mediaResponse(bytes){active++;peak=Math.max(peak,active);return new Response(new ReadableStream({async start(c){await new Promise(r=>setTimeout(r,15));c.enqueue(bytes);active--;c.close();}}));}});
+  const messages=await f.delivery.messages(tenant,event,command,f.file);
+  const results=await Promise.all(Array.from({length:6},()=>download(f,messages[1].previewImageUrl)));
+  assert.equal(peak,1);assert(results.every(r=>r.status===200));
+  for(const r of results)assert((await sharp(r.bytes).metadata()).width<=1024);
 });

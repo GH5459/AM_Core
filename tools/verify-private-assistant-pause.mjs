@@ -62,6 +62,7 @@ const dependencies = {
     if(failCentralIntake)throw Error('synthetic_archive_outage');centralCaptured.push(...events);},health:()=>({enabled:true})}) },
   'node:http': { default: { createServer(fn) { handler = fn; return { listen() {} }; } } },
   'node:crypto': { default: crypto },
+  './core/resource-gate.js':{llmGate:{snapshot:()=>({active:0,pending:0})},previewGate:{snapshot:()=>({active:0,pending:0})}},
   './core/outbound-traffic.js':{OUTBOUND_TRAFFIC_CONTRACT:'outbound-http-counters-v1',createOutboundTraffic:()=>({snapshot:()=>({contract:'outbound-http-counters-v1',totals:{requests:0}})})},
       './core/bootstrap.js': { bootstrap: async () => ({
     tenants: [tenant], line: { configured: true, isValidSignature: (raw, signature) => signature === sign(raw), replyLineMessage: forbidden,

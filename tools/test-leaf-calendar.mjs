@@ -342,6 +342,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './modules/meetings/conversation-service.js':{createConversationMeetings:()=>({enabled:false,capture:async()=>[],drain:async()=>{},handle:async()=>false,health:()=>({enabled:false})})},
   './core/central-archive/index.js':{createCentralArchive:async()=>({capture:async()=>{},health:()=>({enabled:false})})},
       'node:http':{default:{createServer(fn){handler=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
+      './core/resource-gate.js':{llmGate:{snapshot:()=>({active:0,pending:0})},previewGate:{snapshot:()=>({active:0,pending:0})}},
       './core/outbound-traffic.js':{OUTBOUND_TRAFFIC_CONTRACT:'outbound-http-counters-v1',createOutboundTraffic:()=>({snapshot:()=>({contract:'outbound-http-counters-v1',totals:{requests:0}})})},
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:(raw,s)=>s===sign(raw)},router:{resolveGroupBinding:async()=>({tenant,binding:{status:'啟用'}})},
         dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>groups.push(event)},portal:{},modules:new Map(),platform:f.platform,llm:{available:false,backends:[]},logger:{log(){},warn(){},error(){}}})},

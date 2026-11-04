@@ -1,0 +1,24 @@
+{
+  "id": "AM-IMP-2026.1104.01",
+  "name": "Bound runtime memory amplification",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "Root AM Platform"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Regression and full CI pass",
+    "Reviewed main deployed and read back",
+    "Historical attribution uncertainty preserved",
+    "Natural traffic memory observation"
+  ]
+}

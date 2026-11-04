@@ -182,12 +182,21 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new Error('Drive file id is invalid');
     const token = await getAccessToken();
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000),
     });
     if (!response.ok) throw new Error(`Drive download failed: ${response.status}`);
     const declared = Number(response.headers.get('content-length') || 0);
-    if (Number.isFinite(declared) && declared > maxBytes) throw new Error('Drive file exceeds download limit');
-    const buffer = Buffer.from(await response.arrayBuffer());
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await response.body?.cancel();
+      throw new Error('Drive file exceeds download limit');
+    }
+    const chunks = []; let size = 0;
+    for await (const chunk of response.body) {
+      size += chunk.byteLength;
+      if (size > maxBytes) throw new Error('Drive file exceeds download limit');
+      chunks.push(Buffer.from(chunk));
+    }
+    const buffer = Buffer.concat(chunks, size);
     if (!buffer.length || buffer.length > maxBytes) throw new Error('Drive file size is invalid');
     return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
   }

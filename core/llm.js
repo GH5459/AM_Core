@@ -31,6 +31,7 @@
 //   timeoutMs         → 單一請求逾時(預設 120s)
 //   budgetMs          → 整條鏈的總時間硬上限(預設 300s)。這才是使用者等待的界線。
 
+import { llmGate } from './resource-gate.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -403,7 +404,7 @@ export function createLlm({
     return base.filter((b) => b.supportsImages);
   }
 
-  async function complete({
+  async function completeAdmitted({
     system, userContent, schema = null, maxTokens = 16000, imagePaths = [],
     profile = null, chain: chainSpec = null,
     timeoutMs = envTimeoutMs, budgetMs = envBudgetMs,
@@ -511,6 +512,17 @@ export function createLlm({
 
     if (remainingMs() <= 0) throw budgetError();
     throw new Error(`所有 LLM 後端都失敗 → ${failures.map((f) => `${f.backend}/${f.kind}(${f.message})`).join('; ')}`);
+  }
+
+  async function complete(opts) {
+    const budgetMs = opts.budgetMs ?? envBudgetMs;
+    const queuedAt = Date.now();
+    const release = await llmGate.acquire(budgetMs);
+    try {
+      const remaining = budgetMs - (Date.now() - queuedAt);
+      if (remaining <= 0) throw taggedError('timeout', 'LLM queue exhausted total time budget');
+      return await completeAdmitted({ ...opts, budgetMs: remaining });
+    } finally { release(); }
   }
 
   const describe = (b) => ({ name: b.name, model: b.model, supportsImages: b.supportsImages });

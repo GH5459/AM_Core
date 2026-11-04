@@ -3,6 +3,12 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'core/resource-gate.js'
+      - 'core/llm.js'
+      - 'core/modules.js'
+      - 'modules/media/**'
+      - 'tools/test-memory-pressure.mjs'
+      - 'versions/AM-IMP-2026.1104.01/**'
       - 'core/first-use*'
       - 'tools/build-first-use-workers.cjs'
       - 'tools/test-first-use-workers.cjs'
@@ -276,6 +282,7 @@ jobs:
       - run: node --test tools/test-background-backoff.mjs tools/test-outbound-traffic.mjs tools/test-llm-cooldown.mjs
       - run: node scripts/check-llm.mjs --offline
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1104.02
+      - run: node --test tools/test-memory-pressure.mjs
       - run: node --check core/group-command.js && node --check core/group-quick-create.js && node --check core/leaf-groups.js && node --check core/leaf-tasks.js && node --check core/line-self-task-worker.mjs && node --check modules/meetings/conversation-service.js
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1102.02
       - run: node --test tools/test-line-group-command-scope.cjs tools/test-line-task-dates.mjs tools/test-line-activity-agenda.mjs tools/test-leaf-tasks.mjs tools/test-leaf-task-edit.mjs tools/test-line-work-login.mjs tools/test-line-quoted-progress.mjs tools/test-meeting-share-recipient.mjs
@@ -293,6 +300,10 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node --test tools/test-background-backoff.mjs tools/test-outbound-traffic.mjs tools/test-llm-cooldown.mjs
+      - run: node scripts/check-llm.mjs --offline
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1104.02
+      - run: node --test tools/test-memory-pressure.mjs
       - run: npm ci --prefix tools/fixtures/xiaoye-repro --ignore-scripts
       - run: node --test --test-force-exit tools/test-xiaoye-repro-fixture.cjs
       - run: node --test tools/test-xiaoye-line.mjs tools/test-xiaoye-proposal-card.mjs tools/test-xiaoye-intake-controls.mjs tools/test-xiaoye-binding-priority.mjs tools/test-xiaoye-external-browser.mjs
