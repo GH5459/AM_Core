@@ -36,7 +36,7 @@ assert.equal((await api({action:'publish',revision:edit.workspace.revision})).st
 assert.equal((await detail({action:'preparation',text:'不可改',version:1})).status,403);
 assert.equal((await detail({action:'audio-begin',uploadId:'synthetic-upload',mime:'audio/webm',filename:'x.webm'})).status,403);
 assert.equal((await api({action:'read'},'guest')).status,403);
-const schedule=await detail({action:'plan-save',version:1,topic:'新的排程名稱',start:'2026-11-06T03:00:00+00:00',end:'2026-11-06T06:00:00+00:00',location:'',accounts:[],calendar:false,cancelled:false},'host');assert.equal(schedule.status,200,JSON.stringify(schedule));assert.equal((await service.store.get(id)).fields.settings.topic,settings.topic);assert.equal((await call('/meetings/review/hub/api',{action:'list'})).items.find(x=>x.id===id).topic,settings.topic);
+const schedule=await detail({action:'plan-save',version:1,topic:'新的排程名稱',start:'2026-11-06T11:00:00+08:00',end:'2026-11-06T14:00:00+08:00',location:'',accounts:[],calendar:false,cancelled:false},'host');assert.equal(schedule.status,200,JSON.stringify(schedule));assert.equal((await service.store.get(id)).fields.settings.topic,settings.topic);assert.equal((await call('/meetings/review/hub/api',{action:'list'})).items.find(x=>x.id===id).topic,settings.topic);
 const savedIdentity=platform.meetingShareIdentity;
 platform.meetingShareIdentity=async id=>id===outsider?null:who(id);assert.equal((await api({action:'read'})).status,403);
 platform.meetingShareIdentity=async id=>id===outsider?{...who(id),tenantKey:'foreign'}:who(id);assert.equal((await api({action:'read'})).status,403);
