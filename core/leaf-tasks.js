@@ -248,10 +248,18 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function translationExperience(tenantKey,account){const t=(await groupServices()).find(t=>t.key===tenantKey);if(!t)return null;const value=await call(t,await config(t),'meeting-sharing-person',{account});return value.person?.experience||null;}
  async function checkMultilingual(input){const t=(await groupServices()).find(t=>t.key===input.tenantKey);if(!t||!['zh-Hant','en','id'].includes(input.locale))throw Error('multilingual_probe_input');return call(t,await config(t),'multilingual-probe',{locale:input.locale});}
  async function meetingDirectory(){const list=[];for(const t of await groupServices()){const c=await config(t),r=await call(t,c,'meeting-directory',{});list.push(...r.people);}return list;}
- async function meetingShareIdentity(userId,tenantKey){
+ async function meetingShareIdentity(userId,tenantKey,{composed=false}={}){
   if(!idPattern.test(userId||''))return null;const found=[];
   for(const t of await groupServices()){
    if(tenantKey&&t.key!==tenantKey)continue;const c=await config(t),prior=await resolveIdentity(userId,t.key,{readOnly:true});
+   if(composed){
+    // The signed hub-list path opts in only after DailyLog's compatible route
+    // has been deployed. No retry/fallback can hide an unavailable authority.
+    const value=await call(t,c,'meeting-share-identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId,legacyIdentity:prior?.tenantKey===t.key&&prior.bindingId?{tenantKey:t.key,account:prior.account,bindingId:prior.bindingId}:null});
+    if(value.contract!=='meeting-share-identity-v1')throw Error('meeting_identity_contract_unavailable');
+    if(value.person){if(!value.identity?.account||!value.identity?.bindingId)throw Error('meeting_identity_response_invalid');found.push({userId,tenantKey:t.key,account:value.identity.account,name:value.person.name,experience:value.person.experience});}
+    continue;
+   }
    const current=await call(t,c,'identity',{botUserId:env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID,lineUserId:userId});
    const who=current.identity?.userId===userId&&current.identity.identityId?{account:current.identity.account,bindingId:current.identity.identityId}:prior?.tenantKey===t.key&&prior.bindingId?prior:null;
    if(!who)continue;const v=await call(t,c,'meeting-sharing-person',{account:who.account});if(v.person)found.push({userId,tenantKey:t.key,account:who.account,name:v.person.name,experience:v.person.experience});
