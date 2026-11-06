@@ -51,6 +51,8 @@ const lineIo = await createLineIo({ tenants, line, router, logger });
 const uofSetupEntry = createUofSetupEntry({ line, lineIo, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity, resolveRecipient:lineIo.resolveTaskRecipient });
+import {createJournalSharing} from './core/journal-sharing.js';
+const journalSharing=createJournalSharing({authorize:leafTasks.journalSharingAuthority,pool:centralArchive.pool,line,recipient:leafTasks.meetingShareRecipient,identity:leafTasks.meetingShareIdentity,botId:process.env.AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID});
 const xiaoyeSecretary=leafTasks.secretary||{capture:async()=>[],drain:async()=>{},health:()=>({enabled:false})};
 await xiaoyeSecretary.restore?.();
 const commonLineEntry=createCommonLineEntry({call:input=>leafTasks.commonLink(input)});
@@ -649,6 +651,10 @@ const server = http.createServer(async (req, res) => {
       if(url.pathname.endsWith('/diagnose')){const sources=await centralArchive.taskSources(input),diagnostics=[];for(const source of sources)diagnostics.push(await leafTasks.inspectSource(source));return sendJson(res,200,{ok:true,diagnostics});}
       const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(input):leafTasks.configureService(input));return sendJson(res,200,result); }
     catch { return sendJson(res,503,{error:'Task service setup unavailable'}); }
+  }
+  if (req.method === 'POST' && pathname === '/integrations/journal-sharing') {
+    try {const input=JSON.parse(await readLineIoBody(req,4096));return sendJson(res,200,await journalSharing(input,String(req.headers.authorization||'').replace(/^Bearer /,'')));}
+    catch(error){return sendJson(res,error.status||503,{ok:false,error:error.status?error.message:'分享名單暫時無法確認，請稍後重試。'});}
   }
   if (req.method === 'POST' && pathname === '/integrations/task-personal-completion-report') {
     try { const input=JSON.parse(await readLineIoBody(req,4096)); return sendJson(res,200,await leafTasks.personalCompletionReport(input,String(req.headers.authorization||'').replace(/^Bearer /,''))); }

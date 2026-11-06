@@ -192,6 +192,7 @@ test('signed runtime webhook persists mentioned group source before ACK, exclude
   './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
       './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async events=>legacy.push(...events),drain:async()=>{},health:()=>({})})},
   './core/leaf-groups.js':{createLeafGroups:()=>live},
+  './core/journal-sharing.js':{createJournalSharing:()=>async()=>{throw Error('journal_sharing_not_used_in_webhook_fixture');}},
   './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
   './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
   './core/portal-command-entry.js':portalCommandEntry,
