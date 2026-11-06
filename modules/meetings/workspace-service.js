@@ -150,6 +150,10 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const result=await meetingModule.generateWorkspace({tenant:ctx.tenant,audioStreamFactory,loadAudio:()=>download(r,row),filename:r.filename,settings,confirmedSpeakerCount:preparation.confirmedSpeakerCount,preparation:preparation?.preparation||'',inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null});
    const fields={...Object.fromEntries(Object.entries(r.fields).filter(([k])=>!k.startsWith('todo:'))),record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:Number(r.field_versions.record||0)+1,transcript:Number(r.field_versions.transcript||0)+1};
+   // Invalidate editors left open on the previous result, including fields
+   // whose implicit initial version was zero. They must not revive old todos.
+   for(const key of Object.keys(r.fields).filter(k=>k.startsWith('todo:')))versions[key]=Number(r.field_versions[key]||0)+1;
+   if(r.fields.record)for(const block of recordBlocks(r)){const key='record:'+block.id;versions[key]=Number(r.field_versions[key]||0)+1;}
    for(const t of (result.parsed.todos||[]).slice(0,60)){
     const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }

@@ -64,6 +64,8 @@ const rerun=await api({action:'regenerate',revision:edit.workspace.revision,conf
 const versions=await api({action:'generation-versions'});assert.equal(versions.status,200);assert.equal(versions.versions.length,1);
 const archive=await api({action:'generation-version',revision:versions.versions[0].revision});assert.equal(archive.version.snapshot.fields.record,savedRecord);assert.equal((await service.store.get(id)).state,'review');
 assert.equal(archive.version.snapshot.fields[oldTodo].content,'原待辦');const regenerated=await service.store.get(id);assert.equal(regenerated.fields[oldTodo],undefined);assert.deepEqual(regenerated.record_blocks,[]);assert.equal(regenerated.field_versions.transcript,2);
+assert.equal((await api({action:'save-part',field:oldTodo,value:{content:'舊頁面回存',ownerId:'',due:'',evidence:''},version:0},'host')).status,409);
+assert.equal((await api({action:'save-part',field:'record:'+'f'.repeat(32),value:'舊頁面回存',version:0,after:null},'host')).status,409);
 assert.equal((await api({action:'save-part',field:'record',value:'不可改',version:2})).status,403);
 platform.meetingShareIdentity=async()=>null;assert.equal((await api({action:'generation-version',revision:versions.versions[0].revision})).status,403);platform.meetingShareIdentity=savedIdentity;
 globalThis.fetch=priorFetch;await pg.close();console.log('Operator: non-member/private read and start, tenant/revocation isolation, source and publication restrictions, title/calendar independence, conflicts and audit passed.');
