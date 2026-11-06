@@ -1,0 +1,28 @@
+  async listItems(account, snapshots = null, settings = null) {
+    const values = (snapshots || await this.snapshot(account)).map((value) => ({ ...value })), config = settings || await this.classification(account);
+    const planned = values.map((snapshot) => ({ snapshot, fields: classificationReadPlan(snapshot, config) }));
+    const comments = planned.filter((entry) => entry.fields.has("comments"));
+    for (let offset = 0; offset < comments.length; offset += 40) {
+      const part = comments.slice(offset, offset + 40), texts = await this.reviews.classificationComments(account, part.map((entry) => entry.snapshot.taskId));
+      for (const entry of part) entry.snapshot.comments = texts.get(entry.snapshot.taskId);
+    }
+    const details = planned.filter((entry) => entry.fields.has("content") && typeof entry.snapshot.currentDoc !== "string");
+    for (let offset = 0; offset < details.length; offset += 10) {
+      const part = details.slice(offset, offset + 10), loaded = await this.reviews.details(account, part.map((entry) => entry.snapshot.taskId)), byId = new Map(loaded.map((value) => [value.taskId, value]));
+      for (const entry of part) {
+        const fresh = byId.get(entry.snapshot.taskId);
+        if (!fresh || await nodeKey(fresh) !== await nodeKey(entry.snapshot)) throw new AppError("CASE_COLLECTION_CHANGED", 409, "\u5F85\u7C3D\u6848\u4EF6\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002");
+        Object.assign(entry.snapshot, fresh, { comments: entry.snapshot.comments });
+      }
+    }
+    const subjects = planned.filter((entry) => entry.fields.has("subject") && typeof entry.snapshot.currentDoc !== "string");
+    for (let offset = 0; offset < subjects.length; offset += 10) {
+      const part = subjects.slice(offset, offset + 10), loaded = await this.reviews.subjects(account, part.map((entry) => entry.snapshot.taskId)), byId = new Map(loaded.map((value) => [value.taskId, value]));
+      for (const entry of part) {
+        const fresh = byId.get(entry.snapshot.taskId);
+        if (!fresh || await nodeKey(fresh) !== await nodeKey(entry.snapshot)) throw new AppError("CASE_COLLECTION_CHANGED", 409, "\u5F85\u7C3D\u6848\u4EF6\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002");
+        entry.snapshot.subject = resolveSubject(fresh.subject, fresh.subjectDoc);
+      }
+    }
+    return displayItems(this,account,values);
+  }

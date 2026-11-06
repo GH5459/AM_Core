@@ -1,0 +1,20 @@
+{
+  "id":"AM-IMP-2026.1106.03",
+  "name":"任務、UOF 與會議讀取等待改善",
+  "type":"runtime",
+  "portable":true,
+  "status":"Proposed",
+  "requiresDatabases":[],
+  "requiresEnv":[],
+  "requiresScripts":[],
+  "installTargets":["AM Platform","DailyLog","UOF"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":[
+    "Complete Worker/D1 and original UOF/meeting regression passes against latest full live modules",
+    "Fresh authorization, revocation, first-use, account restoration, CSRF and approval guards remain intact",
+    "Request-local identity capability cannot be selected using external headers or URLs",
+    "Equivalent responses and reduced serial calls demonstrated with synthetic latency separately from real reads",
+    "Reviewed source passes complete CI, merges to main and deployed modules/settings/assets/bindings/schedules are read back",
+    "Production before/after timing and preserved-data verification are recorded with limitations"
+  ]
+}
