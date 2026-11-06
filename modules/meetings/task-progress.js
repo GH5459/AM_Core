@@ -2,9 +2,9 @@ import {todos,meetingToday} from './workspace-model.js';
 export const TASK_PROGRESS_CONTRACT='meeting-live-task-progress-v1';
 // Reads never enqueue delivery, write tasks or send LINE messages.
 export function meetingTaskProgress({pool,platform,now=Date.now}){
- return async function read(r,actor){
+ return async function read(r,actor,dispatch){
   if(r.state!=='published')return null;
-  const entries=todos(r.fields),q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[r.id])).rows[0]||{task_tenant:r.receipt?.taskTenant,applied_fields:r.receipt?.tasksSaved&&!r.receipt?.taskDispatch?r.fields:{}};
+  const entries=todos(r.fields),q=(dispatch===undefined?(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[r.id])).rows[0]:dispatch)||{task_tenant:r.receipt?.taskTenant,applied_fields:r.receipt?.tasksSaved&&!r.receipt?.taskDispatch?r.fields:{}};
   const items=entries.map(t=>({todoId:t.id,status:t.ownerId?'pending_delivery':'unassigned',due:t.due||'',overdue:false}));
   let available=true,checkedAt=null;
   const assigned=entries.filter(t=>t.ownerId&&q?.applied_fields?.[t.id]?.ownerId===t.ownerId);
