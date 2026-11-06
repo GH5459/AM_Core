@@ -1,0 +1,17 @@
+{
+  "package": "AM-IMP-2026.1106.01",
+  "status": "Deployed",
+  "pr": 556,
+  "ci": 42195349423,
+  "ciSteps": 292,
+  "commit": "b63b5117d52da73ae2718d5bb3328fd6fb91937f",
+  "render": "Live",
+  "dailylogVersion": "59cdc9ac-0297-4519-b004-f7aa17774c7e",
+  "modules": 122,
+  "unchangedModules": 121,
+  "originalMeetingsPreserved": 55,
+  "naturalAdditions": 1,
+  "specifiedMeetingStarted": false,
+  "realMeetingTestWrites": false,
+  "globalAlignmentComplete": false
+}
