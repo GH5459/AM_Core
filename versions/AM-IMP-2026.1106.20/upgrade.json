@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.1106.20",
+  "name": "任務成果分享至同仁工作日誌",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "AM Platform",
+    "DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Explicit recipients and saved completion/progress snapshots, no LINE pushes",
+    "Group roster and actual meeting participants resolved against current company identities",
+    "Recipient inbox separated from personal work and counts",
+    "Retries are atomic and deduplicated, stale source or recipients rejected",
+    "Complete Worker/D1 and four-width browser checks, PostgreSQL recipient queries pass",
+    "Reviewed main and complete CI precede production activation and exact readback"
+  ]
+}

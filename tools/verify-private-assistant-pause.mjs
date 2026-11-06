@@ -92,6 +92,7 @@ const dependencies = {
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,
   './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
+  './core/journal-sharing.js':{createJournalSharing:()=>async()=>{throw Error('journal_sharing_not_used_in_webhook_fixture');}},
       './core/leaf-tasks.js': {...leafTasks,createLeafTasks:options=>({...leafTasks.createLeafTasks(options),loginEntry:async(event,action)=>{assert.equal(event.source.type,'user');assert.equal(action.uri,'https://journal.example.com/?openExternalBrowser=1');journalEntries.push(event);return {type:'uri',label:'開啟工作日誌',uri:'https://journal.example.com/line-login?ticket=synthetic-private-entry&openExternalBrowser=1'};}})},
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
   './core/portal-handoff.js': { safePortalHandoffLocation: () => '/' },

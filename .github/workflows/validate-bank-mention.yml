@@ -313,6 +313,7 @@ jobs:
       - run: node --test versions/AM-IMP-2026.1106.06/dailylog-meeting-read/meeting-read-identity.test.mjs tools/test-meeting-share-identity.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.05
       - run: node --test versions/AM-IMP-2026.1106.05/task-form-open.test.mjs
+      - run: node --test tools/test-journal-sharing.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.03
       - run: node --test versions/AM-IMP-2026.1106.03/dailylog-read/task-read-identity.test.cjs versions/AM-IMP-2026.1106.03/uof-read/read-stages.test.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.02

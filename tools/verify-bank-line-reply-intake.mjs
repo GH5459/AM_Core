@@ -93,6 +93,7 @@ try {
   './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
       './core/leaf-calendar/index.js':leafCalendar,
       './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
+  './core/journal-sharing.js':{createJournalSharing:()=>async()=>{throw Error('journal_sharing_not_used_in_webhook_fixture');}},
       './core/common-line-entry.js':commonLineEntry,
       './core/first-use-meetings.js':firstUseMeetings,
       './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},

@@ -1,0 +1,15 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict'),crypto=require('crypto');
+const folder=process.env.DAILYLOG_SHARE_PACKAGE;assert(folder);
+const once=(s,a,b)=>{assert.equal(s.split(a).length,2,a);return s.replace(a,b);};
+let worker=fs.readFileSync(folder+'/baseline/worker.mjs','utf8');
+const inner=worker.match(/return operationSpeedResponse\(request,await (\w+)\.fetch\(request,env,ctx\),env,start\);/)?.[1];assert(inner,'Expected original version-cache wrapper');worker=once(worker,'return operationSpeedResponse(request,await '+inner+'.fetch(request,env,ctx),env,start);','return operationSpeedResponse(request,await journal_sharing_worker.fetch(request,env,ctx),env,start);');
+worker+='\nimport {journalSharingRoute} from "./journal-sharing.mjs";\nimport {journalSharingResponse} from "./journal-sharing-response.mjs";\nconst journalSharingClient='+JSON.stringify(fs.readFileSync(path.join(__dirname,'journal-sharing-inbox.client.js'),'utf8'))+';\nconst journal_sharing_worker={...form_open_worker,async fetch(request,env,ctx){const auth=async(r,e)=>personalAuthority(r,e,readAuthority,async(req,scope)=>{await form_open_worker.fetch(new Request(new URL("/api/auth/session",req.url),{headers:req.headers}),scope,ctx);});return await journalSharingRoute(request,env,{readAuthority:auth})||journalSharingResponse(request,await form_open_worker.fetch(request,env,ctx),journalSharingClient);}};\n';
+const extension=worker.indexOf('\nimport {journalSharingRoute}');worker=worker.slice(0,extension)+worker.slice(extension).replaceAll('form_open_worker',inner);
+fs.writeFileSync(folder+'/candidate/worker.mjs',worker);
+let personal=fs.readFileSync(folder+'/baseline/line-personal-completion-response.mjs','utf8');
+const begin=personal.indexOf('const fragment=')+'const fragment='.length,literal=personal.slice(begin).match(/^"(?:\\.|[^"\\])*"/s)?.[0];assert(literal);personal=personal.slice(0,begin)+JSON.stringify(fs.readFileSync(path.join(__dirname,'journal-sharing-task.client.js'),'utf8'))+personal.slice(begin+literal.length);
+fs.writeFileSync(folder+'/candidate/line-personal-completion-response.mjs',personal);
+for(const n of ['journal-sharing.mjs','journal-sharing-response.mjs'])fs.copyFileSync(path.join(__dirname,n),folder+'/candidate/'+n);
+const files=(dir,p='')=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(dir+'/'+e.name,p+e.name+'/'):[p+e.name]),sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+const source=Object.fromEntries(files(folder+'/candidate').sort().map(n=>[n,sha(folder+'/candidate/'+n)])),changed=Object.keys(source).filter(n=>!fs.existsSync(folder+'/baseline/'+n)||sha(folder+'/baseline/'+n)!==source[n]);
+fs.writeFileSync(folder+'/review.private.json',JSON.stringify({source,changed},null,2));

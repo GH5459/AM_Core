@@ -349,6 +349,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
       './core/leaf-groups.js':{createLeafGroups:()=>({capture:async()=>[],isControl:()=>false,drain:async()=>{},health:()=>({})})},
+  './core/journal-sharing.js':{createJournalSharing:()=>async()=>{throw Error('journal_sharing_not_used_in_webhook_fixture');}},
       './core/common-line-entry.js':commonLineEntry,
       './core/first-use-meetings.js':firstUseMeetings,
       './core/login-continuation-http.js':{createLoginContinuationHttp:()=>({handle:async()=>false,actor:async()=>null})},
