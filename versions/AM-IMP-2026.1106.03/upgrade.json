@@ -3,7 +3,7 @@
   "name":"任務、UOF 與會議讀取等待改善",
   "type":"runtime",
   "portable":true,
-  "status":"Proposed",
+  "status":"Deployed",
   "requiresDatabases":[],
   "requiresEnv":[],
   "requiresScripts":[],
