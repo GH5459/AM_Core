@@ -12,7 +12,7 @@ import {canReadShared,readerData,audioTickets} from './workspace-access.js';
 import {workspaceRevisions} from './workspace-revisions.js';
 import {recordBlocks} from './workspace-collaboration.js';
 import {meetingHub} from './hub-service.js';
-import {embeddedRequest,dailylogActor} from './dailylog-embedded.js';
+import {embeddedRequest,dailylogActor,dailylogTiming} from './dailylog-embedded.js';
 import {meetingTaskDispatch} from './task-dispatch.js';
 import {meetingTaskProgress,TASK_PROGRESS_CONTRACT} from './task-progress.js';
 import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
@@ -225,10 +225,11 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url,requestStarted=performance.now()){
   if(req.headers['x-meeting-signature']&&/^\/meetings\/review\//.test(url.pathname)){
+   const embeddedStarted=performance.now();
    try{const publicOrigin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
     const forwarded=await embeddedRequest(req,url,{secret:env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY,platform,origin:publicOrigin,pool});
-    if(!forwarded)throw failure(403,'會議接線未完成。');res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url,requestStarted);
-   }catch(e){sendJson(res,e.status||503,{ok:false,...(e.onboardingUrl?{onboardingUrl:e.onboardingUrl}:{}),error:e.status?e.message:'會議暫時無法讀取，請稍後重試。'});return true;}
+    if(!forwarded)throw failure(403,'會議接線未完成。');forwarded.request[dailylogTiming]=Math.max(0,performance.now()-embeddedStarted);res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url,requestStarted);
+   }catch(e){res.setHeader('Server-Timing','meeting_embedded;dur='+Math.max(0,performance.now()-embeddedStarted).toFixed(1));sendJson(res,e.status||503,{ok:false,...(e.onboardingUrl?{onboardingUrl:e.onboardingUrl}:{}),error:e.status?e.message:'會議暫時無法讀取，請稍後重試。'});return true;}
   }
   if(await caseEvidence(req,res,url))return true;
   if(await hub.handle(req,res,url))return true;

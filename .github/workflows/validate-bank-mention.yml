@@ -3,6 +3,8 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1106.06/**'
+      - 'tools/test-meeting-share-identity.mjs'
       - 'versions/AM-IMP-2026.1106.05/**'
       - 'versions/AM-IMP-2026.1106.03/**'
       - 'versions/AM-IMP-2026.1106.02/**'
@@ -303,6 +305,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.06
+      - run: node --test versions/AM-IMP-2026.1106.06/dailylog-meeting-read/meeting-read-identity.test.mjs tools/test-meeting-share-identity.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.05
       - run: node --test versions/AM-IMP-2026.1106.05/task-form-open.test.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.03
