@@ -9,7 +9,11 @@ export async function patchDailylog(input,output){
  worker="import {attachmentDownload} from './attachment-download.mjs';\n"+worker;
  const downloadAnchor='    const bytes2 = await store.bytes(id, file.size);';
  if(worker.split(downloadAnchor).length!==3)throw Error('Expected both original attachment handlers');
- for(let n=0;n<2;n++){const begin=worker.indexOf(downloadAnchor),end=worker.indexOf('\n  } catch (error)',begin);if(begin<0||end<0)throw Error('Download response anchor changed');worker=worker.slice(0,begin)+'    return attachmentDownload(request,env.DB,file,targetRead);'+worker.slice(end);}
+ for(let n=0;n<2;n++){const begin=worker.indexOf(downloadAnchor),end=worker.indexOf('\n  } catch (error)',begin);if(begin<0||end<0)throw Error('Download response anchor changed');worker=worker.slice(0,begin)+`    return attachmentDownload(request,env.DB,file,async()=>{
+      await targetRead();
+      const last=await env.DB.prepare("SELECT removed_at,digest,scope,target_id FROM task_attachments WHERE id=?").bind(file.id).first();
+      if(!last||last.removed_at||last.digest!==file.digest||last.scope!==file.scope||last.target_id!==file.target_id)throw Object.assign(Error('附件已更新，請重新讀取。'),{status:409});
+    });`+worker.slice(end);}
  // The optimized normal-task read route precedes the legacy attachment routes.
  const readStart=worker.indexOf('async function taskReadSpeedFetch('),readEnd=worker.indexOf('\n__name(taskReadSpeedFetch',readStart);if(readStart<0||readEnd<0)throw Error('Normal read handler missing');
  let read=worker.slice(readStart,readEnd),verifyStart=read.indexOf('    await auth2.verify();',read.indexOf('    const dataAt = performance.now();')),verifyEnd=read.indexOf('    const timing = ',verifyStart);

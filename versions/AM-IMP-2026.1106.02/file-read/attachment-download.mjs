@@ -50,7 +50,7 @@ export async function attachmentDownload(request,db,file,assertCurrent){
  headers.set('Content-Length',String(length));if(range)headers.set('Content-Range',`bytes ${start}-${end}/${size}`);
  const body=new ReadableStream({async pull(controller){
   if(closed)return;
-  try{const chunks=first??await batch();first=null;for(const bytes of chunks)controller.enqueue(bytes);if(cursor>=selected.length){closed=true;controller.close();}}
+  try{const initial=first!==null,chunks=initial?first:await batch();first=null;if(!initial)await assertCurrent();if(closed)return;for(const bytes of chunks)controller.enqueue(bytes);if(cursor>=selected.length){closed=true;controller.close();}}
   catch(error){closed=true;controller.error(error);}
  },cancel(){closed=true;first=null;}});
  return new Response(fixedBody(body,length),{status:range?206:200,headers});
