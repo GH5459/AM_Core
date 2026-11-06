@@ -1,0 +1,275 @@
+async function attachmentFetch(request, env, ctx, base) {
+  const url3 = new URL(request.url), path = url3.pathname;
+  if (!path.startsWith("/api/attachments/")) return null;
+  try {
+    const m = path.match(/^\/api\/attachments\/(normal|normal-local|hr|hr-native|hr-catalog|routine-catalog-[a-z][a-z0-9-]{0,49}|routine-[a-z][a-z0-9-]{0,49})\/([\w-]{1,100})(?:\/(att-[a-f0-9-]{36})(?:\/(remove|restore))?)?$/);
+    if (!m) throw fail5("\u627E\u4E0D\u5230\u9644\u4EF6\u3002", 404);
+    const [, scope, target, id, action] = m;
+    if (!validId(target)) throw fail5("\u5DE5\u4F5C\u8B58\u5225\u7121\u6548\u3002");
+    const session3 = /* @__PURE__ */ __name(async () => {
+      const r = await base.fetch(new Request(new URL("/api/auth/session", url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+      if (!r.ok) throw fail5("\u767B\u5165\u72C0\u614B\u7121\u6CD5\u78BA\u8A8D\uFF0C\u8ACB\u91CD\u8A66\u3002", 503);
+      const auth3 = await r.json();
+      if (!auth3.authenticated) throw fail5("\u8ACB\u5148\u767B\u5165\u3002", 401);
+      if (!(scope.startsWith("normal") || scope.startsWith("routine-") ? auth3.access?.enabled : auth3.access?.hrEnabled)) throw fail5("\u5DE5\u4F5C\u65E5\u8A8C\u6B0A\u9650\u5DF2\u505C\u7528\u3002", 403);
+      return auth3;
+    }, "session");
+    const auth2 = await session3(), user = { ...auth2.profile, ...auth2.user };
+    let nativeShared=false;
+    let storageScope = scope, storageTarget = scope === "normal-local" ? user.account + "|" + target : target;
+    const shareLocal = /* @__PURE__ */ __name(async (t, sourceAccount) => {
+      if (!t?.sourceTodoId || !t.id || !sourceAccount) return;
+      await env.DB.prepare("UPDATE task_attachments SET scope='normal',target_id=? WHERE scope='normal-local' AND target_id=? AND actor=?").bind(t.id, sourceAccount + "|" + t.sourceTodoId, sourceAccount).run();
+    }, "shareLocal");
+    const targetRead = /* @__PURE__ */ __name(async (write2 = false) => {
+      const latest = await session3();
+      if (latest.user.id !== auth2.user.id || latest.user.account !== auth2.user.account) throw fail5("\u767B\u5165\u5E33\u865F\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002", 403);
+      let writable2 = false;
+      if(scope==="hr-native"){const legacy=await hrNativeWorkId(target),prior=await env.DB.prepare("SELECT value FROM work_items WHERE id=?").bind(legacy).first();if(!prior||JSON.parse(prior.value).lead?.account!==user.account){const seed=await readHrNotionCard2(env,user.account,target,{assertCurrent:async()=>{const c=await session3();if(c.user.id!==auth2.user.id||!c.access?.hrEnabled)throw Object.assign(Error("人資權限或登入已更新。"),{status:403});}});if(seed.sharedSource){nativeShared=true;return true;}}}
+      if (scope === "normal-local") {
+        const r = await base.fetch(new Request(new URL("/api/notion/journal/status", url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail5("\u5DE5\u4F5C\u4E8B\u9805\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const c = await r.json(), todo = c.snapshot?.todos?.[target];
+        if (!todo) throw fail5("\u8ACB\u5148\u4FDD\u5B58\u5DE5\u4F5C\u4E8B\u9805\uFF0C\u518D\u91CD\u8A66\u9644\u52A0\u6A94\u6848\u3002", 409);
+        if (todo.person !== auth2.user.id) throw fail5("\u6C92\u6709\u9019\u9805\u5DE5\u4F5C\u4E8B\u9805\u7684\u9644\u4EF6\u6B0A\u9650\u3002", 403);
+        writable2 = true;
+        if (todo.sharedTaskId) {
+          const shared = await base.fetch(new Request(new URL("/api/tasks/" + todo.sharedTaskId, url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+          if (!shared.ok) throw fail5("\u5171\u7528\u5DE5\u4F5C\u6B0A\u9650\u7121\u6CD5\u78BA\u8A8D\u3002", shared.status);
+          const t = (await shared.json()).task;
+          if (t?.sourceTodoId !== target || ![t.requester?.account, t.createdBy?.account].includes(user.account)) throw fail5("\u5DE5\u4F5C\u4E8B\u9805\u7684\u5171\u7528\u4F86\u6E90\u7121\u6CD5\u78BA\u8A8D\u3002", 403);
+          storageScope = "normal";
+          storageTarget = t.id;
+          await shareLocal(t, user.account);
+        }
+      } else if (scope === "hr-catalog" || scope.startsWith("routine-catalog-")) {
+        const r = await base.fetch(new Request(new URL(scope === "hr-catalog" ? "/api/hr/catalog" : "/api/routines/" + scope.slice(16) + "/catalog", url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail5("\u4EBA\u8CC7\u4EFB\u52D9\u5EAB\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const c = await r.json();
+        if (![...c.entries || [], ...c.items || [], ...c.projects || []].some((e) => e.id === target)) throw fail5("\u627E\u4E0D\u5230\u4EBA\u8CC7\u4EFB\u52D9\u6216\u5C08\u6848\u3002", 404);
+        writable2 = true;
+      } else {
+        const route = scope === "normal" ? "/api/tasks/" : scope === "hr" ? "/api/hr/tasks/" : scope.startsWith("routine-") ? "/api/routines/" + scope.slice(8) + "/tasks/" : "/api/hr/notion-work/";
+        const r = await base.fetch(new Request(new URL(route + target, url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail5(r.status === 404 || r.status === 403 ? "\u6C92\u6709\u9019\u9805\u5DE5\u4F5C\u7684\u9644\u4EF6\u6B0A\u9650\u3002" : "\u5DE5\u4F5C\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const packet = await r.json(), t = packet.task;
+        if(scope==="hr-native")nativeShared=!!(packet.native?.sharedSource||t?.sharedSource);
+        if (scope === "normal" && ["hr", "routine"].includes(t?.workScope)) throw fail5("\u8ACB\u5728\u4EBA\u8CC7\u7248\u64CD\u4F5C\u9644\u4EF6\u3002", 403);
+        if (scope === "normal" && t?.sourceTodoId) await shareLocal(t, t.createdBy?.account || t.requester?.account);
+        writable2 = scope !== "normal" || t?.permissions?.edit === true || [t?.requester?.account, t?.lead?.account, t?.createdBy?.account, ...(t?.collaborators || []).map((p) => p.account)].includes(user.account);
+      }
+      const confirmed = await session3();
+      if (confirmed.user.id !== auth2.user.id) throw fail5("\u767B\u5165\u5E33\u865F\u5DF2\u8B8A\u66F4\u3002", 403);
+      if (write2 && !writable2) throw fail5("\u53EA\u6709\u4EFB\u52D9\u53C3\u8207\u8005\u6216\u6709\u7DE8\u8F2F\u6B0A\u9650\u8005\u53EF\u4EE5\u9644\u52A0\u6A94\u6848\u3002", 403);
+      return writable2;
+    }, "targetRead");
+    if (!["GET", "POST"].includes(request.method)) throw fail5("\u4E0D\u652F\u63F4\u6B64\u64CD\u4F5C\u3002", 405);
+    const write = request.method === "POST";
+    if (write && (request.headers.get("origin") !== url3.origin || request.headers.get("x-dailylog-csrf") !== auth2.csrfToken)) throw fail5("\u9A57\u8B49\u5931\u6548\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u5F8C\u91CD\u8A66\u3002", 403);
+    const writable = await targetRead(write), store = createAttachmentStore(env.DB);
+    if(scope==="hr-native"){storageScope="hr";storageTarget=await hrNativeWorkId(target,user.account,env.DB,nativeShared);}
+
+    if (!id) {
+      if (write) {
+        if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) throw fail5("\u8ACB\u63D0\u4F9B\u6A94\u6848\u3002");
+        const form = await uploadForm(request);
+        if (form.getAll("file").length !== 1) throw fail5("\u6BCF\u6B21\u4E0A\u50B3\u4E00\u500B\u6A94\u6848\u3002");
+        const result = await store.upload(storageScope, storageTarget, user, String(form.get("id") || ""), form.get("file"), targetRead);
+        if(storageScope==="normal")await reportAttachment(base,request,env,ctx,storageTarget,user,result);
+        return json({ attachment: { ...result, canRemove: true } }, 201);
+      }
+      const attachments = (await store.list(storageScope, storageTarget)).map((f) => ({ ...f, canRemove: f.actor === user.account || auth2.access?.admin === true }));
+      await targetRead();
+      return json({ attachments, writable, maxBytes: MAX_ATTACHMENT_BYTES });
+    }
+    const file = await store.get(storageScope, storageTarget, id);
+    if (!file) throw fail5("\u627E\u4E0D\u5230\u9644\u4EF6\u3002", 404);
+    if (action) {
+      if (!write) throw fail5("\u8ACB\u4F7F\u7528 POST\u3002", 405);
+      await targetRead(true);
+      const current = await session3();
+      if (current.user.id !== auth2.user.id || !writable || file.actor !== user.account && !current.access?.admin) throw fail5("\u53EA\u6709\u4E0A\u50B3\u8005\u6216\u7BA1\u7406\u54E1\u53EF\u4EE5\u79FB\u9664\u6216\u6062\u5FA9\u9644\u4EF6\u3002", 403);
+      await store.state(id, action === "remove", user);
+      await targetRead(true);
+      return json({ ok: true });
+    }
+    if (write) throw fail5("\u4E0D\u652F\u63F4\u6B64\u64CD\u4F5C\u3002", 405);
+    if (file.removed_at) throw fail5("\u9644\u4EF6\u5DF2\u79FB\u9664\uFF0C\u53EF\u5F9E\u9644\u4EF6\u6B77\u7A0B\u6062\u5FA9\u3002", 404);
+    const bytes2 = await store.bytes(id, file.size);
+    await targetRead();
+    return new Response(bytes2, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(file.size), "Content-Disposition": `attachment; filename="attachment"; filename*=UTF-8''` + encodeURIComponent(file.name).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16)), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" } });
+  } catch (error) {
+    return json({ error: error.status ? error.message : "\u9644\u4EF6\u66AB\u6642\u7121\u6CD5\u4FDD\u5B58\u6216\u8B80\u53D6\uFF0C\u8ACB\u4FDD\u7559\u6A94\u6848\u4E26\u91CD\u8A66\u3002" }, error.status || 500);
+  }
+}
+__name(attachmentFetch,"attachmentFetch");
+async function attachmentFetch2(request, env, ctx, base) {
+  const url22 = new URL(request.url), path = url22.pathname;
+  if (!path.startsWith("/api/attachments/")) return null;
+  try {
+    const m = path.match(/^\/api\/attachments\/(normal|normal-local|hr|hr-native|hr-catalog|routine-catalog-[a-z][a-z0-9-]{0,49}|routine-[a-z][a-z0-9-]{0,49})\/([\w-]{1,100})(?:\/(att-[a-f0-9-]{36})(?:\/(remove|restore))?)?$/);
+    if (!m) throw fail9("\u627E\u4E0D\u5230\u9644\u4EF6\u3002", 404);
+    const [, scope, target, id, action] = m;
+    if (!validId2(target)) throw fail9("\u5DE5\u4F5C\u8B58\u5225\u7121\u6548\u3002");
+    const session3 = /* @__PURE__ */ __name2(async () => {
+      const r = await base.fetch(new Request(new URL("/api/auth/session", url22), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+      if (!r.ok) throw fail9("\u767B\u5165\u72C0\u614B\u7121\u6CD5\u78BA\u8A8D\uFF0C\u8ACB\u91CD\u8A66\u3002", 503);
+      const auth3 = await r.json();
+      if (!auth3.authenticated) throw fail9("\u8ACB\u5148\u767B\u5165\u3002", 401);
+      if (!(scope.startsWith("normal") || scope.startsWith("routine-") ? auth3.access?.enabled : auth3.access?.hrEnabled)) throw fail9("\u5DE5\u4F5C\u65E5\u8A8C\u6B0A\u9650\u5DF2\u505C\u7528\u3002", 403);
+      return auth3;
+    }, "session");
+    const auth2 = await session3(), user = { ...auth2.profile, ...auth2.user };
+    let nativeShared=false;
+    let storageScope = scope, storageTarget = scope === "normal-local" ? user.account + "|" + target : target;
+    const shareLocal = /* @__PURE__ */ __name2(async (t, sourceAccount) => {
+      if (!t?.sourceTodoId || !t.id || !sourceAccount) return;
+      await env.DB.prepare("UPDATE task_attachments SET scope='normal',target_id=? WHERE scope='normal-local' AND target_id=? AND actor=?").bind(t.id, sourceAccount + "|" + t.sourceTodoId, sourceAccount).run();
+    }, "shareLocal");
+    const targetRead = /* @__PURE__ */ __name2(async (write2 = false) => {
+      const latest = await session3();
+      if (latest.user.id !== auth2.user.id || latest.user.account !== auth2.user.account) throw fail9("\u767B\u5165\u5E33\u865F\u5DF2\u8B8A\u66F4\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002", 403);
+      let writable2 = false;
+      if(scope==="hr-native"){const legacy=await hrNativeWorkId(target),prior=await env.DB.prepare("SELECT value FROM work_items WHERE id=?").bind(legacy).first();if(!prior||JSON.parse(prior.value).lead?.account!==user.account){const seed=await readHrNotionCard2(env,user.account,target,{assertCurrent:async()=>{const c=await session3();if(c.user.id!==auth2.user.id||!c.access?.hrEnabled)throw Object.assign(Error("人資權限或登入已更新。"),{status:403});}});if(seed.sharedSource){nativeShared=true;return true;}}}
+      if (scope === "normal-local") {
+        const r = await base.fetch(new Request(new URL("/api/notion/journal/status", url22), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail9("\u5DE5\u4F5C\u4E8B\u9805\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const c = await r.json(), todo = c.snapshot?.todos?.[target];
+        if (!todo) throw fail9("\u8ACB\u5148\u4FDD\u5B58\u5DE5\u4F5C\u4E8B\u9805\uFF0C\u518D\u91CD\u8A66\u9644\u52A0\u6A94\u6848\u3002", 409);
+        if (todo.person !== auth2.user.id) throw fail9("\u6C92\u6709\u9019\u9805\u5DE5\u4F5C\u4E8B\u9805\u7684\u9644\u4EF6\u6B0A\u9650\u3002", 403);
+        writable2 = true;
+        if (todo.sharedTaskId) {
+          const shared = await base.fetch(new Request(new URL("/api/tasks/" + todo.sharedTaskId, url22), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+          if (!shared.ok) throw fail9("\u5171\u7528\u5DE5\u4F5C\u6B0A\u9650\u7121\u6CD5\u78BA\u8A8D\u3002", shared.status);
+          const t = (await shared.json()).task;
+          if (t?.sourceTodoId !== target || ![t.requester?.account, t.createdBy?.account].includes(user.account)) throw fail9("\u5DE5\u4F5C\u4E8B\u9805\u7684\u5171\u7528\u4F86\u6E90\u7121\u6CD5\u78BA\u8A8D\u3002", 403);
+          storageScope = "normal";
+          storageTarget = t.id;
+          await shareLocal(t, user.account);
+        }
+      } else if (scope === "hr-catalog" || scope.startsWith("routine-catalog-")) {
+        const r = await base.fetch(new Request(new URL(scope === "hr-catalog" ? "/api/hr/catalog" : "/api/routines/" + scope.slice(16) + "/catalog", url22), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail9("\u4EBA\u8CC7\u4EFB\u52D9\u5EAB\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const c = await r.json();
+        if (![...c.entries || [], ...c.items || [], ...c.projects || []].some((e) => e.id === target)) throw fail9("\u627E\u4E0D\u5230\u4EBA\u8CC7\u4EFB\u52D9\u6216\u5C08\u6848\u3002", 404);
+        writable2 = true;
+      } else {
+        const route = scope === "normal" ? "/api/tasks/" : scope === "hr" ? "/api/hr/tasks/" : scope.startsWith("routine-") ? "/api/routines/" + scope.slice(8) + "/tasks/" : "/api/hr/notion-work/";
+        const r = await base.fetch(new Request(new URL(route + target, url22), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+        if (!r.ok) throw fail9(r.status === 404 || r.status === 403 ? "\u6C92\u6709\u9019\u9805\u5DE5\u4F5C\u7684\u9644\u4EF6\u6B0A\u9650\u3002" : "\u5DE5\u4F5C\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\u3002", r.status);
+        const packet = await r.json(), t = packet.task;
+        if(scope==="hr-native")nativeShared=!!(packet.native?.sharedSource||t?.sharedSource);
+        if (scope === "normal" && ["hr", "routine"].includes(t?.workScope)) throw fail9("\u8ACB\u5728\u4EBA\u8CC7\u7248\u64CD\u4F5C\u9644\u4EF6\u3002", 403);
+        if (scope === "normal" && t?.sourceTodoId) await shareLocal(t, t.createdBy?.account || t.requester?.account);
+        writable2 = scope !== "normal" || t?.permissions?.edit === true || [t?.requester?.account, t?.lead?.account, t?.createdBy?.account, ...(t?.collaborators || []).map((p) => p.account)].includes(user.account);
+      }
+      const confirmed = await session3();
+      if (confirmed.user.id !== auth2.user.id) throw fail9("\u767B\u5165\u5E33\u865F\u5DF2\u8B8A\u66F4\u3002", 403);
+      if (write2 && !writable2) throw fail9("\u53EA\u6709\u4EFB\u52D9\u53C3\u8207\u8005\u6216\u6709\u7DE8\u8F2F\u6B0A\u9650\u8005\u53EF\u4EE5\u9644\u52A0\u6A94\u6848\u3002", 403);
+      return writable2;
+    }, "targetRead");
+    if (!["GET", "POST"].includes(request.method)) throw fail9("\u4E0D\u652F\u63F4\u6B64\u64CD\u4F5C\u3002", 405);
+    const write = request.method === "POST";
+    if (write && (request.headers.get("origin") !== url22.origin || request.headers.get("x-dailylog-csrf") !== auth2.csrfToken)) throw fail9("\u9A57\u8B49\u5931\u6548\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u5F8C\u91CD\u8A66\u3002", 403);
+    const writable = await targetRead(write), store = createAttachmentStore2(env.DB);
+    if(scope==="hr-native"){storageScope="hr";storageTarget=await hrNativeWorkId(target,user.account,env.DB,nativeShared);}
+
+    if (!id) {
+      if (write) {
+        if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) throw fail9("\u8ACB\u63D0\u4F9B\u6A94\u6848\u3002");
+        const form = await uploadForm2(request);
+        if (form.getAll("file").length !== 1) throw fail9("\u6BCF\u6B21\u4E0A\u50B3\u4E00\u500B\u6A94\u6848\u3002");
+        const result = await store.upload(storageScope, storageTarget, user, String(form.get("id") || ""), form.get("file"), targetRead);
+        if(storageScope==="normal")await reportAttachment(base,request,env,ctx,storageTarget,user,result);
+        return json22({ attachment: { ...result, canRemove: true } }, 201);
+      }
+      const attachments = (await store.list(storageScope, storageTarget)).map((f) => ({ ...f, canRemove: f.actor === user.account || auth2.access?.admin === true }));
+      await targetRead();
+      return json22({ attachments, writable, maxBytes: MAX_ATTACHMENT_BYTES2 });
+    }
+    const file = await store.get(storageScope, storageTarget, id);
+    if (!file) throw fail9("\u627E\u4E0D\u5230\u9644\u4EF6\u3002", 404);
+    if (action) {
+      if (!write) throw fail9("\u8ACB\u4F7F\u7528 POST\u3002", 405);
+      await targetRead(true);
+      const current = await session3();
+      if (current.user.id !== auth2.user.id || !writable || file.actor !== user.account && !current.access?.admin) throw fail9("\u53EA\u6709\u4E0A\u50B3\u8005\u6216\u7BA1\u7406\u54E1\u53EF\u4EE5\u79FB\u9664\u6216\u6062\u5FA9\u9644\u4EF6\u3002", 403);
+      await store.state(id, action === "remove", user);
+      await targetRead(true);
+      return json22({ ok: true });
+    }
+    if (write) throw fail9("\u4E0D\u652F\u63F4\u6B64\u64CD\u4F5C\u3002", 405);
+    if (file.removed_at) throw fail9("\u9644\u4EF6\u5DF2\u79FB\u9664\uFF0C\u53EF\u5F9E\u9644\u4EF6\u6B77\u7A0B\u6062\u5FA9\u3002", 404);
+    const bytes2 = await store.bytes(id, file.size);
+    await targetRead();
+    return new Response(bytes2, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(file.size), "Content-Disposition": `attachment; filename="attachment"; filename*=UTF-8''` + encodeURIComponent(file.name).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16)), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" } });
+  } catch (error) {
+    return json22({ error: error.status ? error.message : "\u9644\u4EF6\u66AB\u6642\u7121\u6CD5\u4FDD\u5B58\u6216\u8B80\u53D6\uFF0C\u8ACB\u4FDD\u7559\u6A94\u6848\u4E26\u91CD\u8A66\u3002" }, error.status || 500);
+  }
+}
+__name(attachmentFetch2,"attachmentFetch2");
+async function taskReadSpeedFetch(request, env, ctx, base) {
+  const url3 = new URL(request.url), detail = url3.pathname.match(/^\/api\/tasks\/(work-[a-f0-9-]{36})$/), file = url3.pathname.match(/^\/api\/attachments\/normal\/(work-[a-f0-9-]{36})(?:\/(att-[a-f0-9-]{36}))?$/), people = url3.pathname === "/api/tasks/people";
+  if (request.method !== "GET" || !detail && !file && !people) return null;
+  const started = performance.now();
+  try {
+    let auth2 = await readAuthority(request, env);
+    if (!auth2) {
+      if (!base) return null;
+      const r = await base.fetch(new Request(new URL("/api/auth/session", url3), { headers: { Cookie: request.headers.get("cookie") || "" } }), env, ctx);
+      if (!r.ok) return r;
+      if (!(await r.json()).authenticated) throw fail12("\u767B\u5165\u5DF2\u5230\u671F\uFF0C\u8ACB\u91CD\u65B0\u767B\u5165\u3002", 401);
+      auth2 = await readAuthority(request, env);
+      if (!auth2) throw fail12("\u540D\u55AE\u66F4\u65B0\u4E2D\uFF0C\u8ACB\u7A0D\u5F8C\u91CD\u8A66\u3002", 503);
+    }
+    const authAt = performance.now(), db = env.DB;
+    if (people) {
+      const selection = await taskSharingDirectory(env, auth2, auth2.account);
+      await auth2.verify();
+      return json5(selection, 200, `auth;dur=${(authAt - started).toFixed(1)},verify;dur=${(performance.now() - authAt).toFixed(1)}`);
+    }
+    let id = (detail || file)[1];
+    const alias = await db.prepare("SELECT canonical_id FROM project_aliases WHERE old_id=?").bind(id).first();
+    let old = null;
+    if (alias) {
+      old = await taskRead(db, id, auth2);
+      id = alias.canonical_id;
+    }
+    const read7 = await taskRead(db, id, auth2), task = read7.task;
+    if (!normal3(task)) {
+      if (detail) return null;
+      throw fail12("\u8ACB\u5728\u539F\u8CC7\u6599\u5EAB\u64CD\u4F5C\u9644\u4EF6\u3002", 403);
+    }
+    let result, binary = null, fileRecord = null;
+    if (file?.[2]) {
+      const local = localAttachment(task);
+      fileRecord = await db.prepare(`SELECT * FROM task_attachments WHERE id=? AND ((scope='normal' AND target_id=?)${local ? " OR (scope='normal-local' AND target_id=? AND actor=?)" : ""})`).bind(file[2], id, ...local ? [local.target, local.actor] : []).first();
+      if (!fileRecord || fileRecord.removed_at) throw fail12("\u627E\u4E0D\u5230\u9644\u4EF6\u3002", 404);
+      binary = await createAttachmentStore(db).bytes(fileRecord.id, fileRecord.size);
+    } else if (file) result = await attachmentList(db, task, auth2);
+    else {
+      const [present, attachments] = await Promise.all([decorate2(db, task, auth2), url3.searchParams.get("card") === "1" ? attachmentList(db, task, auth2) : null]);
+      result = { task: present, ...alias ? { mergedFrom: detail[1] } : {}, ...attachments ? { ...await taskSharingDirectory(env, auth2, auth2.account), directoryRevision: auth2.revision, directoryGeneratedAt: auth2.generatedAt, attachments } : {} };
+    }
+    const dataAt = performance.now();
+    await auth2.verify();
+    await assertSharingVersions(db, [task]);
+    await assertSharingVersions(db, auth2.readDependencies || [], true);
+    const current = await db.prepare("SELECT revision,value FROM work_items WHERE id=?").bind(id).first();
+    if (!current || current.revision !== read7.revision || !normal3(decode(current.value)) || !auth2.admin && !members2(await readSharedTask(db, id)).includes(auth2.account)) throw fail12("\u4EFB\u52D9\u6216\u5206\u5DE5\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u8F09\u5165\u3002", 409);
+    if (old) {
+      const latest = await db.prepare("SELECT canonical_id FROM project_aliases WHERE old_id=?").bind(old.task.id).first();
+      if (latest?.canonical_id !== id) throw fail12("\u5C08\u6848\u95DC\u806F\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u8F09\u5165\u3002", 409);
+    }
+    const timing = `auth;dur=${(authAt - started).toFixed(1)},work;dur=${(dataAt - authAt).toFixed(1)},verify;dur=${(performance.now() - dataAt).toFixed(1)}`;
+    if (binary) {
+      const last = await db.prepare("SELECT removed_at,digest,scope,target_id FROM task_attachments WHERE id=?").bind(fileRecord.id).first();
+      if (!last || last.removed_at || last.digest !== fileRecord.digest || last.scope !== fileRecord.scope || last.target_id !== fileRecord.target_id) throw fail12("\u9644\u4EF6\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u8B80\u53D6\u3002", 409);
+      return new Response(binary, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(fileRecord.size), "Content-Disposition": `attachment; filename="attachment"; filename*=UTF-8''` + encodeURIComponent(fileRecord.name).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16)), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Server-Timing": timing, "X-DailyLog-Read-Path": "normal-task-v1" } });
+    }
+    return json5(result, 200, timing);
+  } catch (e) {
+    return json5({ error: e.status ? e.message : "\u66AB\u6642\u7121\u6CD5\u8B80\u53D6\uFF0C\u8ACB\u4FDD\u7559\u8F38\u5165\u5F8C\u91CD\u8A66\u3002" }, e.status || 503);
+  }
+}
+__name(taskReadSpeedFetch,"taskReadSpeedFetch");

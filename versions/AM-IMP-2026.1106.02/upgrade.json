@@ -1,0 +1,19 @@
+{
+ "id":"AM-IMP-2026.1106.02",
+ "name":"工作日誌、UOF 與會議操作速度改善",
+ "type":"runtime",
+ "portable":true,
+ "status":"Ready",
+ "requiresDatabases":[],
+ "requiresEnv":[],
+ "requiresScripts":[],
+ "installTargets":["AM Platform","DailyLog","UOF"],
+ "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+ "definitionOfDone":[
+  "Full Worker/D1, UOF and original PostgreSQL meeting regression passes",
+  "Permissions, CSRF, conflict handling, receipts and drafts retained",
+  "Reviewed source passes complete CI before deployment",
+  "Latest live modules, original settings/assets/bindings/schedules preserved and read back",
+  "Real read timings and isolated write/file comparisons reported separately"
+ ]
+}
