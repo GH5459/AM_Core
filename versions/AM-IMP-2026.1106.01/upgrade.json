@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.1106.01",
+  "name": "指定本人跨會議整理與啟動提示及獨立記錄主題",
+  "type": "meeting runtime and integration",
+  "portable": true,
+  "status": "Deployed",
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "AMCORE_MEETING_START_OPERATORS (service-local JSON tenantKey/account grants)"
+  ],
+  "requiresScripts": [
+    "tools/test-meeting-start-operator.mjs",
+    "tools/test-meeting-start-operator-browser.cjs",
+    "tools/test-dailylog-meeting-start-bundle.cjs"
+  ],
+  "installTargets": [
+    "AM Platform",
+    "Original DailyLog"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Fresh verified account and same-tenant grants authorize assisted start including non-member/private meetings",
+    "Host/publication/sharing and recording remain unchanged",
+    "Initiation records actor and refuses duplicate or stale attempts",
+    "Record subject changes preserve Calendar title and concurrent edits",
+    "Native live bundle patched surgically preserving subsequent Calendar entry/cancel changes",
+    "Reviewed main commit, complete CI, latest production source preservation and live readback before Deployed"
+  ]
+}

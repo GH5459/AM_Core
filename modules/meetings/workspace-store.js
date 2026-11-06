@@ -20,7 +20,7 @@ export function createWorkspaceStore(pool){
   await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,[id,revision,actor.id,actor.name,field,JSON.stringify(r.fields[field]??null),JSON.stringify(value)]);return get(id,db);
  });}
  async function transition(id,actor,action,revision,generation){return locked(id,async(r,db)=>{
-  if(actor.id!==r.host_id)throw failure(403,'只有錄音上傳者可以開始製作或發布。');
+  if(actor.id!==r.host_id&&!(action==='start'&&actor.canStart===true))throw failure(403,'只有錄音上傳者可以開始製作或發布。');
   if(['publish','retry-publish'].includes(action)&&['publishing','published'].includes(r.state))return r;
   if(Number(r.revision)!==revision)throw failure(409,'內容剛有修改，請重新查看後再確認。');
   let state;
@@ -28,6 +28,7 @@ export function createWorkspaceStore(pool){
    if(!r.fields.settings.topic.trim()||!r.fields.settings.type.trim()||!r.fields.settings.prompt.trim())throw failure(400,'請填寫主題、會議類型與整理重點。');state='processing';
   }else if(action==='publish'&&r.state==='review'){checkPublication(r);state='publishing';}
   else throw failure(409,'目前無法進行此操作。');
+  if(action==='start')await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'generation_start',$5::jsonb,$6::jsonb)`,[id,Number(r.revision)+1,actor.id,actor.name,JSON.stringify({state:r.state}),JSON.stringify({state:'processing',assisted:actor.id!==r.host_id})]);
   return(await db.query(`UPDATE central_archive.meeting_workspaces SET state=$2,revision=revision+1,error_code='',lease_until=CASE WHEN $2='publishing' AND receipt->'publicationTarget'->>'key'<>conversation_key THEN 'infinity'::timestamptz ELSE NULL END,receipt=receipt||$3::jsonb,updated_at=now() WHERE id=$1 RETURNING *`,[id,state,JSON.stringify(action==='start'?{generationSnapshot:{...(generation||{preparation:'',version:null}),input:structuredClone(r.receipt.transcriptInput||{source:'audio',text:'',version:0})}}:{})])).rows[0];
  });}
  async function presence(id,actor,field=''){await pool.query(`INSERT INTO central_archive.meeting_workspace_presence(workspace_id,actor_id,actor_name,field) VALUES($1,$2,$3,$4)
