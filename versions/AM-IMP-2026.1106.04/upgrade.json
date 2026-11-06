@@ -3,7 +3,7 @@
   "name":"會議返回設定、手動重新整理與舊版比較",
   "type":"meeting runtime and integration",
   "portable":true,
-  "status":"Ready",
+  "status":"Deployed",
   "requiresDatabases":[],
   "requiresEnv":[],
   "requiresScripts":["tools/test-meeting-regeneration.mjs","tools/test-meeting-regeneration-browser.cjs","tools/test-meeting-transcription-quality.mjs"],
