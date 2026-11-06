@@ -146,13 +146,18 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const ctx=await context(row,r.source,{senderName:r.host_name});if(r.receipt.generationSnapshot?.input?.source!=='transcript')await original(r,row);
    const audioStreamFactory=async()=>{const file=await original(r,row),token=await platform.drive.getAccessToken();const response=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(300000)});if(!response.ok)throw Error('original_audio_unavailable');return {stream:response.body};};
    const preparation=r.receipt.generationSnapshot||{preparation:'',version:null};
-   const result=await meetingModule.generateWorkspace({tenant:ctx.tenant,audioStreamFactory,loadAudio:()=>download(r,row),filename:r.filename,settings:r.fields.settings,preparation:preparation?.preparation||'',inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null});
-   const fields={...r.fields,record:recordText(result.parsed),transcript:result.diarized};
-   const versions={...r.field_versions,record:1,transcript:1};
+   const settings=preparation.settings||r.fields.settings;
+   const result=await meetingModule.generateWorkspace({tenant:ctx.tenant,audioStreamFactory,loadAudio:()=>download(r,row),filename:r.filename,settings,confirmedSpeakerCount:preparation.confirmedSpeakerCount,preparation:preparation?.preparation||'',inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null});
+   const fields={...Object.fromEntries(Object.entries(r.fields).filter(([k])=>!k.startsWith('todo:'))),record:recordText(result.parsed),transcript:result.diarized};
+   const versions={...r.field_versions,record:Number(r.field_versions.record||0)+1,transcript:Number(r.field_versions.transcript||0)+1};
+   // Invalidate editors left open on the previous result, including fields
+   // whose implicit initial version was zero. They must not revive old todos.
+   for(const key of Object.keys(r.fields).filter(k=>k.startsWith('todo:')))versions[key]=Number(r.field_versions[key]||0)+1;
+   if(r.fields.record)for(const block of recordBlocks(r)){const key='record:'+block.id;versions[key]=Number(r.field_versions[key]||0)+1;}
    for(const t of (result.parsed.todos||[]).slice(0,60)){
     const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
    }
-   await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning,glossaryUsed:result.glossaryUsed||[],preparationVersion:preparation.version})]);
+   await pool.query(`UPDATE central_archive.meeting_workspaces SET fields=$2::jsonb,field_versions=$3::jsonb,record_blocks='[]'::jsonb,result=$4::jsonb,state='review',revision=revision+1,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,JSON.stringify(fields),JSON.stringify(versions),JSON.stringify({segments:result.segments,warning:result.warning,diagnostics:result.diagnostics||null,generationSettings:settings,glossaryUsed:result.glossaryUsed||[],preparationVersion:preparation.version})]);
   }catch(e){await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code=$2,lease_until=NULL,updated_at=now() WHERE id=$1 AND state='processing'`,[r.id,e.status===413?e.message:'製作未完成，原始錄音及設定仍保留；主持人可重試。']);logger.warn('Meeting workspace generation failed; source retained.');}finally{clearInterval(heartbeat);}
  }
  async function validateAssignees(r,row){
@@ -257,12 +262,13 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    // Language and live progress are independent authorized reads. For read
    // responses, await them together below; writes retain their original guard.
    let experience=input.action==='read'?null:await locale.profile(actor);
-   if(actor.maintenanceOnly&&!(['read','history','start'].includes(input.action)||input.action==='edit'&&input.field==='settings'&&['setup','failed'].includes(r.state)))throw failure(403,'整理協助權限只可修改整理設定與開始整理。');
+   if(actor.maintenanceOnly&&!(['read','history','start','regenerate','generation-versions','generation-version'].includes(input.action)||input.action==='edit'&&input.field==='settings'&&['setup','failed','review'].includes(r.state)))throw failure(403,'整理協助權限只可修改整理設定與開始整理。');
    if(actor.publicationReader&&!['read','locale','translate','reply-list'].includes(input.action))throw failure(403,'發布群組成員只能閱讀正式會議記錄。');
    if(input.action==='locale'){sendJson(res,200,{ok:true,experience});return true;}
    if(input.action==='translate'){sendJson(res,200,await locale.translate(actor,row,input));return true;}
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
-   if(!['read','members','history','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
+   if(!['read','members','history','generation-versions','generation-version','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
+   if(['generation-versions','generation-version'].includes(input.action)){if(actor.readOnly)throw failure(403,'只有原會議成員或整理協助者可比較舊版。');sendJson(res,200,input.action==='generation-versions'?{ok:true,versions:await store.generationVersions(r.id)}:{ok:true,version:await store.generationVersion(r.id,input.revision)});return true;}
    if(actor.readOnly){const [replies,progress,readExperience]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor),input.action==='read'?locale.profile(actor):experience]);res.setHeader('Server-Timing',`meeting_auth;dur=${authorityMs.toFixed(1)},meeting_total;dur=${(performance.now()-requestStarted).toFixed(1)}`);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience:readExperience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null},input,actor.id));return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
@@ -321,8 +327,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     const identities=await validateAssignees({...r,fields},row);const ownerNames=Object.fromEntries(identities.map(p=>[p.userId,p.name]));
     current=await store.revise(r.id,actor,fields,input.revision,ownerNames);drain().catch(()=>{});
    }
-   else if(input.action==='start'||input.action==='publish'||input.action==='retry-publish'){
-    if(input.action==='start'){if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');if(r.receipt.transcriptInput?.source!=='transcript')await original(r,row);}
+   else if(['start','regenerate','publish','retry-publish'].includes(input.action)){
+    const generating=['start','regenerate'].includes(input.action);
+    if(generating){if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');if(r.receipt.transcriptInput?.source!=='transcript')await original(r,row);}
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉或無法接收，請聯絡管理者。');
    if(input.action==='publish'&&r.state==='review'){
      if(actor.id!==r.host_id)throw failure(403,'只有主持人可以發布。');
@@ -332,8 +339,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
      const identities=await validateAssignees(r,row);const ownerNames=Object.fromEntries(identities.map(p=>[p.userId,p.name]));
      await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{ownerNames}',$2::jsonb) WHERE id=$1 AND state='review'`,[r.id,JSON.stringify(ownerNames)]);
     }
-    const preparation=input.action==='start'?await hub.plan(r.id):null;
-    current=await store.transition(r.id,actor,input.action,input.revision,preparation?{preparation:preparation.preparation,version:Number(preparation.preparation_version)}:undefined);drain().catch(()=>{});
+    const preparation=generating?await hub.plan(r.id):null;
+    const generation=generating?{preparation:preparation?.preparation||'',version:preparation?Number(preparation.preparation_version):null,confirmed:input.confirmed===true,...input.confirmedSpeakerCount!==undefined?{confirmedSpeakerCount:input.confirmedSpeakerCount}:{}}:undefined;
+    current=await store.transition(r.id,actor,input.action,input.revision,generation);drain().catch(()=>{});
    }else if(!['members','history','organization','publication-targets'].includes(input.action))throw failure(400,'不支援此操作。');
    if(input.action==='organization'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以選擇分享夥伴。');
    const viewStarted=performance.now(),view=await store.readView(current,row.key),templates=view.templates,viewMs=performance.now()-viewStarted;
@@ -345,6 +353,8 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
    const reader=readerData(current);
    const result={ok:true,experience,replies,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,canStart:actor.id===r.host_id||actor.canStart,types,reader,sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:reader.segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:view.presence};
+   result.canConfigure=(actor.id===r.host_id||actor.canStart)&&row.enabled&&!['left','blocked'].includes(row.connection_state)&&['setup','failed','review'].includes(current.state);
+   result.generationDiagnostics=current.result.diagnostics||null;
    result.canEdit=!actor.maintenanceOnly&&['review','published'].includes(current.state);result.pendingRevision=view.pendingRevision;result.assignment=assignment;result.taskProgress=progress;
    if(deferProgress)result.progressDeferred=true;
    const editing=view.editing;result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=view.changes;

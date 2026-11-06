@@ -12,7 +12,7 @@ export function createWorkspaceStore(pool){
  }
  async function edit(id,actor,{field,value,version}){checkField(field,value);return locked(id,async(r,db)=>{
   if(!['setup','review','failed'].includes(r.state))throw failure(409,'此階段不可修改這個欄位。');
-  if(field==='settings'&&r.state==='review'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以返回修改會議設定。');
+  if(field==='settings'&&r.state==='review'&&actor.id!==r.host_id&&actor.canStart!==true)throw failure(403,'只有主持人或整理協助者可以返回修改會議設定。');
   const current=Number(r.field_versions[field]||0);
   if(version!==current)throw failure(409,'這個欄位已被其他人修改，請比較最新內容後再儲存；你的輸入仍保留在畫面。');
   const fields={...r.fields,[field]:value},revision=Number(r.revision)+1;
@@ -20,27 +20,38 @@ export function createWorkspaceStore(pool){
   await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,[id,revision,actor.id,actor.name,field,JSON.stringify(r.fields[field]??null),JSON.stringify(value)]);return get(id,db);
  });}
  async function transition(id,actor,action,revision,generation){return locked(id,async(r,db)=>{
-  if(actor.id!==r.host_id&&!(action==='start'&&actor.canStart===true))throw failure(403,'只有錄音上傳者可以開始製作或發布。');
+  if(actor.id!==r.host_id&&!(['start','regenerate'].includes(action)&&actor.canStart===true))throw failure(403,'只有錄音上傳者可以開始製作或發布。');
   if(['publish','retry-publish'].includes(action)&&['publishing','published'].includes(r.state))return r;
   if(Number(r.revision)!==revision)throw failure(409,'內容剛有修改，請重新查看後再確認。');
   let state;
-  if(action==='start'&&['setup','failed'].includes(r.state)){
+  if(action==='start'&&['setup','failed'].includes(r.state)||action==='regenerate'&&r.state==='review'){
+   if(action==='regenerate'&&generation?.confirmed!==true)throw failure(400,'請確認人員與保留舊版後，再手動重新整理。');
    if(!r.fields.settings.topic.trim()||!r.fields.settings.type.trim()||!r.fields.settings.prompt.trim())throw failure(400,'請填寫主題、會議類型與整理重點。');state='processing';
   }else if(action==='publish'&&r.state==='review'){checkPublication(r);state='publishing';}
   else throw failure(409,'目前無法進行此操作。');
-  if(action==='start')await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'generation_start',$5::jsonb,$6::jsonb)`,[id,Number(r.revision)+1,actor.id,actor.name,JSON.stringify({state:r.state}),JSON.stringify({state:'processing',assisted:actor.id!==r.host_id})]);
-  return(await db.query(`UPDATE central_archive.meeting_workspaces SET state=$2,revision=revision+1,error_code='',lease_until=CASE WHEN $2='publishing' AND receipt->'publicationTarget'->>'key'<>conversation_key THEN 'infinity'::timestamptz ELSE NULL END,receipt=receipt||$3::jsonb,updated_at=now() WHERE id=$1 RETURNING *`,[id,state,JSON.stringify(action==='start'?{generationSnapshot:{...(generation||{preparation:'',version:null}),input:structuredClone(r.receipt.transcriptInput||{source:'audio',text:'',version:0})}}:{})])).rows[0];
+  const generating=['start','regenerate'].includes(action);
+  if(generating){
+   const count=r.fields.settings.speakers.filter(s=>s.name.trim()).length;
+   if(generation?.confirmedSpeakerCount!==undefined&&(!Number.isInteger(generation.confirmedSpeakerCount)||generation.confirmedSpeakerCount!==count||count<1||count>40))throw failure(400,'請重新確認實際發言人數。');
+   if(action==='regenerate'&&(!generation?.confirmedSpeakerCount||count!==r.fields.settings.speakers.length))throw failure(400,'請確認本次發言人員與順序，並移除空白列。');
+   // Archive atomically before a job can run; history reads redact the body.
+   const snapshot=r.fields.record||r.fields.transcript?{revision:Number(r.revision),fields:r.fields,versions:r.field_versions,blocks:recordBlocks(r),result:r.result,settingsUsed:r.result.generationSettings||null,ownerNames:r.receipt.ownerNames||{}}:null;
+   await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'generation_start',$5::jsonb,$6::jsonb)`,[id,Number(r.revision)+1,actor.id,actor.name,JSON.stringify({state:r.state,...snapshot?{snapshot}:{}}),JSON.stringify({state:'processing',assisted:actor.id!==r.host_id,regenerate:action==='regenerate',archivedRevision:snapshot?.revision||null})]);
+  }
+  return(await db.query(`UPDATE central_archive.meeting_workspaces SET state=$2,revision=revision+1,error_code='',lease_until=CASE WHEN $2='publishing' AND receipt->'publicationTarget'->>'key'<>conversation_key THEN 'infinity'::timestamptz ELSE NULL END,receipt=receipt||$3::jsonb,updated_at=now() WHERE id=$1 RETURNING *`,[id,state,JSON.stringify(generating?{generationSnapshot:{...(generation||{preparation:'',version:null}),settings:structuredClone(r.fields.settings),input:structuredClone(r.receipt.transcriptInput||{source:'audio',text:'',version:0})}}:{})])).rows[0];
  });}
  async function presence(id,actor,field=''){await pool.query(`INSERT INTO central_archive.meeting_workspace_presence(workspace_id,actor_id,actor_name,field) VALUES($1,$2,$3,$4)
   ON CONFLICT(workspace_id,actor_id) DO UPDATE SET actor_name=EXCLUDED.actor_name,field=EXCLUDED.field,seen_at=now()`,[id,actor.id,actor.name,String(field).slice(0,100)]);}
  async function people(id){return(await pool.query(`SELECT actor_id AS id,actor_name AS name,field FROM central_archive.meeting_workspace_presence WHERE workspace_id=$1 AND seen_at>now()-interval '20 seconds'`,[id])).rows;}
- const auditSql=`SELECT revision,actor_id,actor_name,field,before_value,after_value,created_at FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1
+ const auditSql=`SELECT revision,actor_id,actor_name,field,CASE WHEN field='generation_start' THEN before_value-'snapshot' ELSE before_value END AS before_value,after_value,created_at FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1
  UNION ALL SELECT version AS revision,actor_id,actor_name,'sharing' AS field,jsonb_build_object('enabled',before_enabled,'people',before_people) AS before_value,jsonb_build_object('enabled',enabled,'people',people) AS after_value,created_at FROM central_archive.meeting_workspace_access_changes WHERE workspace_id=$1
  UNION ALL SELECT revision,actor_id,actor_name,patch->>'field' AS field,patch->'before' AS before_value,patch->'value' AS after_value,created_at FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' AND patch?'field'`;
  function colorRows(rows,actors){const palette=['#1d4ed8','#b91c1c','#166534','#6b21a8','#92400e','#0e7490','#9d174d','#374151'];return rows.map(r=>{const index=Math.max(0,actors.findIndex(a=>a.actor_id===r.actor_id));return {...r,color:palette[index]||('hsl('+((index*137.508)%360).toFixed(2)+' 55% 32%)')};});}
  async function colored(id,rows){const actors=(await pool.query(`SELECT actor_id,MIN(created_at) AS first_seen FROM (${auditSql}) h GROUP BY actor_id ORDER BY first_seen,actor_id`,[id])).rows;return colorRows(rows,actors);}
  async function history(id,offset=0,field=null){return colored(id,(await pool.query(`SELECT * FROM (${auditSql}) h WHERE ($3::text IS NULL OR field=$3) ORDER BY created_at DESC,revision DESC LIMIT 100 OFFSET $2`,[id,Math.floor(Math.max(0,Math.min(100000,Number(offset)||0))),field])).rows);}
  async function changes(id){return colored(id,(await pool.query(`SELECT DISTINCT ON(field) * FROM (${auditSql}) h WHERE field<>'sharing' ORDER BY field,created_at DESC,revision DESC`,[id])).rows);}
+ async function generationVersions(id){return(await pool.query(`SELECT revision,actor_name,created_at,before_value->'snapshot'->>'revision' AS saved_revision FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1 AND field='generation_start' AND before_value?'snapshot' ORDER BY revision DESC`,[id])).rows.map(r=>({...r,revision:Number(r.revision),saved_revision:Number(r.saved_revision)}));}
+ async function generationVersion(id,revision){if(!Number.isSafeInteger(revision)||revision<1)throw failure(400,'請選擇有效版本。');const r=(await pool.query(`SELECT revision,actor_name,created_at,before_value->'snapshot' AS snapshot FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1 AND revision=$2 AND field='generation_start' AND before_value?'snapshot'`,[id,revision])).rows[0];if(!r)throw failure(404,'找不到保留的整理結果。');return {...r,revision:Number(r.revision)};}
  function effectiveFrom(r,latest){if(!latest)return r;const versions={...r.field_versions};for(const key of new Set([...Object.keys(r.fields),...Object.keys(latest.fields)]))if(JSON.stringify(r.fields[key])!==JSON.stringify(latest.fields[key]))versions[key]=Number(versions[key]||0)+1;return {...r,fields:latest.fields,revision:latest.revision,record_blocks:latest.patch.blocks||recordBlocks({...r,fields:latest.fields,record_blocks:[]}),field_versions:latest.patch.versions||versions};}
  async function effective(r,db=pool){const latest=(await db.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' ORDER BY revision DESC LIMIT 1",[r.id])).rows[0];return effectiveFrom(r,latest);}
  // Request-local read only. Authorization remains at the caller; no identity or
@@ -94,5 +105,5 @@ export function createWorkspaceStore(pool){
   const next=Number(r.revision)+1;
   await db.query(`INSERT INTO central_archive.meeting_workspace_revisions(workspace_id,revision,base_revision,fields,owner_names,actor_id,actor_name) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7)`,[id,next,revision,JSON.stringify(fields),JSON.stringify(ownerNames),actor.id,actor.name]);return r;
  });}
- return {get,create,edit,transition,locked,presence,people,history,changes,effective,readView,part,share,revise};
+ return {get,create,edit,transition,locked,presence,people,history,changes,effective,readView,part,share,revise,generationVersions,generationVersion};
 }
