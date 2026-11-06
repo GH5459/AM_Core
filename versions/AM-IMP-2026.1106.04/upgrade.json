@@ -1,0 +1,21 @@
+{
+  "id": "AM-IMP-2026.1106.04",
+  "name": "空白新增任務先開啟表單",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": ["DailyLog"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Only a blank ordinary creation without an existing draft may open before people are ready",
+    "Original single form, typed content, dirty state, owner identity and draft remain intact",
+    "Submit, Enter, programmatic submission and independent writes remain blocked until original people checks complete",
+    "Cancellation, later forms, failed or stale replies cannot revive or overwrite a form",
+    "Complete Worker/D1, original browser workflows, HR and six widths pass",
+    "Reviewed source passes complete CI and matches merged tree before deployment",
+    "Latest complete production modules and settings preserved, read back and measured separately for input-ready and save-ready"
+  ]
+}
