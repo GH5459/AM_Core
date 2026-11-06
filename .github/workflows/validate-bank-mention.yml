@@ -303,6 +303,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.02
       - run: node --test versions/AM-IMP-2026.1106.02/operation-speed.test.mjs versions/AM-IMP-2026.1106.02/task-write/write-speed.test.cjs versions/AM-IMP-2026.1106.02/read-speed.test.cjs versions/AM-IMP-2026.1106.02/file-read/file-read-speed.test.mjs
+      - run: node --test versions/AM-IMP-2026.1106.02/routine-dialog/routine-dialog.test.cjs
       - run: node --test tools/test-background-backoff.mjs tools/test-outbound-traffic.mjs tools/test-llm-cooldown.mjs
       - run: node scripts/check-llm.mjs --offline
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1104.02
