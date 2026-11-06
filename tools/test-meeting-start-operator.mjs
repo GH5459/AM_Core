@@ -50,4 +50,20 @@ const log=(await service.store.history(id)).find(x=>x.field==='generation_start'
 assert.equal((await api({action:'start',revision:Number(after.revision)})).status,409);
 assert.equal((await api({action:'save-part',field:'record',value:'不可改',version:1})).status,403);
 assert.equal((await api({action:'publish',revision:Number(after.revision)})).status,403);
+// The same fresh grant can return to settings and manually regenerate, without
+// gaining content/publication permissions or replacing the archived result.
+const oldTodo='todo:11111111-1111-4111-8111-111111111111';
+await pg.query("UPDATE central_archive.meeting_workspaces SET fields=fields||$2::jsonb,record_blocks=$3::jsonb WHERE id=$1",[id,JSON.stringify({[oldTodo]:{content:'原待辦',ownerId:'',due:'',evidence:'原依據'}}),JSON.stringify([{id:'f'.repeat(32),text:after.fields.record}])]);
+read=await api({action:'read'});assert.equal(read.canConfigure,true);assert.equal(read.canEdit,false);
+const people=['甲','乙','丙','丁'].map(name=>({name,gender:'男',role:''}));
+edit=await api({action:'edit',field:'settings',version:Number(read.workspace.versions.settings),value:{...read.workspace.fields.settings,speakers:people}});assert.equal(edit.status,200,JSON.stringify(edit));assert.equal(edit.workspace.state,'review');
+const savedRecord=edit.workspace.fields.record;
+assert.equal((await api({action:'regenerate',revision:edit.workspace.revision,confirmedSpeakerCount:4})).status,400);
+assert.equal((await api({action:'generation-versions'})).versions.length,0);
+const rerun=await api({action:'regenerate',revision:edit.workspace.revision,confirmed:true,confirmedSpeakerCount:4});assert.equal(rerun.status,200,JSON.stringify(rerun));await service.settle();assert.equal(generated.confirmedSpeakerCount,4);
+const versions=await api({action:'generation-versions'});assert.equal(versions.status,200);assert.equal(versions.versions.length,1);
+const archive=await api({action:'generation-version',revision:versions.versions[0].revision});assert.equal(archive.version.snapshot.fields.record,savedRecord);assert.equal((await service.store.get(id)).state,'review');
+assert.equal(archive.version.snapshot.fields[oldTodo].content,'原待辦');const regenerated=await service.store.get(id);assert.equal(regenerated.fields[oldTodo],undefined);assert.deepEqual(regenerated.record_blocks,[]);assert.equal(regenerated.field_versions.transcript,2);
+assert.equal((await api({action:'save-part',field:'record',value:'不可改',version:2})).status,403);
+platform.meetingShareIdentity=async()=>null;assert.equal((await api({action:'generation-version',revision:versions.versions[0].revision})).status,403);platform.meetingShareIdentity=savedIdentity;
 globalThis.fetch=priorFetch;await pg.close();console.log('Operator: non-member/private read and start, tenant/revocation isolation, source and publication restrictions, title/calendar independence, conflicts and audit passed.');
