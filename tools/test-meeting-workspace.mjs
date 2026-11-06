@@ -40,7 +40,7 @@ assert.equal((await s.transition(id,host,'publish',Number(r.revision))).state,'p
 await pg.query("UPDATE central_archive.meeting_workspaces SET state='published' WHERE id=$1",[id]);
 await assert.rejects(()=>s.edit(id,member,{field:todo,value:todoValue,version:2}),/不可修改/);
 assert.equal((await s.transition(id,host,'publish',Number(r.revision))).state,'published');
-await s.presence(id,member,'record');assert.equal((await s.people(id))[0].name,member.name);assert.equal((await s.history(id)).length,6);
+await s.presence(id,member,'record');assert.equal((await s.people(id))[0].name,member.name);assert.equal((await s.history(id)).length,7);
 assert(!validDate('2026-02-30'));assert.throws(()=>checkField(todo,{...todoValue,due:'2026-02-30'}));assert.throws(()=>checkField('state','published'));
 assert.throws(()=>checkField('settings',{...settings,admin:true}));
 const html=workspaceHtml({id,liffId:'123-fixture'});assert(html.includes('id="recordPanel"')&&html.includes('id="todoPanel"')&&html.includes('確認儲存並發布到群組'));assert(!html.includes('fixture-recording'));

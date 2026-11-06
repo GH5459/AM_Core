@@ -534,7 +534,9 @@ jobs:
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
       - run: node tools/dryrun-collect-attachment-archive.mjs
       - run: node --test tools/test-xiaoye-case-evidence.mjs
-      - run: node --test tools/test-meeting-start-feedback.mjs
+      - run: node --test tools/test-meeting-start-feedback.mjs tools/test-dailylog-meeting-start-bundle.cjs
+      - run: node tools/test-meeting-start-operator.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1023.68
       - run: node tools/test-engineering-reminders-disabled.mjs
       - run: node tools/dryrun-contract-readiness-guidance.mjs

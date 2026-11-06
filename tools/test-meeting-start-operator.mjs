@@ -1,0 +1,53 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
+import {PGlite} from '@electric-sql/pglite';
+import {createMeetingWorkspace} from '../modules/meetings/workspace-service.js';
+import {planInput} from '../modules/meetings/hub-model.js';
+const pg=new PGlite();for(const f of ['core/central-archive/schema.sql','modules/meetings/conversations.sql','modules/meetings/workspace.sql'])await pg.exec(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'));
+await pg.exec("CREATE FUNCTION pg_try_advisory_lock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true'; CREATE FUNCTION pg_advisory_unlock(integer) RETURNS boolean LANGUAGE SQL AS 'SELECT true';");
+const pool={query:(...a)=>pg.query(...a),connect:async()=>({query:(...a)=>pg.query(...a),release(){}})},host='U'+'1'.repeat(32),guest='U'+'2'.repeat(32),outsider='U'+'3'.repeat(32),bot='U'+'b'.repeat(32),key='a'.repeat(64),group='C'+'c'.repeat(32);
+await pg.query('INSERT INTO central_archive.conversations(key,bot_id,source_kind,source_id,drive_folder_id) VALUES($1,$2,$3,$4,$5)',[key,bot,'group',group,'synthetic-folder']);await pg.query("INSERT INTO central_archive.meeting_settings(conversation_key,enabled,connection_state) VALUES($1,true,'active')",[key]);
+const row={key,bot_id:bot,source_kind:'group',source_id:group,enabled:true,connection_state:'active',drive_folder_id:'synthetic-folder'},remote=[],drive=[],priorFetch=globalThis.fetch;let inactive=false,sourceAllowed=true,generated;
+globalThis.fetch=async(url,o={})=>{if(String(url).includes('oauth2/v2.1/verify'))return Response.json({client_id:'123',expires_in:1000});if(String(url).endsWith('/v2/profile'))return Response.json({userId:o.headers.Authorization.endsWith('guest')?guest:o.headers.Authorization.endsWith('outsider')?outsider:host,displayName:'合成人員'});if(String(url).includes('/drive/v3/files?')){const q=new URL(url).searchParams.get('q');return Response.json({files:drive.filter(f=>q.includes(f.appProperties.meetingUpload))});}if(String(url).includes('/drive/v3/files/')&&!String(url).includes('alt=media'))return Response.json(drive.find(f=>String(url).includes('/'+f.id+'?'))||{});if(String(url).includes('alt=media'))return new Response('audio');throw Error('Unexpected fetch');};
+const who=id=>inactive&&id===guest?null:{userId:id,account:id===host?'111':id===guest?'222':'333',name:'合成'+id.slice(-1),tenantKey:'fixture'};
+const platform={publicBaseUrl:'https://meeting.example.test',publicLinkSecret:'synthetic-secret-no-production',meetingShareIdentity:async id=>who(id),meetingOrganization:async()=>({tenantKey:'fixture',departments:[{id:'org',name:'合成部門'}],people:[{account:'111',name:'主持人',departments:['org']},{account:'222',name:'參與者',departments:['org']}]}),syncMeetingCalendar:async(t,v)=>{remote.push(v);return {calendarId:'synthetic',eventId:'same-event-'+v.account,googleAccount:'fixture'};},lineGet:async path=>{if(path.endsWith(host)&&sourceAllowed)return {userId:host};throw Error('not member');},drive:{getAccessToken:async()=> 'synthetic',uploadStream:async(stream,name,mime,folder,size,metadata)=>{const chunks=[];for await(const b of stream)chunks.push(b);assert.equal(Buffer.concat(chunks).length,size);const f={id:'synthetic-file-'+drive.length,size,parents:[folder],appProperties:metadata.appProperties,webViewLink:'https://drive.example/synthetic'};drive.push(f);return f;}}};
+const service=createMeetingWorkspace({pool,botId:bot,platform,archive:{original:async()=>({file:{id:'fixture',size:3}})},env:{AMCORE_MEETING_START_OPERATORS:JSON.stringify([{tenantKey:'fixture',account:'333'}]),AMCORE_MEETINGS_LIFF_ID:'123-test',AMCORE_MEETINGS_LIFF_ENDPOINT_URL:'https://meeting.example.test/meetings/review',AMCORE_MEETING_MANAGEMENT_ORIGIN:'https://management.example.test'},context:async()=>({tenant:{}}),tenantFor:()=>({config:{meetings:{liffId:'123-test'}}}),getConversation:async()=>row,ensureDatabase:async()=>({dbId:'synthetic'}),request:async()=>{throw Error('No publish before confirmation');},meetingModule:{generateWorkspace:async v=>{generated=v;return {parsed:{minutes:[],todos:[],highlights:[],conclusions:[]},diarized:'合成逐字稿',segments:[]};}},logger:{warn(){}}});
+
+async function call(path,input,token='outsider'){
+ let status=200,output;const req=Readable.from([Buffer.from(JSON.stringify(input))]);req.method='POST';req.headers={authorization:'Bearer '+token,origin:platform.publicBaseUrl};
+ const res={headersSent:false,writeHead(v){status=v;},setHeader(){},set statusCode(v){status=v;},get statusCode(){return status;},end(v){output=JSON.parse(v);}};
+ await service.handle(req,res,new URL(platform.publicBaseUrl+path));return {status,...output};
+}
+const created=await service.store.create(key,{source:{type:'group',groupId:group,userId:host},message:{id:'operator-fixture',type:'audio'},timestamp:Date.now()},'synthetic.webm','主持人');
+const id=created.id,api=(v,t)=>call('/meetings/review/work/'+id+'/api',v,t),detail=(v,t)=>call('/meetings/review/work/'+id+'/hub',v,t);
+await pg.query("UPDATE central_archive.meeting_workspaces SET state='setup' WHERE id=$1",[id]);
+await pg.query("INSERT INTO central_archive.meeting_plans(workspace_id,tenant_key,topic,start_at,end_at) VALUES($1,'fixture','原排程','2026-11-06T03:00:00Z','2026-11-06T06:00:00Z')",[id]);
+let read=await api({action:'read'});assert.equal(read.status,200,JSON.stringify(read));assert.equal(read.host,false);assert.equal(read.canStart,true);assert.equal(read.canEdit,false);
+const listed=await call('/meetings/review/hub/api',{action:'list'});assert.equal(listed.status,200,JSON.stringify(listed));assert(listed.items.some(x=>x.id===id));
+assert.equal((await detail({action:'plan-read'})).status,200);
+const original=await service.store.get(id),settings={...original.fields.settings,topic:'修正記錄主題',date:'2026-11-06'};
+let edit=await api({action:'edit',field:'settings',version:0,value:settings});assert.equal(edit.status,200,JSON.stringify(edit));
+assert.equal((await pg.query('SELECT topic FROM central_archive.meeting_plans WHERE workspace_id=$1',[id])).rows[0].topic,'原排程');
+assert.equal((await api({action:'edit',field:'settings',version:1,value:{...settings,date:'2026-11-07'}})).status,409);
+assert.equal((await api({action:'edit',field:'settings',version:0,value:settings})).status,409);
+assert.equal((await api({action:'sharing',enabled:true})).status,403);
+assert.equal((await api({action:'publish',revision:edit.workspace.revision})).status,403);
+assert.equal((await detail({action:'preparation',text:'不可改',version:1})).status,403);
+assert.equal((await detail({action:'audio-begin',uploadId:'synthetic-upload',mime:'audio/webm',filename:'x.webm'})).status,403);
+assert.equal((await api({action:'read'},'guest')).status,403);
+const schedule=await detail({action:'plan-save',version:1,topic:'新的排程名稱',start:'2026-11-06T03:00:00+00:00',end:'2026-11-06T06:00:00+00:00',location:'',accounts:[],calendar:false,cancelled:false},'host');assert.equal(schedule.status,200,JSON.stringify(schedule));assert.equal((await service.store.get(id)).fields.settings.topic,settings.topic);assert.equal((await call('/meetings/review/hub/api',{action:'list'})).items.find(x=>x.id===id).topic,settings.topic);
+const savedIdentity=platform.meetingShareIdentity;
+platform.meetingShareIdentity=async id=>id===outsider?null:who(id);assert.equal((await api({action:'read'})).status,403);
+platform.meetingShareIdentity=async id=>id===outsider?{...who(id),tenantKey:'foreign'}:who(id);assert.equal((await api({action:'read'})).status,403);
+platform.meetingShareIdentity=savedIdentity;
+// An operator may start a private meeting too, while publication remains host-only.
+row.source_kind='user';row.source_id=host;
+read=await api({action:'read'});assert.equal(read.status,200);assert.equal(read.canStart,true);
+const start=await api({action:'start',revision:Number(read.workspace.revision)});assert.equal(start.status,200,JSON.stringify(start));await service.settle();
+const after=await service.store.get(id);assert.equal(after.host_id,host);assert.equal(after.state,'review');assert.equal(after.fields.settings.topic,settings.topic);
+const log=(await service.store.history(id)).find(x=>x.field==='generation_start');assert.equal(log.actor_id,outsider);assert.equal(log.after_value.assisted,true);
+assert.equal((await api({action:'start',revision:Number(after.revision)})).status,409);
+assert.equal((await api({action:'save-part',field:'record',value:'不可改',version:1})).status,403);
+assert.equal((await api({action:'publish',revision:Number(after.revision)})).status,403);
+globalThis.fetch=priorFetch;await pg.close();console.log('Operator: non-member/private read and start, tenant/revocation isolation, source and publication restrictions, title/calendar independence, conflicts and audit passed.');
