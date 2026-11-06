@@ -281,9 +281,15 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function commonLink(input){const available=await groupServices();if(available.length!==1)throw Error('common_identity_service_ambiguous');const t=available[0],c=await config(t);const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/common-link',c.base),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},body:JSON.stringify({tenantKey:t.key,...input}),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('common_identity_service_unavailable');return r.json();}
  async function readMeetingTaskProgress({tenantKey,id,hostId,actorId,todoIds}){
   const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t)throw Error('meeting_task_service_changed');
-  const host=await meetingIdentity(hostId);if(!host||host.tenantKey!==tenantKey)throw Error('meeting_task_identity_changed');
-  const viewer=await meetingShareIdentity(actorId,tenantKey);
-  return call(t,await config(t),'meeting-progress',{contract:'meeting-live-task-progress-v1',id,host,viewer:viewer||null,todoIds});
+  // Independent current reads, with the original host-first error precedence.
+  // Never send a progress request until both identity checks have settled.
+  const [hostRead,viewerRead]=await Promise.allSettled([meetingIdentity(hostId),meetingShareIdentity(actorId,tenantKey)]);
+  if(hostRead.status==='rejected')throw hostRead.reason;
+  const host=hostRead.value;if(!host||host.tenantKey!==tenantKey)throw Error('meeting_task_identity_changed');
+  if(viewerRead.status==='rejected')throw viewerRead.reason;
+  // Resolve the destination after those checks, as before, so an intervening
+  // service configuration update cannot reuse a pre-check destination/key.
+  return call(t,await config(t),'meeting-progress',{contract:'meeting-live-task-progress-v1',id,host,viewer:viewerRead.value||null,todoIds});
  }
  async function secretaryCall(action,input={}){if(!['sessions','active','intake','owner','withdraw','notifications/claim','notifications/validate','notifications/receipt','notifications/defer'].includes(action))throw Error('secretary_action_invalid');const available=await groupServices();if(available.length!==1)throw Error('secretary_service_ambiguous');const t=available[0];return call(t,await config(t),'secretary/'+action,input);}
  const personalCompletionReport=createPersonalCompletionReporter({tenants,config,call,recipient:meetingShareRecipient,line});

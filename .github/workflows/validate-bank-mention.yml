@@ -3,6 +3,7 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'versions/AM-IMP-2026.1106.03/**'
       - 'versions/AM-IMP-2026.1106.02/**'
       - 'core/resource-gate.js'
       - 'core/llm.js'
@@ -301,6 +302,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.03
+      - run: node --test versions/AM-IMP-2026.1106.03/dailylog-read/task-read-identity.test.cjs versions/AM-IMP-2026.1106.03/uof-read/read-stages.test.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1106.02
       - run: node --test versions/AM-IMP-2026.1106.02/operation-speed.test.mjs versions/AM-IMP-2026.1106.02/task-write/write-speed.test.cjs versions/AM-IMP-2026.1106.02/read-speed.test.cjs versions/AM-IMP-2026.1106.02/file-read/file-read-speed.test.mjs
       - run: node --test versions/AM-IMP-2026.1106.02/routine-dialog/routine-dialog.test.cjs
@@ -384,6 +387,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.22
       - run: node tools/test-meeting-workspace-service.mjs
       - run: node tools/test-meeting-workspace-response.mjs
+      - run: node tools/test-meeting-read-latency.mjs
       - run: node tools/test-meeting-task-dispatch.mjs
       - run: node tools/test-meeting-participant-assignment.mjs
       - run: node --check tools/test-meeting-workspace-worker.cjs

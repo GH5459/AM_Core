@@ -55,7 +55,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  async function liffFor(row){return tenantFor(row).config.meetings.liffId;}
  async function namedReader(r,userId){if(r.state!=='published'||!r.shared_people?.length||!platform.meetingShareIdentity)return false;for(const tenantKey of new Set(r.shared_people.map(p=>p.tenantKey))){const who=await platform.meetingShareIdentity(userId,tenantKey);if(who&&r.shared_people.some(p=>p.tenantKey===who.tenantKey&&p.account===who.account))return true;}return false;}
  async function assertRead(r,row,userId){if(r.receipt?.planInputHash&&!await platform.meetingShareIdentity?.(userId))throw failure(403,'目前沒有有效的會議使用資格。');try{await assertMember(row,userId);}catch(e){if(!await startAuthority.allows(userId,r,row)&&!await hub.participant(r,userId)&&!await namedReader(r,userId)&&!await publication.reader(r,userId))throw e;}}
- async function authenticate(req,row,r,allowReader=false,identityOnly=false){
+ async function authenticate(req,row,r,allowReader=false,identityOnly=false,readOnlyRequest=false){
   const embedded=req[dailylogActor];
   const token=String(req.headers.authorization||'').match(/^Bearer ([^\s]+)$/)?.[1]||'';
   const liff=identityOnly?env.AMCORE_MEETINGS_LIFF_ID:await liffFor(row);const continued=embedded||(!token?await platform.loginContinuationActor?.(req):null);if(!embedded&&!liff||!token&&!continued||token.length>4096)throw failure(401,'請用 LINE 登入後再開啟。');
@@ -63,7 +63,28 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    let a; if(continued){if(!['GET','HEAD'].includes(req.method)&&![new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com').origin,new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN||'https://am.hozorental.com').origin].includes(req.headers.origin))throw failure(403,'請從原會議頁操作。');a={userId:continued.id,displayName:continued.name};}else{const v=await fetch('https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),{signal:AbortSignal.timeout(8000)}),j=await v.json();
    if(!v.ok||Number(j.expires_in)<=0||String(j.client_id)!==String(liff).split('-')[0])throw Error('invalid');
    const p=await fetch('https://api.line.me/v2/profile',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(8000)});a=await p.json();if(!p.ok)throw Error('profile');}
-   if(!uid(a.userId))throw Error('profile');await platform.ensureFirstUseBinding?.(a.userId);firstUseVerified=!!platform.ensureFirstUseBinding;const meetingIdentity=identityOnly&&embedded?embedded.meetingIdentity:r?.receipt?.planInputHash?await platform.meetingShareIdentity?.(a.userId):undefined;if(r?.receipt?.planInputHash&&!meetingIdentity)throw failure(403,'目前沒有有效的會議使用資格。');const canStart=!identityOnly&&await startAuthority.allows(a.userId,r,row);let maintenanceOnly=false,readOnly=false,publicationReader=false;if(!identityOnly)try{await assertMember(row,a.userId);}catch(e){if(!await hub.participant(r,a.userId)){if(canStart)maintenanceOnly=true;else{if(!allowReader)throw e;if(!await namedReader(r,a.userId)){if(!await publication.reader(r,a.userId))throw e;publicationReader=true;}readOnly=true;}}}return {canStart,maintenanceOnly,id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100),readOnly,publicationReader,meetingIdentity,trustedEmbeddedIdentity:!!(identityOnly&&embedded),memberConversation:!identityOnly&&!readOnly?row.key:undefined};
+   if(!uid(a.userId))throw Error('profile');await platform.ensureFirstUseBinding?.(a.userId);firstUseVerified=!!platform.ensureFirstUseBinding;
+   let meetingIdentity,canStart;
+   if(readOnlyRequest&&!identityOnly){
+    // Only this authentication phase shares a lookup. Later language/progress
+    // checks still read current identities, and no result crosses requests.
+    const identities=new Map(),identify=id=>{if(!identities.has(id))identities.set(id,Promise.resolve().then(()=>platform.meetingShareIdentity?.(id)));return identities.get(id);};
+    const [identity,start]=await Promise.allSettled([r?.receipt?.planInputHash?identify(a.userId):undefined,startAuthority.allows(a.userId,r,row,identify)]);
+    if(identity.status==='rejected')throw identity.reason;
+    meetingIdentity=identity.value;
+    if(r?.receipt?.planInputHash&&!meetingIdentity)throw failure(403,'目前沒有有效的會議使用資格。');
+    if(start.status==='rejected')throw start.reason;
+    canStart=start.value;
+   }else{
+    meetingIdentity=identityOnly&&embedded?embedded.meetingIdentity:r?.receipt?.planInputHash?await platform.meetingShareIdentity?.(a.userId):undefined;
+    if(r?.receipt?.planInputHash&&!meetingIdentity)throw failure(403,'目前沒有有效的會議使用資格。');
+    canStart=!identityOnly&&await startAuthority.allows(a.userId,r,row);
+   }
+   let maintenanceOnly=false,readOnly=false,publicationReader=false;
+   // Keep current LINE membership after the identity checks, so a withdrawal
+   // while those checks are pending cannot reuse an earlier membership result.
+   if(!identityOnly)try{await assertMember(row,a.userId);}catch(e){if(!await hub.participant(r,a.userId)){if(canStart)maintenanceOnly=true;else{if(!allowReader)throw e;if(!await namedReader(r,a.userId)){if(!await publication.reader(r,a.userId))throw e;publicationReader=true;}readOnly=true;}}}
+   return {canStart,maintenanceOnly,id:a.userId,name:String(a.displayName||'LINE 成員').slice(0,100),readOnly,publicationReader,meetingIdentity,trustedEmbeddedIdentity:!!(identityOnly&&embedded),memberConversation:!identityOnly&&!readOnly?row.key:undefined};
   }catch(e){if(e.status){if(firstUseVerified)e.firstUseVerified=true;throw e;}throw failure(401,'LINE 登入已失效或暫時無法驗證，請重新登入。');}
  }
  async function offer(row,event,filename,hostName){
@@ -197,11 +218,11 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }finally{recovering=false;}}
  function drain(){if(recovering)return recovery;recovery=drainWork();return recovery;}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
- async function handle(req,res,url){
+ async function handle(req,res,url,requestStarted=performance.now()){
   if(req.headers['x-meeting-signature']&&/^\/meetings\/review\//.test(url.pathname)){
    try{const publicOrigin=new URL(env.AMCORE_MEETINGS_LIFF_ENDPOINT_URL||base()+'/meetings/review').origin;
     const forwarded=await embeddedRequest(req,url,{secret:env.AMCORE_MEETING_MANAGEMENT_SECRET||env.AMCORE_LINE_DIRECTORY_OWNER_API_KEY,platform,origin:publicOrigin,pool});
-    if(!forwarded)throw failure(403,'會議接線未完成。');res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url);
+    if(!forwarded)throw failure(403,'會議接線未完成。');res.setHeader('X-DailyLog-Meetings-Origin',publicOrigin);return handle(forwarded.request,res,forwarded.url,requestStarted);
    }catch(e){sendJson(res,e.status||503,{ok:false,...(e.onboardingUrl?{onboardingUrl:e.onboardingUrl}:{}),error:e.status?e.message:'會議暫時無法讀取，請稍後重試。'});return true;}
   }
   if(await caseEvidence(req,res,url))return true;
@@ -228,18 +249,21 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     for(const h of ['content-type','content-length','content-range','accept-ranges'])if(response.headers.has(h))res.setHeader(h,response.headers.get(h));Readable.fromWeb(response.body).on('error',()=>res.destroy()).pipe(res);return true;
    }
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
-   const input=await readBody(req);let current=r,actor;
-   try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action));}catch(e){if(e.code?.startsWith('FIRST_USE_'))throw e;if(input.action==='read'&&canReadShared(r)&&(!platform.ensureFirstUseBinding||e.firstUseVerified)){
+   const input=await readBody(req),authorityStarted=performance.now();let current=r,actor;
+   try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action),false,input.action==='read');}catch(e){if(e.code?.startsWith('FIRST_USE_'))throw e;if(input.action==='read'&&canReadShared(r)&&(!platform.ensureFirstUseBinding||e.firstUseVerified)){
     sendJson(res,200,workspaceResponse({ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null},input));return true;
    }throw e;}
-   const experience=await locale.profile(actor);
+   const authorityMs=performance.now()-authorityStarted;
+   // Language and live progress are independent authorized reads. For read
+   // responses, await them together below; writes retain their original guard.
+   let experience=input.action==='read'?null:await locale.profile(actor);
    if(actor.maintenanceOnly&&!(['read','history','start'].includes(input.action)||input.action==='edit'&&input.field==='settings'&&['setup','failed'].includes(r.state)))throw failure(403,'整理協助權限只可修改整理設定與開始整理。');
    if(actor.publicationReader&&!['read','locale','translate','reply-list'].includes(input.action))throw failure(403,'發布群組成員只能閱讀正式會議記錄。');
    if(input.action==='locale'){sendJson(res,200,{ok:true,experience});return true;}
    if(input.action==='translate'){sendJson(res,200,await locale.translate(actor,row,input));return true;}
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
    if(!['read','members','history','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
-   if(actor.readOnly){const [replies,progress]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor)]);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null},input,actor.id));return true;}
+   if(actor.readOnly){const [replies,progress,readExperience]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor),input.action==='read'?locale.profile(actor):experience]);res.setHeader('Server-Timing',`meeting_auth;dur=${authorityMs.toFixed(1)},meeting_total;dur=${(performance.now()-requestStarted).toFixed(1)}`);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience:readExperience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null},input,actor.id));return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
@@ -314,8 +338,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='organization'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以選擇分享夥伴。');
    const viewStarted=performance.now(),view=await store.readView(current,row.key),templates=view.templates,viewMs=performance.now()-viewStarted;
    const deferProgress=input.response==='saved'&&['edit','save-part','save-type','revise','sharing','task-participants','publication-target'].includes(input.action);
-   const [replies,assignment,progress,publicationStatus]=await Promise.all([current.state==='published'?locale.list(current):[],taskDispatch.status(current,view.dispatch),deferProgress?null:taskProgress(current,actor,view.dispatch),publication.status(current,row)]);
-   res.setHeader('Server-Timing',`meeting_view;dur=${viewMs.toFixed(1)},meeting_related;dur=${(performance.now()-viewStarted-viewMs).toFixed(1)}`);
+   const [replies,assignment,progress,publicationStatus,readExperience]=await Promise.all([current.state==='published'?locale.list(current):[],taskDispatch.status(current,view.dispatch),deferProgress?null:taskProgress(current,actor,view.dispatch),publication.status(current,row),input.action==='read'?locale.profile(actor):experience]);
+   experience=readExperience;
+   res.setHeader('Server-Timing',`meeting_auth;dur=${authorityMs.toFixed(1)},meeting_view;dur=${viewMs.toFixed(1)},meeting_related;dur=${(performance.now()-viewStarted-viewMs).toFixed(1)},meeting_total;dur=${(performance.now()-requestStarted).toFixed(1)}`);
    res.setHeader('X-Meeting-Refresh',WORKSPACE_REFRESH_CONTRACT);
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
    const reader=readerData(current);
