@@ -37,10 +37,32 @@ export function createWorkspaceStore(pool){
  const auditSql=`SELECT revision,actor_id,actor_name,field,before_value,after_value,created_at FROM central_archive.meeting_workspace_edits WHERE workspace_id=$1
  UNION ALL SELECT version AS revision,actor_id,actor_name,'sharing' AS field,jsonb_build_object('enabled',before_enabled,'people',before_people) AS before_value,jsonb_build_object('enabled',enabled,'people',people) AS after_value,created_at FROM central_archive.meeting_workspace_access_changes WHERE workspace_id=$1
  UNION ALL SELECT revision,actor_id,actor_name,patch->>'field' AS field,patch->'before' AS before_value,patch->'value' AS after_value,created_at FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' AND patch?'field'`;
- async function colored(id,rows){const actors=(await pool.query(`SELECT actor_id,MIN(created_at) AS first_seen FROM (${auditSql}) h GROUP BY actor_id ORDER BY first_seen,actor_id`,[id])).rows;const palette=['#1d4ed8','#b91c1c','#166534','#6b21a8','#92400e','#0e7490','#9d174d','#374151'];return rows.map(r=>{const index=Math.max(0,actors.findIndex(a=>a.actor_id===r.actor_id));return {...r,color:palette[index]||('hsl('+((index*137.508)%360).toFixed(2)+' 55% 32%)')};});}
+ function colorRows(rows,actors){const palette=['#1d4ed8','#b91c1c','#166534','#6b21a8','#92400e','#0e7490','#9d174d','#374151'];return rows.map(r=>{const index=Math.max(0,actors.findIndex(a=>a.actor_id===r.actor_id));return {...r,color:palette[index]||('hsl('+((index*137.508)%360).toFixed(2)+' 55% 32%)')};});}
+ async function colored(id,rows){const actors=(await pool.query(`SELECT actor_id,MIN(created_at) AS first_seen FROM (${auditSql}) h GROUP BY actor_id ORDER BY first_seen,actor_id`,[id])).rows;return colorRows(rows,actors);}
  async function history(id,offset=0,field=null){return colored(id,(await pool.query(`SELECT * FROM (${auditSql}) h WHERE ($3::text IS NULL OR field=$3) ORDER BY created_at DESC,revision DESC LIMIT 100 OFFSET $2`,[id,Math.floor(Math.max(0,Math.min(100000,Number(offset)||0))),field])).rows);}
  async function changes(id){return colored(id,(await pool.query(`SELECT DISTINCT ON(field) * FROM (${auditSql}) h WHERE field<>'sharing' ORDER BY field,created_at DESC,revision DESC`,[id])).rows);}
- async function effective(r,db=pool){const latest=(await db.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' ORDER BY revision DESC LIMIT 1",[r.id])).rows[0];if(!latest)return r;const versions={...r.field_versions};for(const key of new Set([...Object.keys(r.fields),...Object.keys(latest.fields)]))if(JSON.stringify(r.fields[key])!==JSON.stringify(latest.fields[key]))versions[key]=Number(versions[key]||0)+1;return {...r,fields:latest.fields,revision:latest.revision,record_blocks:latest.patch.blocks||recordBlocks({...r,fields:latest.fields,record_blocks:[]}),field_versions:latest.patch.versions||versions};}
+ function effectiveFrom(r,latest){if(!latest)return r;const versions={...r.field_versions};for(const key of new Set([...Object.keys(r.fields),...Object.keys(latest.fields)]))if(JSON.stringify(r.fields[key])!==JSON.stringify(latest.fields[key]))versions[key]=Number(versions[key]||0)+1;return {...r,fields:latest.fields,revision:latest.revision,record_blocks:latest.patch.blocks||recordBlocks({...r,fields:latest.fields,record_blocks:[]}),field_versions:latest.patch.versions||versions};}
+ async function effective(r,db=pool){const latest=(await db.query("SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending' ORDER BY revision DESC LIMIT 1",[r.id])).rows[0];return effectiveFrom(r,latest);}
+ // Request-local read only. Authorization remains at the caller; no identity or
+ // content survives this request. One statement also keeps related read models
+ // on the same database snapshot without occupying several pool connections.
+ async function readView(r,conversationKey){
+  const v=(await pool.query(`WITH audit AS MATERIALIZED (${auditSql}),
+   pending AS MATERIALIZED (SELECT * FROM central_archive.meeting_workspace_revisions WHERE workspace_id=$1 AND state='pending'),
+   actors AS (SELECT actor_id,MIN(created_at) AS first_seen FROM audit GROUP BY actor_id),
+   latest_changes AS (SELECT DISTINCT ON(field) * FROM audit WHERE field<>'sharing' ORDER BY field,created_at DESC,revision DESC)
+   SELECT
+    COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY name) FROM (SELECT name,prompt,version FROM central_archive.meeting_workspace_templates WHERE conversation_key=$2) t),'[]'::jsonb) AS templates,
+    (SELECT jsonb_build_object('revision',revision,'error_code',error_code) FROM pending ORDER BY revision LIMIT 1) AS pending,
+    (SELECT to_jsonb(p) FROM pending p ORDER BY revision DESC LIMIT 1) AS latest,
+    (SELECT to_jsonb(d) FROM central_archive.meeting_task_dispatches d WHERE workspace_id=$1) AS dispatch,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('id',actor_id,'name',actor_name,'field',field) ORDER BY actor_id) FROM central_archive.meeting_workspace_presence WHERE workspace_id=$1 AND $3::boolean AND seen_at>now()-interval '20 seconds'),'[]'::jsonb) AS presence,
+    COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY field) FROM latest_changes c),'[]'::jsonb) AS changes,
+    COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY first_seen,actor_id) FROM actors a),'[]'::jsonb) AS actors`,[r.id,conversationKey,r.state!=='published'])).rows[0];
+  const changes=v.changes.map(change=>({...change,created_at:new Date(change.created_at).toISOString()}));
+  if(v.dispatch?.updated_at)v.dispatch.updated_at=new Date(v.dispatch.updated_at).toISOString();
+  return {templates:v.templates,pendingRevision:v.pending,dispatch:v.dispatch,presence:v.presence,changes:colorRows(changes,v.actors),editing:effectiveFrom(r,v.latest)};
+ }
  async function part(id,actor,input,validate){return locked(id,async(original,db)=>{
   if(!['review','published'].includes(original.state))throw failure(409,'此階段不可修改內容。');
   const r=await effective(original,db),next=applyPart(r,input),ownerNames=await validate?.({...r,...next})||original.receipt.ownerNames||{};
@@ -72,5 +94,5 @@ export function createWorkspaceStore(pool){
   const next=Number(r.revision)+1;
   await db.query(`INSERT INTO central_archive.meeting_workspace_revisions(workspace_id,revision,base_revision,fields,owner_names,actor_id,actor_name) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7)`,[id,next,revision,JSON.stringify(fields),JSON.stringify(ownerNames),actor.id,actor.name]);return r;
  });}
- return {get,create,edit,transition,locked,presence,people,history,changes,effective,part,share,revise};
+ return {get,create,edit,transition,locked,presence,people,history,changes,effective,readView,part,share,revise};
 }

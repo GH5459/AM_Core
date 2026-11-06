@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
 import {workspaceHtml} from '../modules/meetings/workspace-ui.js';
+import {workspaceResponse} from '../modules/meetings/workspace-response.js';
 const todo='todo:11111111-1111-4111-8111-111111111111', block='a'.repeat(32),record='record:'+block;
 const clone=structuredClone;
 async function fixture(){
@@ -12,7 +13,7 @@ async function fixture(){
  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
  w.structuredClone=clone;w.confirm=()=>true;w.setInterval=fn=>{timers.push(fn);return timers.length;};w.liff={init:async()=>{},isLoggedIn:()=>true,getAccessToken:()=> 'synthetic'};
  function commit(input){const v=state.editing.versions[input.field]||0;if(input.version!==v)return {status:409,error:'這一段或待辦已被其他人修改。'};state=clone(state);state.editing.fields[input.field]=input.value;if(input.field.startsWith('record:')){state.editing.blocks.find(b=>'record:'+b.id===input.field).text=input.value;state.editing.fields.record=input.value;}state.editing.versions[input.field]=v+1;state.editing.revision++;state.workspace={...state.workspace,fields:state.editing.fields,versions:state.editing.versions,revision:state.editing.revision};return {status:200};}
- w.fetch=async(url,options)=>{const input=JSON.parse(options.body);requests.push(input);const result=behavior?await behavior(input,commit):input.action==='save-part'?commit(input):{status:200};if(result?.throw)throw Error(result.throw);return {ok:result.status===200,status:result.status,json:async()=>result.error?{error:result.error}:clone(result.body||state)};};
+ w.fetch=async(url,options)=>{const input=JSON.parse(options.body);requests.push(input);const result=behavior?await behavior(input,commit):input.action==='save-part'?commit(input):{status:200};if(result?.throw)throw Error(result.throw);return {ok:result.status===200,status:result.status,json:async()=>result.error?{error:result.error}:clone(workspaceResponse(result.body||state,input))};};
  for(const script of dom.window.document.querySelectorAll('script:not([src])'))w.eval(script.textContent);
  w.initializeMeetingHub=()=>{};
  const tick=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};await tick();
@@ -48,5 +49,8 @@ for(const failure of ['lost',503,409]){
 {
  const f=await fixture();try{let release,started;const waiting=new Promise(r=>started=r),old=clone(f.state);f.setBehavior(async(input,commit)=>{if(input.action==='read'){started();await new Promise(r=>release=r);return {status:200,body:old};}return commit(input);});const poll=f.poll();await waiting;f.edit(todo,'新版本');await f.save(todo);release();await poll;assert.equal(f.el(todo).dataset.version,'1');f.edit(todo,'再編輯');f.setBehavior(null);await f.save(todo);assert.equal(f.state.editing.versions[todo],2);checks+=2;}finally{f.close();}
 }
-console.log('Meeting client version recovery: '+checks+' checks passed (focused paragraph/todo/transcript saves, lost/503/409 acknowledgments, in-flight typing, true conflicts, property-order-independent equality, read failure and stale poll).');
+{
+ const f=await fixture();try{let reads=0;f.setBehavior((input,commit)=>{if(input.action==='save-part'){assert.equal(input.response,'saved');commit(input);return {status:200,body:{...f.state,progressDeferred:true,taskProgress:null}};}if(input.action==='read')reads++;return {status:200};});f.edit(record,'先確認保存再更新進度');await f.save(record);assert(!f.el(record).classList.contains('dirty'));await new Promise(resolve=>setTimeout(resolve,20));await f.tick();assert.equal(reads,1,'A saved receipt starts one background progress refresh');assert.equal(f.el(record).querySelector('[contenteditable]').innerText,'先確認保存再更新進度');checks+=3;}finally{f.close();}
+}
+console.log('Meeting client version recovery: '+checks+' checks passed (focused paragraph/todo/transcript saves, lost/503/409 acknowledgments, in-flight typing, true conflicts, property-order-independent equality, read failure, stale poll and saved-before-progress refresh).');
 

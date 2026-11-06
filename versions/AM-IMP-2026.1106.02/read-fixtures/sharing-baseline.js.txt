@@ -1,0 +1,108 @@
+// project-sharing.mjs
+var contexts = /* @__PURE__ */ new WeakMap();
+var fail = /* @__PURE__ */ __name(() => Object.assign(Error("\u5C08\u6848\u95DC\u4FC2\u6216\u5206\u4EAB\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u8F09\u5165\u3002"), { status: 409 }), "fail");
+var normal = /* @__PURE__ */ __name((t) => t && !t.mergedInto && !["hr", "routine"].includes(t.workScope), "normal");
+var signature = /* @__PURE__ */ __name((t) => JSON.stringify([t.version, t.primaryParentId, t.collaborators, t.sharedWith]), "signature");
+var direct = /* @__PURE__ */ __name((t) => [...new Set([t.requester?.account, t.lead?.account, creator(t), ...(t.collaborators || []).map((p) => p.account), ...(t.sharedWith || []).map((p) => p.account)].filter(Boolean))], "direct");
+var creator = /* @__PURE__ */ __name((t) => t.createdBy?.account || t.history?.find((h) => h.kind === "created")?.actor?.account, "creator");
+var inheritedMembers = /* @__PURE__ */ __name((t) => contexts.get(t)?.view || [], "inheritedMembers");
+var sharingVersions = /* @__PURE__ */ __name((t) => contexts.get(t)?.versions || [], "sharingVersions");
+function taskCanEdit(t, account2, admin = false) {
+  if(admin)return true;
+  if(transferFormer(t,account2))return false;
+  if(t.transferOriginalRequester&&t.history?.some(h=>h.kind==="transfer"&&h.transferScope!=="personal")&&[t.requester?.account,t.lead?.account].includes(account2))return true;
+  if (admin) return true;
+  // Direct responsibility survives inherited project viewing restrictions.
+  if (t.lead?.account === account2) return true;
+  const invited = contexts.get(t)?.invited || [];
+  if (invited.includes(account2)) return creator(t) === account2;
+  return [t.requester?.account, t.lead?.account, creator(t)].includes(account2);
+}
+__name(taskCanEdit, "taskCanEdit");
+function taskCanCreateChild(t, account2, admin = false) {
+  return normal(t) && !["done", "cancelled"].includes(t.status) && (admin || [t.requester?.account, t.lead?.account, creator(t), ...(t.collaborators || []).map((p) => p.account), ...contexts.get(t)?.create || []].includes(account2));
+}
+__name(taskCanCreateChild, "taskCanCreateChild");
+function decorate(tasks, all) {
+  const byId = new Map(all.map((t) => [t.id, t]));
+  for (const t of tasks) {
+    if (!normal(t)) {
+      contexts.delete(t);
+      continue;
+    }
+    const view = /* @__PURE__ */ new Set(), create = /* @__PURE__ */ new Set(), invited = new Set((t.level || 1) > 1 ? (t.collaborators || []).map((p) => p.account) : []), versions = [], seen = /* @__PURE__ */ new Set([t.id]);
+    let parentId = t.primaryParentId;
+    while (parentId) {
+      if (seen.has(parentId)) throw fail();
+      seen.add(parentId);
+      const p = byId.get(parentId);
+      if (!p) break;
+      versions.push([p.id, p.version]);
+      if (!normal(p) || p.status === "cancelled") break;
+      if ((p.level || 1) > 1) {
+        direct(p).forEach((a) => view.add(a));
+        [p.requester?.account, p.lead?.account, creator(p), ...(p.collaborators || []).map((m) => m.account)].filter(Boolean).forEach((a) => create.add(a));
+        [...p.collaborators || [], ...p.sharedWith || []].forEach((m) => invited.add(m.account));
+      }
+      parentId = p.primaryParentId;
+    }
+    contexts.set(t, { view: [...view], create: [...create], invited: [...invited], versions, signature: signature(t) });
+  }
+  return tasks;
+}
+__name(decorate, "decorate");
+async function hydrateTaskSharing(db, tasks) {
+  if (!tasks.length) return tasks;
+  const rows2 = await db.prepare(`WITH RECURSIVE ancestry(id) AS (
+ SELECT value FROM json_each(?) UNION SELECT w.parent_id FROM work_items w JOIN ancestry a ON w.id=a.id WHERE w.parent_id IS NOT NULL
+ ) SELECT w.value FROM work_items w JOIN ancestry a ON a.id=w.id`).bind(JSON.stringify(tasks.map((t) => t.id))).all();
+  return decorate(tasks, rows2.results.map((r) => JSON.parse(r.value)));
+}
+__name(hydrateTaskSharing, "hydrateTaskSharing");
+async function ensureTaskSharing(db, tasks) {
+  await hydrateTaskSharing(db, tasks.filter((t) => contexts.get(t)?.signature !== signature(t)));
+  return tasks;
+}
+__name(ensureTaskSharing, "ensureTaskSharing");
+async function readSharedTask(db, id) {
+  const row = await db.prepare("SELECT value FROM work_items WHERE id=?").bind(id).first();
+  if (!row) return null;
+  return (await hydrateTaskSharing(db, [JSON.parse(row.value)]))[0];
+}
+__name(readSharedTask, "readSharedTask");
+async function listSharedTasks(db, account2) {
+  const rows2 = await db.prepare(`WITH RECURSIVE visible(id) AS (
+ SELECT w.id FROM work_items w WHERE json_extract(w.value,'$.mergedInto') IS NULL AND (
+ json_extract(w.value,'$.requester.account')=? OR json_extract(w.value,'$.lead.account')=? OR json_extract(w.value,'$.createdBy.account')=?
+ OR EXISTS(SELECT 1 FROM json_each(json_extract(w.value,'$.collaborators')) p WHERE json_extract(p.value,'$.account')=?)
+ OR EXISTS(SELECT 1 FROM json_each(json_extract(w.value,'$.sharedWith')) p WHERE json_extract(p.value,'$.account')=?) OR EXISTS(SELECT 1 FROM json_each(json_extract(w.value,'$.transferWatchers')) p WHERE json_extract(p.value,'$.account')=?))
+ UNION SELECT c.id FROM work_items c JOIN visible v ON c.parent_id=v.id JOIN work_items p ON p.id=v.id
+ WHERE json_extract(p.value,'$.status')!='cancelled' AND json_extract(p.value,'$.mergedInto') IS NULL
+ AND json_extract(c.value,'$.mergedInto') IS NULL AND COALESCE(json_extract(c.value,'$.workScope'),'normal') NOT IN ('hr','routine')
+ ) SELECT w.value FROM work_items w JOIN visible v ON v.id=w.id ORDER BY json_extract(w.value,'$.updatedAt') DESC`).bind(account2, account2, account2, account2, account2, account2).all();
+  return hydrateTaskSharing(db, rows2.results.map((r) => JSON.parse(r.value)));
+}
+__name(listSharedTasks, "listSharedTasks");
+async function sharedChildren(db, id, account2, admin = false) {
+  const rows2 = await db.prepare("SELECT value FROM work_items WHERE parent_id=? AND json_extract(value,'$.mergedInto') IS NULL").bind(id).all();
+  const tasks = await hydrateTaskSharing(db, rows2.results.map((r) => JSON.parse(r.value)));
+  return tasks.filter((t) => !t.deletedAt && normal(t) && (admin || [...direct(t), ...inheritedMembers(t)].includes(account2)));
+}
+__name(sharedChildren, "sharedChildren");
+async function assertSharingVersions(db, tasks, includeTasks = false) {
+  const versions = /* @__PURE__ */ new Map();
+  for (const t of tasks) {
+    if (includeTasks && t.id && t.version !== void 0) versions.set(t.id, t.version);
+    for (const [id, v] of sharingVersions(t)) versions.set(id, v);
+  }
+  if (!versions.size) return;
+  const rows2 = await db.prepare("SELECT id,value FROM work_items WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify([...versions.keys()])).all();
+  if (rows2.results.length !== versions.size || rows2.results.some((r) => JSON.parse(r.value).version !== versions.get(r.id))) throw fail();
+}
+__name(assertSharingVersions, "assertSharingVersions");
+var sharingSqlGuard = "NOT EXISTS (SELECT 1 FROM json_each(?) g LEFT JOIN work_items a ON a.id=json_extract(g.value,'$[0]') WHERE a.id IS NULL OR json_extract(a.value,'$.version')!=json_extract(g.value,'$[1]'))";
+
+
+// work-minutes.mjs
+const fixture_worker={};
+export {fixture_worker as default};

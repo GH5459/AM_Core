@@ -17,8 +17,8 @@ export function meetingTaskDispatch({pool,store,botId,platform,conversation,asse
   await pool.query(`INSERT INTO central_archive.meeting_task_dispatches(workspace_id,applied_fields,task_tenant,known_task_ids)
    VALUES($1,$2::jsonb,$3,$4::jsonb) ON CONFLICT(workspace_id) DO NOTHING`,[r.id,JSON.stringify(legacy?r.fields:{}),r.receipt.taskTenant||'',JSON.stringify(r.receipt.knownTaskIds||(r.receipt.tasks||[]).map(t=>t.id).filter(Boolean))]);
  }
- async function status(r){
-  const q=(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[r.id])).rows[0];if(!q)return null;
+ async function status(r,dispatch){
+  const q=dispatch===undefined?(await pool.query('SELECT * FROM central_archive.meeting_task_dispatches WHERE workspace_id=$1',[r.id])).rows[0]:dispatch;if(!q)return null;
   return {items:todos(r.fields).filter(t=>t.ownerId).map(t=>({id:t.id,state:same(q.applied_fields[t.id],r.fields[t.id])?'delivered':'pending'})),message:q.error_code||'',lastCheckedAt:q.updated_at};
  }
  async function run(id){const db=await pool.connect();let locked=false,r,q;try{

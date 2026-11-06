@@ -2,6 +2,7 @@ export function workspaceClient(BOOT){
  const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let token='',data=null,memberList=[],membersLoaded=false,settingsDirty=false,settingsVersion=0,renderedSettingsVersion=-1,busy=false,publishing=false,polling=false,audioUrl='',mode='',editSnapshot=null,readingHash='',lastState='',sharingDirty=false,sharingBase=null,selectedPeople=[],historyOffset=0;
  const newBlocks=new Map();
+ let readingContentHash='';
  const speakerTools=meetingSpeakerTools();
  let showingSettings=false,speakerPlan=null,speakerUndo=null,segmentsHash='';
  let publicationDirty=false,publicationBase=0,publicationChoices=[],publicationDraft=null,publicationLoading=false,publicationSaving=false;
@@ -11,7 +12,25 @@ export function workspaceClient(BOOT){
  const statusNames={offered:'等待上傳者確認',declined:'本次不製作',setup:'設定中',processing:'製作中',review:'共同確認中',failed:'製作未完成',publishing:'發布處理中',published:'正式會議記錄'};
  const color=id=>{let n=0;for(const c of id)n=(n*31+c.charCodeAt(0))>>>0;return `hsl(${n%360} 48% 40%)`;};
  const error=e=>{const message=e?.message||String(e||'');$('#error').textContent=message;if($('#confirmDialog').open){$('#confirmError').textContent=message;if(message)$('#confirmError').focus();}};
- async function api(input){const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),input.action==='publish'?120000:60000);try{const r=await fetch('/meetings/review/work/'+BOOT.id+'/api',{method:'POST',headers:{...token?{Authorization:'Bearer '+token}:{},'Content-Type':'application/json'},body:JSON.stringify(input),cache:'no-store',signal:controller.signal});const j=await r.json();if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}if(!r.ok)throw Object.assign(Error(j.error||'操作未完成'),{status:r.status});return j;}catch(e){if(e.name==='AbortError')throw Error(input.action==='publish'?'連線逾時；發布可能已開始，請按「檢查發布狀態」確認。原內容仍保留。':'連線逾時，請保留內容後重試。');throw e;}finally{clearTimeout(timeout);}}
+ async function api(input){
+  // Keep the exact request baseline, so a delayed refresh cannot merge against
+  // a newer save that finished while this request was in flight.
+  const prior=data;
+  const packet=input.action==='read'&&prior?.refresh?{...input,known:prior.refresh}:['edit','save-part','save-type','revise','sharing','task-participants','publication-target'].includes(input.action)?{...input,response:'saved'}:input;
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),input.action==='publish'?120000:60000);
+  try{
+   const r=await fetch('/meetings/review/work/'+BOOT.id+'/api',{method:'POST',headers:{...token?{Authorization:'Bearer '+token}:{},'Content-Type':'application/json'},body:JSON.stringify(packet),cache:'no-store',signal:controller.signal}),j=await r.json();
+   if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}
+   if(!r.ok)throw Object.assign(Error(j.error||'操作未完成'),{status:r.status});
+   if(j.delta){
+    if(!prior?.refresh||j.base!==prior.refresh.scope||j.refresh?.contract!==prior.refresh.contract||!j.values||!Array.isArray(j.removed))throw Error('更新內容無法接續，請重新讀取。');
+    const next={...prior};for(const key of j.removed)delete next[key];
+    return {...next,...j.values,refresh:j.refresh};
+   }
+   if(j.progressDeferred){const next=prior?.refresh?.scope===j.refresh?.scope?{...j,taskProgress:prior.taskProgress}:j;setTimeout(()=>{if(data===next)void refresh();},0);return next;}
+   return j;
+  }catch(e){if(e.name==='AbortError')throw Error(input.action==='publish'?'連線逾時；發布可能已開始，請按「檢查發布狀態」確認。原內容仍保留。':'連線逾時，請保留內容後重試。');throw e;}finally{clearTimeout(timeout);}
+ }
 
  const editable=()=>data?.canEdit&&mode==='edit';
  const editData=()=>data.editing||{fields:data.workspace.fields,versions:data.workspace.versions,blocks:[]};
@@ -95,6 +114,7 @@ export function workspaceClient(BOOT){
  function renderTaskProgress(){
   const p=data.taskProgress,panel=$('#taskProgressPanel');panel.hidden=data.workspace.state!=='published';if(panel.hidden)return;
   const summary=$('#taskProgressSummary'),checked=$('#taskProgressChecked');
+  if(data.progressDeferred){summary.textContent='修改已儲存，正在更新任務進度…';checked.textContent=p?'下方任務成果為先前讀取結果，更新完成後會顯示最新進度。':'任務進度正在讀取。';$('#refreshTaskProgress').hidden=false;return;}
   if(!p){summary.textContent='請以本人登入後查看最新任務進度。';checked.textContent='公開連結不提供工作日誌成果內容。';$('#refreshTaskProgress').hidden=true;return;}
   $('#refreshTaskProgress').hidden=false;
   summary.innerHTML='<span>共 '+Number(p.counts.total)+' 項</span>'+Object.entries(progressLabels).filter(([k])=>p.counts[k]).map(([k,label])=>'<span>'+esc(label)+' '+Number(p.counts[k])+' 項</span>').join('')+(p.counts.overdue?'<span>已逾期 '+Number(p.counts.overdue)+' 項</span>':'');
@@ -103,9 +123,10 @@ export function workspaceClient(BOOT){
  function seek(seconds){$('#audio').currentTime=Number(seconds);$('#audio').play().catch(error);}
  function renderReader(){const r={...data.reader};if(memberList.length&&data.workspace.fields){const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v);r.todos=(r.todos||[]).map((t,i)=>({...t,owner:memberList.find(p=>p.id===ts[i]?.[1].ownerId)?.name||t.owner}));}const hash=JSON.stringify([r,data.assignment,data.taskProgress?.items]);if(readingHash===hash)return;readingHash=hash;
   const openTopics=new Set(Array.from($('#readingRecordText').querySelectorAll('details[open]')).map(e=>e.dataset.decision));
-  $('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';
+  const contentHash=JSON.stringify([r.record,r.transcript,r.warning,r.segments]),contentChanged=readingContentHash!==contentHash;
+  if(contentChanged){readingContentHash=contentHash;$('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';}
   const openEvidence=new Set(Array.from($('#readingTodoList').querySelectorAll('details[open]')).map(e=>e.dataset.taskEvidence));const ts=r.todos||[];$('#readingTodoCount').textContent=ts.length?'（'+ts.length+' 項）':'（無）';$('#readingTodoList').innerHTML=ts.length?'<ol>'+ts.map((t,i)=>'<li><h3>任務 '+(i+1)+'</h3><p>'+esc(t.content)+'</p><dl><div><dt>負責人</dt><dd>'+esc(t.owner)+'</dd></div><div><dt>截止日期</dt><dd>'+esc(data.taskProgress?.items[i]?(data.taskProgress.items[i].due||'未設定'):t.due)+'</dd></div></dl>'+taskProgressDetail(data.taskProgress?.items[i])+'</li>').join('')+'</ol>':'<p class="muted">本次會議沒有待辦事項。</p>';
-  $('#readingTodoList').querySelectorAll('details[data-task-evidence]').forEach(e=>e.open=openEvidence.has(e.dataset.taskEvidence));$('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));
+  $('#readingTodoList').querySelectorAll('details[data-task-evidence]').forEach(e=>e.open=openEvidence.has(e.dataset.taskEvidence));if(contentChanged){$('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));}
  }
 
  function render(){if(!data)return;document.body.classList.toggle('publication-reader',data.access==='publication');let recovered=false;for(const key of dirty.keys())if(!saving.has(key))recovered=recoverSaved(key)||recovered;if(recovered&&!dirty.size&&!saving.size){contentSaveError='';error('');}if(data.access==='member'&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token,host:data.host,state:data.workspace.state});else document.querySelector('#hubPreparation')?.setAttribute('hidden','');const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';

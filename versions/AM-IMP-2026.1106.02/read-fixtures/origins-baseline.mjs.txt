@@ -1,0 +1,103 @@
+const CONTRACT = 'dailylog-task-origins-v1';
+const workId = id => typeof id === 'string' && /^work-[a-f0-9-]{36}$/.test(id);
+const name = value => typeof value === 'string' ? value.trim().slice(0, 200) : '';
+const parse = value => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
+const hex = bytes => Array.from(new Uint8Array(bytes), n => n.toString(16).padStart(2, '0')).join('');
+
+async function sourceNames(meetingIds, groupIds, env, fetchImpl) {
+  const empty = {meetings: [], groups: []};
+  if (!meetingIds.length && !groupIds.length) return empty;
+  const secret = env.AMCORE_MEETING_MANAGEMENT_SECRET;
+  if (typeof secret !== 'string' || secret.length < 32) return empty;
+  try {
+    const origin = new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN || 'https://am.hozorental.com');
+    if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) return empty;
+    const path = '/integrations/meeting-management/task-origins';
+    const body = JSON.stringify({contract: CONTRACT, meetingIds, groupIds});
+    // Existing integration signature. No browser credentials or messages leave
+    // this Worker, and the endpoint returns only exact requested source names.
+    const encoder = new TextEncoder(), timestamp = String(Date.now()), actor = String(env.OWNER_ACCOUNT || '140901');
+    const digest = hex(await crypto.subtle.digest('SHA-256', encoder.encode(body)));
+    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
+    const signature = hex(await crypto.subtle.sign('HMAC', key, encoder.encode(['POST', path, timestamp, actor, digest].join('\n'))));
+    const response = await fetchImpl(origin.origin + path, {method: 'POST', redirect: 'manual',
+      headers: {'Content-Type': 'application/json', 'x-meeting-time': timestamp, 'x-meeting-actor': actor, 'x-meeting-signature': signature},
+      body, signal: AbortSignal.timeout(2500)});
+    if (!response.ok) return empty;
+    const value = await response.json();
+    if (value.contract !== CONTRACT || !Array.isArray(value.meetings) || !Array.isArray(value.groups)) return empty;
+    return {meetings: value.meetings.filter(m => meetingIds.includes(m.id)), groups: value.groups.filter(g => groupIds.includes(g.id))};
+  } catch { return empty; }
+}
+
+function meetingUrl(value, env) {
+  try {
+    const url = new URL(value), origin = new URL(env.AMCORE_MEETING_MANAGEMENT_ORIGIN || 'https://am.hozorental.com');
+    const allowed = new Set([origin.origin, 'https://am.hozorental.com', 'https://am-platform-2ymf.onrender.com']);
+    return url.protocol === 'https:' && allowed.has(url.origin) && !url.username && !url.password
+      && /^\/meetings\/review\/work\/[a-f0-9]{64}$/.test(url.pathname) && !url.search && !url.hash ? url.href : '';
+  } catch { return ''; }
+}
+
+export async function enrichTaskOrigins(tasks, env, {fetchImpl = fetch} = {}) {
+  const byId = new Map(tasks.filter(t => workId(t?.id)).map(t => [t.id, t]));
+  const ids = [...byId.keys()], rows = [];
+  for (let offset = 0; offset < ids.length; offset += 70) {
+    const batch = ids.slice(offset, offset + 70);
+    // Read only original, server-owned source fields. A mutable task title or
+    // description is never evidence of an origin. Intake lookup is tenant scoped.
+    const result = await env.DB.prepare(`SELECT w.id,
+      json_extract(w.value,'$.meetingSource') AS meeting,
+      json_extract(w.value,'$.sourceDate') AS source_date,
+      json_extract(w.value,'$.lineSelfSource.groupId') AS self_group,
+      json_extract(w.value,'$.assignment.sourceId') AS assignment_id,
+      json_extract(i.input,'$.groupId') AS assigned_group
+      FROM work_items w LEFT JOIN line_assignment_intake i
+      ON i.id=json_extract(w.value,'$.assignment.sourceId') AND i.tenant=?
+      WHERE w.id IN (${batch.map(() => '?').join(',')})`).bind(env.LEAF_TASK_TENANT || '', ...batch).all();
+    rows.push(...result.results);
+  }
+  const meetingIds = [...new Set(rows.map(r => parse(r.meeting)?.workspaceId).filter(id => /^[a-f0-9]{64}$/.test(id || '')))];
+  const groupIds = [...new Set(rows.map(r => r.self_group || r.assigned_group).filter(id => /^C[a-f0-9]{32}$/i.test(id || '')))];
+  const sources = [...meetingIds.map(id => ({meeting: id})), ...groupIds.map(id => ({group: id}))];
+  const meetings = new Map(), groups = new Map();
+  for (let offset = 0; offset < sources.length; offset += 80) {
+    const batch = sources.slice(offset, offset + 80);
+    const names = await sourceNames(batch.filter(s => s.meeting).map(s => s.meeting), batch.filter(s => s.group).map(s => s.group), env, fetchImpl);
+    for (const m of names.meetings) meetings.set(m.id, m);
+    for (const g of names.groups) groups.set(g.id, g);
+  }
+  for (const row of rows) {
+    const task = byId.get(row.id), meeting = parse(row.meeting);
+    if (meeting?.workspaceId) {
+      const metadata = meetings.get(meeting.workspaceId), title = name(metadata?.title);
+      task.taskOrigin = {kind: 'meeting', workspaceId: /^[a-f0-9]{64}$/.test(meeting.workspaceId) ? meeting.workspaceId : '', title, date: name(metadata?.date || row.source_date),
+        groupName: name(metadata?.groupName), url: meetingUrl(meeting.url, env), withdrawn: !!meeting.withdrawn};
+    } else if (row.self_group || row.assignment_id) {
+      task.taskOrigin = {kind: 'line-group', groupName: name(groups.get(row.self_group || row.assigned_group)?.name), selfCreated: !!row.self_group};
+    }
+  }
+}
+
+export async function taskOriginsResponse(request, response, env, options) {
+  const path = new URL(request.url).pathname;
+  // Only the original authorized task response determines which IDs may be
+  // enriched. User-editable journal snapshots are deliberately excluded.
+  if (response.status < 200 || response.status >= 300 || !response.headers.get('Content-Type')?.includes('application/json')
+    || !(path === '/api/tasks' || /^\/api\/tasks\/work-[a-f0-9-]{36}$/.test(path))) return response;
+  let value;
+  try { value = await response.clone().json(); } catch { return response; }
+  const tasks = [...(Array.isArray(value.tasks) ? value.tasks : []), ...(value.task ? [value.task, ...(value.task.children || [])] : [])];
+  if (!tasks.some(t => workId(t?.id))) return response;
+  try {
+    const unique = [...new Map(tasks.filter(t => workId(t?.id)).map(t => [t.id, t])).values()];
+    await enrichTaskOrigins(unique, env, options);
+    const origins = new Map(unique.map(t => [t.id, t.taskOrigin]));
+    for (const task of tasks) if (origins.get(task.id)) task.taskOrigin = origins.get(task.id);
+  } catch { return response; } // A source lookup cannot block original work.
+  const headers = new Headers(response.headers);
+  for (const key of ['Content-Length', 'Content-Encoding', 'ETag', 'Last-Modified']) headers.delete(key);
+  headers.set('Cache-Control', 'private, no-store');
+  headers.set('X-DailyLog-Task-Origins', CONTRACT);
+  return new Response(JSON.stringify(value), {status: response.status, statusText: response.statusText, headers});
+}

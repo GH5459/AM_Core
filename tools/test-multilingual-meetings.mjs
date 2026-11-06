@@ -26,6 +26,10 @@ try{
  const translation=await api({action:'translate',texts:['Belum selesai kamar 302.']},'member');assert.equal(translation.status,200);assert.equal(translation.value.translations[0],'translated:Belum selesai kamar 302.');
  let providerCalls=0;const provider=f.platform.llm.completeJson;f.platform.llm.completeJson=async()=>{providerCalls++;throw Error('synthetic unavailable');};const chinese=await api({action:'translate',texts:['Calendar sample']},'host');assert.deepEqual(chinese.value.translations,['Calendar sample']);assert.equal(providerCalls,0);for(let i=0;i<3;i++){const failed=await api({action:'translate',texts:['Unique failure sample']},'member');assert.deepEqual(failed.value.translations,['Unique failure sample']);assert.equal(failed.value.unavailable,true);}assert.equal(providerCalls,1);f.platform.llm.completeJson=provider;
  const cached=await api({action:'translate',texts:['Belum selesai kamar 302.']},'member');assert.deepEqual(cached.value.translations,translation.value.translations);
+ const batch=Array.from({length:20},(_,i)=>'Synthetic translation '+i);batch.push(batch[0]);
+ await api({action:'translate',texts:batch},'member');let translationReads=0;const query=f.pool.query;
+ f.pool.query=(sql,...args)=>{if(sql.startsWith('SELECT key,value FROM central_archive.meeting_text_translations_v1'))translationReads++;return query(sql,...args);};
+ const batchCached=await api({action:'translate',texts:batch},'member');assert.deepEqual(batchCached.value.translations,batch.map(text=>'translated:'+text));assert.equal(translationReads,1,'All cached paragraphs use one account-scoped query');f.pool.query=query;
  assert.equal((await api({action:'translate',texts:['safe']},'member','https://foreign.test')).status,403);
  languages.set(host,'id');revision++;assert.equal((await api({action:'sharing',enabled:true,revision:before.revision},'host')).status,403);languages.set(host,'zh-Hant');
  await f.pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=true WHERE id=$1',[id]);

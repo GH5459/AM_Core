@@ -19,6 +19,7 @@ import {DECISION_RECORD_CONTRACT,meetingNotionBlocks,appendVerifiedMeetingBlocks
 import {meetingLineRecord,MEETING_LINE_FORMAT} from './line-record.js';
 import {meetingPublication,PUBLICATION_TARGET_CONTRACT} from './publication-target.js';
 import {sendJson} from '../../core/util.js';
+import {workspaceResponse,WORKSPACE_REFRESH_CONTRACT} from './workspace-response.js';
 
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const uid=s=>/^U[a-f0-9]{32}$/i.test(s||'');
@@ -26,7 +27,7 @@ const rich=s=>[{type:'text',text:{content:String(s).slice(0,1900)}}];
 export function createMeetingWorkspace({pool,botId,platform,archive,env,context,tenantFor,getConversation,ensureDatabase,request,meetingModule,logger=console}){
  const glossary=createGlossaryStore(pool,botId);platform.meetingGlossary={snapshot:()=>glossary.list()};
  const locale=meetingMultilingual({pool,platform,tenantFor});
- const store=createWorkspaceStore(pool),running=new Map();let recovering=false,cutover;
+ const store=createWorkspaceStore(pool),running=new Map();let recovering=false,recovery=Promise.resolve(),cutover;
  async function accepts(event){if(cutover===undefined){const row=(await pool.query('SELECT cutover_at FROM central_archive.meeting_workspace_release WHERE contract=$1',[WORKSPACE_CONTRACT])).rows[0];if(!row)throw Error('workspace_migration_required');cutover=Date.parse(row.cutover_at);}return event.timestamp>=cutover;}
  const base=()=>new URL(env.AMCORE_PUBLIC_BASE_URL||platform.publicBaseUrl).origin;
  const link=id=>base()+'/meetings/review/work/'+id;
@@ -183,7 +184,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
  }
  async function deliverLink(r,row){await platform.pushLineMessage(row.source_id,'會議工作頁已準備好，請設定主題、類型與參與者後開始製作。\n'+link(r.id),undefined,{retryKey:'workspace-link:'+r.id});await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=receipt||'{"linkSent":true}'::jsonb WHERE id=$1`,[r.id]);}
  function launch(r,row){if(running.has(r.id))return;const p=(r.state==='processing'?generate(r,row):r.state==='offered'?offer(row,r.source,r.filename,r.host_name):r.state==='setup'?deliverLink(r,row):publish(r,row)).finally(()=>running.delete(r.id)).catch(async()=>{if(r.state==='publishing')await publication.defer(r.id);else await pool.query(`UPDATE central_archive.meeting_workspaces SET lease_until=now()+interval '60 seconds' WHERE id=$1`,[r.id]);logger.warn('Meeting workspace job deferred.');});running.set(r.id,p);}
- async function drain(){if(recovering)return;recovering=true;try{
+ async function drainWork(){if(recovering)return;recovering=true;try{
   await pool.query(`UPDATE central_archive.meeting_workspaces SET state='failed',error_code='製作中斷，請主持人核對後重試。',lease_until=NULL WHERE state='processing' AND lease_until<now()`);
    const jobs=(await pool.query(`SELECT w.* FROM central_archive.meeting_workspaces w JOIN central_archive.conversations c ON c.key=w.conversation_key WHERE c.bot_id=$1 AND (w.state IN ('processing','publishing') OR w.state='offered' AND NOT(w.receipt?'offerSent') OR w.state='setup' AND NOT(w.receipt?'linkSent')) AND (w.lease_until IS NULL OR w.lease_until<now() OR w.state='publishing' AND w.receipt->'publicationTarget'->>'key'<>w.conversation_key AND (w.receipt->>'publicationLeaseUntil' IS NULL OR (w.receipt->>'publicationLeaseUntil')::timestamptz<now())) ORDER BY w.created_at LIMIT 10`,[botId])).rows;
   for(const r of jobs){if(running.size>=1)break;const row=await conversation(r);if(!row.enabled||['left','blocked'].includes(row.connection_state))continue;
@@ -194,6 +195,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   if(!running.size)await taskDispatch.drain();
 
  }finally{recovering=false;}}
+ function drain(){if(recovering)return recovery;recovery=drainWork();return recovery;}
  async function readBody(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>3000000)throw failure(413,'內容過大。');chunks.push(Buffer.from(b));}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw failure(400,'資料格式不正確。');}}
  async function handle(req,res,url){
   if(req.headers['x-meeting-signature']&&/^\/meetings\/review\//.test(url.pathname)){
@@ -228,7 +230,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
    const input=await readBody(req);let current=r,actor;
    try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action));}catch(e){if(e.code?.startsWith('FIRST_USE_'))throw e;if(input.action==='read'&&canReadShared(r)&&(!platform.ensureFirstUseBinding||e.firstUseVerified)){
-    sendJson(res,200,{ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null});return true;
+    sendJson(res,200,workspaceResponse({ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null},input));return true;
    }throw e;}
    const experience=await locale.profile(actor);
    if(actor.maintenanceOnly&&!(['read','history','start'].includes(input.action)||input.action==='edit'&&input.field==='settings'&&['setup','failed'].includes(r.state)))throw failure(403,'整理協助權限只可修改整理設定與開始整理。');
@@ -237,7 +239,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='translate'){sendJson(res,200,await locale.translate(actor,row,input));return true;}
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
    if(!['read','members','history','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
-   if(actor.readOnly){sendJson(res,200,{ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies:r.state==='published'?await locale.list(r):[],host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:await taskProgress(r,actor),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null});return true;}
+   if(actor.readOnly){const [replies,progress]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor)]);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null},input,actor.id));return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
@@ -310,12 +312,18 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     current=await store.transition(r.id,actor,input.action,input.revision,preparation?{preparation:preparation.preparation,version:Number(preparation.preparation_version)}:undefined);drain().catch(()=>{});
    }else if(!['members','history','organization','publication-targets'].includes(input.action))throw failure(400,'不支援此操作。');
    if(input.action==='organization'&&actor.id!==r.host_id)throw failure(403,'只有主持人可以選擇分享夥伴。');
-   const templates=(await pool.query('SELECT name,prompt,version FROM central_archive.meeting_workspace_templates WHERE conversation_key=$1 ORDER BY name',[row.key])).rows;
+   const viewStarted=performance.now(),view=await store.readView(current,row.key),templates=view.templates,viewMs=performance.now()-viewStarted;
+   const deferProgress=input.response==='saved'&&['edit','save-part','save-type','revise','sharing','task-participants','publication-target'].includes(input.action);
+   const [replies,assignment,progress,publicationStatus]=await Promise.all([current.state==='published'?locale.list(current):[],taskDispatch.status(current,view.dispatch),deferProgress?null:taskProgress(current,actor,view.dispatch),publication.status(current,row)]);
+   res.setHeader('Server-Timing',`meeting_view;dur=${viewMs.toFixed(1)},meeting_related;dur=${(performance.now()-viewStarted-viewMs).toFixed(1)}`);
+   res.setHeader('X-Meeting-Refresh',WORKSPACE_REFRESH_CONTRACT);
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
-   const result={ok:true,experience,replies:current.state==='published'?await locale.list(current):[],contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,canStart:actor.id===r.host_id||actor.canStart,types,reader:readerData(current),sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:readerData(current).segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:current.state==='published'?[]:await store.people(r.id)};
-   result.canEdit=!actor.maintenanceOnly&&['review','published'].includes(current.state);result.pendingRevision=await revisionJobs.pending(r.id);result.assignment=await taskDispatch.status(current);result.taskProgress=await taskProgress(current,actor);
-   const editing=await store.effective(current);result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=await store.changes(r.id);
-   result.publication=await publication.status(current,row);
+   const reader=readerData(current);
+   const result={ok:true,experience,replies,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,canStart:actor.id===r.host_id||actor.canStart,types,reader,sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',segments:reader.segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:view.presence};
+   result.canEdit=!actor.maintenanceOnly&&['review','published'].includes(current.state);result.pendingRevision=view.pendingRevision;result.assignment=assignment;result.taskProgress=progress;
+   if(deferProgress)result.progressDeferred=true;
+   const editing=view.editing;result.editing={fields:editing.fields,versions:editing.field_versions,blocks:recordBlocks(editing),revision:Number(editing.revision)};result.changes=view.changes;
+   result.publication=publicationStatus;
    if(input.action==='publication-targets')result.publicationTargets=await publication.list(current,row,actor);
    if(result.host)result.sharing.people=current.shared_people;
    result.taskParticipants=current.receipt?.taskParticipants||[];
@@ -323,8 +331,8 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='organization'){result.organization=await platform.meetingOrganization?.(r.host_id);if(!result.organization)throw failure(503,'組織架構暫時無法讀取。');}
    if(experience.locale!=='zh-Hant')result.canEdit=false;
    if(input.action==='history'){if(input.field!==undefined&&(typeof input.field!=='string'||input.field.length>100))throw failure(400,'修改紀錄範圍不正確。');result.history=await store.history(r.id,input.offset,input.field??null);}
-   sendJson(res,200,result);return true;
+   sendJson(res,200,workspaceResponse(result,input));return true;
   }catch(e){if(match[2]==='hub'&&!e.status)logger.warn('Meeting audio/preparation request deferred.',{code:/^[A-Z0-9_]{1,20}$/.test(e.code||'')?e.code:e.name==='TimeoutError'?'timeout':/connection|connect/i.test(e.message||'')?'connection':'internal'});if(res.headersSent){res.destroy();return true;}sendJson(res,e.status||503,{ok:false,...(e.onboardingUrl?{onboardingUrl:e.onboardingUrl}:{}),error:e.status?e.message:'會議服務暫時無法使用，請保留內容後重試。'});return true;}
  }
- return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:()=>Promise.all([...running.values()]),health:()=>({contract:WORKSPACE_CONTRACT,taskProgress:TASK_PROGRESS_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',publicationTarget:PUBLICATION_TARGET_CONTRACT,recordFormat:DECISION_RECORD_CONTRACT,lineFormat:MEETING_LINE_FORMAT})};
+ return {store,offer,choice,handle,drain,accepts,taskDispatch,settle:async()=>{await recovery;return Promise.all([...running.values()]);},health:()=>({contract:WORKSPACE_CONTRACT,refresh:WORKSPACE_REFRESH_CONTRACT,taskProgress:TASK_PROGRESS_CONTRACT,shareNotices:'disabled-no-push-v1',sharedInbox:'rich-menu-shared-inbox-v1',glossary:'shared-vocabulary-import-v1',hub:hub.contract,audioTransport:'drive-binary-resume-v2',publish:'host-published-reader-with-audited-revisions',sharing:'host-opt-in-published-read-only',collaboration:'member-explicit-part-save-v1',namedSharing:'organization-recipient-read-v1',assignment:'publish-first-deferred-delivery-v1',publicationTarget:PUBLICATION_TARGET_CONTRACT,recordFormat:DECISION_RECORD_CONTRACT,lineFormat:MEETING_LINE_FORMAT})};
 }
