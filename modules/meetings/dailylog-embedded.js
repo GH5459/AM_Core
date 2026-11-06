@@ -5,6 +5,7 @@ import {verifyManagementRequest} from './management-auth.js';
 // Only signed server requests may supply this actor. Browser headers and cookies
 // never enter the original meeting authenticator through this path.
 export const dailylogActor=Symbol('dailylogMeetingActor');
+export const dailylogTiming=Symbol('dailylogMeetingTiming');
 export const embeddedPath=p=>/^\/meetings\/review\/(?:hub(?:\/api)?|work\/[a-f0-9]{64}(?:\/(?:api|audio|glossary|hub))?)$/.test(p);
 export async function embeddedRequest(req,url,{secret,platform,origin,pool}){
  if(!req.headers['x-meeting-signature'])return null;
@@ -16,7 +17,11 @@ export async function embeddedRequest(req,url,{secret,platform,origin,pool}){
  if(!verifyManagementRequest(secret,req,body))throw deny();
  const line=url.searchParams.get('_dailylogLine'),account=String(req.headers['x-meeting-actor']);
  if(!/^U[a-f0-9]{32}$/i.test(line||''))throw deny();
- const who=await platform.meetingShareIdentity?.(line);if(!who||who.account!==account)throw deny();
+ // Select the transport only after HMAC verification. Every other action and
+ // standalone entry retains the original identity reader and its ordering.
+ let composed=false;
+ if(req.method==='POST'&&url.pathname==='/meetings/review/hub/api'&&bytes.length<=3000000){try{composed=JSON.parse(bytes.toString()).action==='list';}catch{}}
+ const who=await platform.meetingShareIdentity?.(line,undefined,...(composed?[{composed:true}]:[]));if(!who||who.account!==account)throw deny();
  if(req.method==='POST'){
   const nonce=url.searchParams.get('_dailylogNonce');if(!/^[a-f0-9-]{36}$/.test(nonce||''))throw deny();
   const accepted=await pool.query('INSERT INTO central_archive.login_continuation_nonces(key,expires_at) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING key',['dailylog-meeting:'+nonce,Date.now()+120000]);if(!accepted.rows.length)throw deny();

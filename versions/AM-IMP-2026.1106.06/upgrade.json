@@ -1,0 +1,21 @@
+{
+  "id": "AM-IMP-2026.1106.06",
+  "name": "工作日誌會議分頁讀取改善",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": ["AM_PLATFORM", "DailyLog"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": [
+    "Only the authenticated embedded hub list opts into composed identity reads",
+    "Original session expiry, employee status, CSRF, bilateral binding, signature, replay and later first-use guards remain",
+    "No cross-request identity cache or unauthenticated stale meeting list",
+    "Composed service action preserves original identity then person handler ordering and exact tenant boundary",
+    "Complete current Worker fixture, denial boundaries, legacy actions and six widths pass",
+    "Reviewed source passes complete CI and merged tree equals tested tree",
+    "Deploy DailyLog support before AM consumer, preserve latest full source and settings, verify production and compare actual tab opening"
+  ]
+}
