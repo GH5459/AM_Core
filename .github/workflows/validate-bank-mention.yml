@@ -415,6 +415,7 @@ jobs:
       - run: node --check tools/test-meeting-host-attention-worker.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.05
       - run: node tools/test-meeting-hub.mjs
+      - run: node tools/test-meeting-hub-speed.mjs
       - run: node --test tools/test-dailylog-meetings.mjs
       - run: node --test tools/test-dailylog-native-meetings.mjs
       - run: node --test tools/test-dailylog-meeting-compact.mjs
