@@ -10,6 +10,7 @@ exports.patchClient=function(source){
  const start=source.indexOf('else (function workspaceClient('),end=source.indexOf(')(BOOT);\n};',start);
  assert(start>=0&&end>start,'Unknown embedded workspace boundary');
  source=source.slice(0,start)+'else ('+workspaceClient.toString()+source.slice(end);
+ if(!source.includes('const meetingRegenerationControls='))source=source.replace('const meetingDueDate=','const meetingRegenerationControls='+require('../../modules/meetings/workspace-regeneration.js').meetingRegenerationControls.toString()+';\nconst meetingDueDate=');
  if(!source.includes('const meetingStartFeedback='))source=source.replace('const meetingDueDate=','const meetingStartFeedback='+meetingStartFeedback.toString()+';\nconst meetingDueDate=');
  return source;
 };
