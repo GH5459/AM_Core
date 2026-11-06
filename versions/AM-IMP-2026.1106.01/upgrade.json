@@ -3,7 +3,7 @@
   "name": "指定本人跨會議整理與啟動提示及獨立記錄主題",
   "type": "meeting runtime and integration",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "requiresDatabases": [],
   "requiresEnv": [
     "AMCORE_MEETING_START_OPERATORS (service-local JSON tenantKey/account grants)"
