@@ -75,7 +75,7 @@ await test('signed full AM hub list retains later first-use, nonce and numeric t
    let status=200,value;const headers={};const res={setHeader(k,v){headers[k]=v;},writeHead(n){status=n;},set statusCode(n){status=n;},get statusCode(){return status;},end(v){value=JSON.parse(v);}};
    await service.handle(req,res,url);return {status,value,headers};
   }
-  f.reset();let r=await invoke();assert.equal(r.status,200,JSON.stringify(r.value));assert.deepEqual(f.calls,['meeting-share-identity','common-link']);assert.deepEqual(r.value.items,[]);assert.match(r.headers['Server-Timing'],/^meeting_embedded;dur=\d+\.\d, meeting_auth;dur=\d+\.\d,meeting_inventory;dur=\d+\.\d$/);
+  f.reset();let r=await invoke();assert.equal(r.status,200,JSON.stringify(r.value));assert.deepEqual(f.calls,['meeting-share-identity','common-link']);assert.deepEqual(r.value.items,[]);assert.match(r.headers['Server-Timing'],/^meeting_embedded;dur=\d+\.\d, meeting_auth;dur=\d+\.\d,meeting_inventory;dur=\d+\.\d,meeting_view;dur=\d+\.\d,meeting_related;dur=\d+\.\d$/);
   f.reset();r=await invoke('trash-list');assert.equal(r.status,200);assert.deepEqual(f.calls,['identity','meeting-sharing-person','common-link'],'non-list unchanged');
   f.reset();r=await invoke('list',{signature:false});assert.equal(r.status,403);assert.deepEqual(f.calls,[]);assert.match(r.headers['Server-Timing'],/^meeting_embedded;dur=\d+\.\d$/);
   f.state.hook=path=>{if(path==='meeting-sharing-person')f.state.bound=false;};f.reset();r=await invoke();assert.equal(r.status,428);assert(!r.value.items);assert.deepEqual(f.calls,['meeting-share-identity','common-link'],'late first-use denial remains after identity');f.state.hook=null;f.state.bound=true;

@@ -1,0 +1,16 @@
+{
+  "id":"AM-IMP-2026.1106.07",
+  "name":"會議清單讀取與來源核對改善",
+  "type":"runtime","portable":true,"status":"Ready",
+  "requiresDatabases":[],"requiresEnv":[],"requiresScripts":[],
+  "installTargets":["AM_PLATFORM"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":[
+    "Project only fields used by list cards and authorization; preserve complete original records",
+    "Preserve raw filtering, sort order, page boundaries and full response content",
+    "Schedule at most five distinct source reads while retaining per-record alternate rights and final fresh source checks",
+    "Original and candidate PostgreSQL results, permission boundaries and original meeting regressions pass",
+    "Reviewed code passes complete CI and merged tree equals tested tree",
+    "Deploy exact merged main to original AM service, verify both origins, preserve DailyLog and UOF, compare real meeting tab timings"
+  ]
+}
