@@ -23,7 +23,7 @@ export function createWorkspaceStore(pool){
  async function transition(id,actor,action,revision,generation){return locked(id,async(r,db)=>{
   if(actor.id!==r.host_id&&!(['start','regenerate'].includes(action)&&actor.canStart===true))throw failure(403,'只有錄音上傳者可以開始製作或發布。');
   if(['publish','retry-publish'].includes(action)&&['publishing','published'].includes(r.state))return r;
-  if(['start','regenerate'].includes(action)&&r.state==='processing')return r;
+  if(action==='start'&&r.state==='processing')return r;
   if(Number(r.revision)!==revision)throw failure(409,'內容剛有修改，請重新查看後再確認。');
   let state;
   if(action==='start'&&['setup','failed'].includes(r.state)||action==='regenerate'&&r.state==='review'){
