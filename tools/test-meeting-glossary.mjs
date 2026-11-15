@@ -47,7 +47,8 @@ globalThis.fetch=async(url,options)=>{
  if(String(url).endsWith('/v2/upload'))return Response.json({upload_url:'https://fixture/audio'});
  if(String(url).endsWith('/v2/transcript')){submitted=JSON.parse(options.body);return Response.json({id:'synthetic'});}
  if(String(url).includes('/v2/transcript/'))return Response.json({status:'completed',utterances:[{speaker:'A',start:0,end:1000,text:'檢查合成新河管'}]});
- if(String(url).includes('/upload/v1beta/files'))return Response.json({file:{state:'ACTIVE',uri:'https://fixture/file'}});
+ if(String(url).endsWith('/upload/v1beta/files'))return new Response(null,{headers:{'x-goog-upload-url':'https://generativelanguage.googleapis.com/upload/fixture'}});
+ if(String(url).endsWith('/upload/fixture'))return Response.json({file:{name:'files/fixture',state:'ACTIVE',uri:'https://fixture/file'}});
  if(String(url).includes(':generateContent')){fallbackPrompt=JSON.parse(options.body).contents[0].parts[1].text;return Response.json({candidates:[{content:{parts:[{text:JSON.stringify({title:'合成星河館會議',topics:[{title:'核對合成星河館資料',summary:'先核對資料內容，尚未完成。',status:'待處理',evidence:[{timestamp:'00:00',speaker:'測試者',text:'檢查合成星河館'}]}],minutes:[{heading:'討論',points:['檢查合成星河館']}]})}]}}]});}
  throw Error('Unexpected test URL');
 };

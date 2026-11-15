@@ -1,3 +1,4 @@
+import {reserveMeetingGeneration} from './generation-queue.js';
 import {createMeetingConversationStore,keyFor} from './conversation-store.js';
 import {verifyManagementRequest} from './management-auth.js';
 import {readTaskOrigins} from './task-origins.js';
@@ -186,11 +187,14 @@ export function createConversationMeetings({env,archive,platform,router,tenants,
                 await meetingModule.onAudio(ctx);
               }
             }else if(prior?.state==='waiting'){
-              if(active.size>=2)continue;
-              await db.query(`UPDATE central_archive.meeting_events SET state='processing' WHERE event_key=$1`,[job.event_key]);
+              const release=reserveMeetingGeneration();
+              if(!release)continue;
+              try{
+               await db.query(`UPDATE central_archive.meeting_events SET state='processing' WHERE event_key=$1`,[job.event_key]);
+              }catch(error){release();throw error;}
               const work=meetingModule.onMessage(ctx).then(()=>pool.query(`UPDATE central_archive.meeting_events SET state='completed' WHERE event_key=$1`,[job.event_key]))
                 .catch(async()=>{await pool.query(`UPDATE central_archive.meeting_events SET state='failed',error_code='meeting_processing_failed' WHERE event_key=$1`,[job.event_key]);logger.warn('Meeting processing interrupted; original retained.');})
-                .finally(()=>active.delete(row.key))
+                .finally(()=>{active.delete(row.key);release();})
                 .catch(()=>logger.warn('Meeting checkpoint unavailable; original source retained.'));
               active.set(row.key,work);continue;
             }
