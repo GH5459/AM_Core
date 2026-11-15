@@ -12,7 +12,7 @@ const START_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files
 
 export async function providerResponse(response, label) {
   if (response.ok) return response;
-  const retry = response.headers.get('retry-after');
+  const retry = response.headers?.get('retry-after');
   const retryAfterMs = !retry ? 0 : /^\d+(\.\d+)?$/.test(retry) ? Number(retry)*1000 : Math.max(0,Date.parse(retry)-Date.now());
   await response.body?.cancel().catch(()=>{});
   throw Object.assign(Error(label+' HTTP '+response.status),{status:response.status,retryAfterMs});

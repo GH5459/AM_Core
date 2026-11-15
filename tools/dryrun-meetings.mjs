@@ -59,7 +59,8 @@ function build({ llmBackends = {}, geminiAudio = true, driveConfigured = false, 
     if (u.includes('api.assemblyai.com/v2/transcript/')) return ok200({ status: 'completed', text: 't', utterances: [{ speaker: 'A', text: '大家好' }] });
 
     // Gemini 直讀音檔(Files API)
-    if (u.includes('upload/v1beta/files')) return geminiAudio === false ? dead() : ok200({ file: { name: 'files/1', uri: 'u', state: 'ACTIVE' } });
+    if (u.endsWith('/upload/v1beta/files')) return geminiAudio === false ? dead() : new Response(null,{headers:{'x-goog-upload-url':'https://generativelanguage.googleapis.com/upload/dryrun'}});
+    if (u.endsWith('/upload/dryrun')) return ok200({file:{name:'files/1',uri:'u',state:'ACTIVE'}});
 
     // LLM 後端
     if (u.includes('llm-gateway.assemblyai.com')) { const p = body.messages[0].content; if (!isRoster(p)) sent.summaryPrompt = p; return llmReply('assemblyai', p, asChat); }
