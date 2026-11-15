@@ -1,0 +1,24 @@
+{
+  "id": "AM-IMP-2026.1115.01",
+  "name": "Stream and resume long meeting recordings",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "Root AM Platform"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Long audio accepted by both providers",
+    "Workspace resumes persisted stages without reprocessing",
+    "Full CI passes",
+    "Reviewed main and production health verified"
+  ]
+}

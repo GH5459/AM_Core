@@ -491,6 +491,7 @@ jobs:
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1020.21
       - run: node tools/test-meeting-text-access.mjs
       - run: node tools/test-meeting-workspace-generation.mjs
+      - run: node tools/test-meeting-generation-recovery.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1017.03
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1018.01
