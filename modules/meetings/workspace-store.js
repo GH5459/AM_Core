@@ -59,7 +59,7 @@ export function createWorkspaceStore(pool){
    ...(Array.isArray(r.receipt.audioManifest)?{recordings:recordingList(r)}:{}),
    ...(r.receipt.audioOmissions?{omittedRecordings:r.receipt.audioOmissions.length}:{}),
    settings:structuredClone(r.fields.settings),
-   input:structuredClone(r.receipt.transcriptInput||{source:'audio',text:'',version:0}),
+   input:{source:'audio',text:'',version:0},
   }:null;
   const reuse=r.state==='failed'&&isDeepStrictEqual(generationSnapshot,r.receipt.generationSnapshot);
   const progress=reuse?{...r.receipt.generationProgress,attempts:0}:{};

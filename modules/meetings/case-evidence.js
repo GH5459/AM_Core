@@ -24,7 +24,7 @@ export function createMeetingCaseEvidence({pool,store,platform,env,conversation,
    // Keep the same reporter access checks; return no draft text, identities or audio URLs.
    if(r.state!=='published'){
     if(!['setup','processing','failed','review','publishing'].includes(r.state))throw fail('本案會議目前尚無可查核的整理狀態。',409);
-    const source=r.receipt?.transcriptInput?.source==='transcript'?'transcript':'audio';
+    const source=r.receipt?.generationSnapshot?.input?.source==='transcript'?'transcript':'audio';
     let audioState='unknown';
     if(source==='audio'&&original){try{audioState=(await original(r,row))?.id?'saved':'unavailable';}catch{audioState='unavailable';}}
     const current=await store.get(r.id);

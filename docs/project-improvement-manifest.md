@@ -9,7 +9,8 @@
 
 | Package | Target | Status | Verification |
 | --- | --- | --- | --- |
-| AM-IMP-2026.1117.01 | AM Platform meeting workspace | Ready | 多檔上傳及續傳、整場摘要、逐檔播放與分享驗證。沿用原單檔及會議來源。 [驗證紀錄](upgrades/meeting-multi-audio-20261117.md)。 |
+| AM-IMP-2026.1117.02 | AM Platform meeting workspace | Ready | 現場錄音與音檔一次保存，移除逐字稿上傳入口並保留歷史資料。 [驗證](../versions/AM-IMP-2026.1117.02/VERIFY.md) |
+| AM-IMP-2026.1117.01 | AM Platform meeting workspace | Deployed | PR569 CI 313 步通過，正式 fe18b76 兩站回讀。原 92 場會議比對一致，原單檔抽查可播放。手機 LINE 實機驗收待進行。 [驗證紀錄](upgrades/meeting-multi-audio-20261117.md)。 |
 | AM-IMP-2026.1106.20 | AM Platform and DailyLog sharing | Ready | Completion/progress snapshots in recipient journals without LINE pushes; current company/group/meeting recipients, atomic retries and stale-source guards. AM10, complete Worker/D1 14 and four-width browser checks pass. [Record](upgrades/journal-sharing-20261106.md). |
 | AM-IMP-2026.1106.07 | AM meeting list inventory | Ready | Limit list reads to required fields and schedule distinct sources with the original authority boundaries. Production snapshot projection/card equivalence and external DB timings are supplemental; full CI and actual page improvement pending. [Record](upgrades/meeting-inventory-performance-20261106.md). |
 | AM-IMP-2026.1106.06 | AM Platform and DailyLog embedded meeting list | Deployed | PR565 / CI42223987548 all307 steps, merged001b6065 verified at both AM origins and Render Live; DailyLog871174ec full129 modules with123 original bytes/settings preserved. Full Worker23, composed16, boundaries8 and six widths pass. Controlled UI median8861→8610ms with overlapping ranges; stable acceleration not established, continue07. Original774 tasks/history,44 identity documents,110 attachments,191 chunk metadata and58 meeting workspace snapshots unchanged; one new task after deployment retained without attributing its trigger. [Record](upgrades/meeting-tab-performance-20261106.md). |

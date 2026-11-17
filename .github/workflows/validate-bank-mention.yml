@@ -469,6 +469,7 @@ jobs:
       - run: node tools/test-dailylog-meeting-service.mjs
       - run: node tools/test-meeting-preparation-markdown.mjs
       - run: node tools/test-meeting-transcript-input.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1117.02
       - run: node tools/test-meeting-pending-delete.mjs
       - run: node --check tools/test-meeting-pending-delete-browser.cjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1027.02

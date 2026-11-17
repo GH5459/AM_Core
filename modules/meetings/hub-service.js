@@ -104,17 +104,7 @@ export function meetingHub({startAuthority,locale,pool,botId,platform,env,store,
 if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>60000)throw failure(400,'會前資料請限60000字。');const who=await identity(actor.id);const created=await db.query(`INSERT INTO central_archive.meeting_plans(workspace_id,tenant_key,topic,preparation) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING workspace_id`,[r.id,who.tenantKey,r.fields.settings.topic,v.text]);if(!created.rows.length)throw failure(409,'資料區已建立，請重讀後比較內容。');}
   else if(v.action==='preparation'){if(typeof v.text!=='string'||v.text.length>60000)throw failure(400,'會前資料請限60000字。');await db.query(`UPDATE central_archive.meeting_plans SET preparation=$2,preparation_version=preparation_version+1,updated_at=now() WHERE workspace_id=$1 AND preparation_version=$3 RETURNING workspace_id`,[r.id,v.text,v.version]).then(q=>{if(!q.rows.length)throw failure(409,'會前資料已被修改，請比較後再儲存；你的內容仍保留。');});}
   });
-  else if(v.action==='transcript-input'){
-   if(!['audio','transcript'].includes(v.source)||typeof v.text!=='string'||v.text.length>300000||v.source==='transcript'&&!v.text.trim())throw failure(400,'請選擇整理來源並貼上逐字稿（上限300000字）。');
-   await store.locked(r.id,async(current,db)=>{
-    if(!['setup','failed'].includes(current.state))throw failure(409,'此階段不能替換整理來源。');
-    const before=current.receipt.transcriptInput||{source:'audio',text:'',version:0};
-    if(v.version!==before.version)throw failure(409,'整理來源已被修改，請重新載入後比較；你的輸入仍保留。');
-    const after={source:v.source,text:v.text,version:before.version+1},revision=Number(current.revision)+1;
-    await db.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{transcriptInput}',$2::jsonb),revision=$3,updated_at=now() WHERE id=$1`,[r.id,JSON.stringify(after),revision]);
-    await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'transcript_input',$5::jsonb,$6::jsonb)`,[r.id,revision,actor.id,actor.name,JSON.stringify(before),JSON.stringify(after)]);
-   });
-  }
+  else if(v.action==='transcript-input')throw failure(410,'已停止上傳逐字稿，請改用錄音。');
   else if(v.action==='plan-save')await savePlan(r,row,actor,v);
   else if(v.action==='invite-save')await saveInvitations(r,row,actor,v);
   else if(v.action==='plan-organization'){const org=await platform.meetingOrganization(actor.id);return {ok:true,organization:org};}
@@ -124,7 +114,7 @@ if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>600
   else if(v.action.startsWith('audio-')){const result=await upload(r,row,actor,v);if(v.action!=='audio-finish')return {ok:true,...result};}
   else if(v.action!=='plan-read')throw failure(400,'不支援此操作。');
   const p=await plan(r.id),current=await store.get(r.id),host=actor.id===current.host_id;
-  return {ok:true,audioTransport:AUDIO_TRANSPORT,plan:p,input:host||actor.canStart?current.receipt.transcriptInput||{source:'audio',text:'',version:0}:undefined,actorId:actor.id,host,externalCalendar:!!r.receipt?.externalCalendar,audio:recordingView(current).length>0,
+  return {ok:true,audioTransport:AUDIO_TRANSPORT,plan:p,actorId:actor.id,host,externalCalendar:!!r.receipt?.externalCalendar,audio:recordingView(current).length>0,
    ...(host?{recordings:recordingView(current),audioRevision:Number(current.revision),audioCollection:Array.isArray(current.receipt.audioManifest),audioStamp:recordingStamp(current)}:{}),
    calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
  }

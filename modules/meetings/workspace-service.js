@@ -413,11 +413,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     const generating=['start','regenerate'].includes(input.action);
     if(generating&&r.state!=='processing'){
      if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');
-     if(r.receipt.transcriptInput?.source!=='transcript'){
-      const files=recordingList(r);
-      if(!files.length)throw failure(Array.isArray(r.receipt.audioManifest)?409:503,'請先保存至少一份錄音。');
-      await Promise.all(files.map(file=>original(r,row,file)));
-     }
+     const files=recordingList(r);
+     if(!files.length)throw failure(Array.isArray(r.receipt.audioManifest)?409:503,'請先保存至少一份錄音。');
+     await Promise.all(files.map(file=>original(r,row,file)));
     }
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉或無法接收，請聯絡管理者。');
    if(input.action==='publish'&&r.state==='review'){
