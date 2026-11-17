@@ -113,8 +113,9 @@ if(!process.env.MEETING_WORKSPACE_PREVIEW){
  const newEvent={...event,message:{...event.message,id:'fixture-multiple-recordings'}};
  const multi=(await service.store.create(key,newEvent,'前半場.wav','主持人')).id;
  const manifest=[
-  {id:'audio-first',filename:'前半場.wav',file:{id:'first',webViewLink:'https://drive.google.com/file/d/first/view'}},
-  {id:'audio-second',filename:'後半場.m4a',file:{id:'second',webViewLink:'https://drive.google.com/file/d/second/view'}},
+  {id:'audio-first',filename:'現場錄音.webm',file:{id:'first',webViewLink:'https://drive.google.com/file/d/first/view'}},
+  {id:'audio-second',filename:'前半場.m4a',file:{id:'second',webViewLink:'https://drive.google.com/file/d/second/view'}},
+  {id:'audio-third',filename:'後半場.wav',file:{id:'third',webViewLink:'https://drive.google.com/file/d/third/view'}},
  ];
  await pg.query(`UPDATE central_archive.meeting_workspaces SET state='setup',receipt=$2::jsonb WHERE id=$1`,[multi,JSON.stringify({audioManifest:manifest,linkSent:true})]);
  let next=await service.store.get(multi);
@@ -138,9 +139,10 @@ if(!process.env.MEETING_WORKSPACE_PREVIEW){
  assert.equal(pages.size,2);
  const multiPage=pages.get('fixture-page-1');
  const text=multiPage.children.map(b=>b.paragraph.rich_text.map(t=>t.text.content).join('')).join('\n');
- assert.match(text,/原始錄音 1：前半場\.wav https:\/\/drive\.google\.com\/file\/d\/first\/view/);
- assert.match(text,/原始錄音 2：後半場\.m4a https:\/\/drive\.google\.com\/file\/d\/second\/view/);
- assert.deepEqual(multiPage.children.flatMap(block=>block.paragraph.rich_text.flatMap(t=>t.text.link?[t.text.link.url]:[])),['https://drive.google.com/file/d/first/view','https://drive.google.com/file/d/second/view']);
+ assert.match(text,/原始錄音 1：現場錄音\.webm https:\/\/drive\.google\.com\/file\/d\/first\/view/);
+ assert.match(text,/原始錄音 2：前半場\.m4a https:\/\/drive\.google\.com\/file\/d\/second\/view/);
+ assert.match(text,/原始錄音 3：後半場\.wav https:\/\/drive\.google\.com\/file\/d\/third\/view/);
+ assert.deepEqual(multiPage.children.flatMap(block=>block.paragraph.rich_text.flatMap(t=>t.text.link?[t.text.link.url]:[])),['https://drive.google.com/file/d/first/view','https://drive.google.com/file/d/second/view','https://drive.google.com/file/d/third/view']);
  assert.deepEqual((await service.store.get(id)).fields,original);
  assert.equal(pushes.filter(p=>p.key==='workspace-published:'+multi).length,1);
  globalThis.fetch=originalFetch;await pg.close();

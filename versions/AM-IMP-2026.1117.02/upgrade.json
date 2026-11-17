@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1117.02",
+  "name": "Save microphone and selected recordings together",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": ["Root AM Platform"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Microphone and two selected files saved together", "All three recordings used and playable", "Transcript intake closed with historical results preserved"]
+}

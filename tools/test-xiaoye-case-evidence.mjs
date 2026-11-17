@@ -36,11 +36,12 @@ test('prepublication evidence rejects revoked access, changed state, missing or 
   const res=await handleEvidence(handler);assert(res.statusCode>=400,kind);assert(!res.value.generation,kind);if(['reader','deleted','missing'].includes(kind))assert.equal(files,0,kind);
  }
 });
-test('missing audio and transcript inputs remain distinct and do not claim a successful generation',async()=>{
+test('new audio drafts and historical transcript jobs remain distinct',async()=>{
  for(const source of ['audio','transcript']){
-  const row={id:meetingId,state:'setup',revision:1,fields:{settings:{}},receipt:{transcriptInput:{source}}};
+  const historical=source==='transcript';
+  const row={id:meetingId,state:historical?'processing':'setup',revision:1,fields:{settings:{}},receipt:historical?{generationSnapshot:{input:{source}}}:{transcriptInput:{source:'transcript'}}};
   const handler=createMeetingCaseEvidence({env:{AMCORE_MEETING_MANAGEMENT_SECRET:secret},store:{get:async()=>row},platform:{secretaryEvidenceCheck:async()=>({ok:true,...input,reporterIds:[user]})},conversation:async()=>({enabled:true}),assertRead:async()=>{},original:async()=>{assert.equal(source,'audio');throw Error('PRIVATE_FAILURE');}});
-  const res=await handleEvidence(handler);assert.equal(res.statusCode,200);assert.equal(res.value.generation.source,source);assert.equal(res.value.generation.audioState,source==='audio'?'unavailable':'unknown');assert.equal(res.value.generation.hasGenerationSnapshot,false);assert(!JSON.stringify(res.value).includes('PRIVATE_FAILURE'));
+  const res=await handleEvidence(handler);assert.equal(res.statusCode,200);assert.equal(res.value.generation.source,source);assert.equal(res.value.generation.audioState,source==='audio'?'unavailable':'unknown');assert.equal(res.value.generation.hasGenerationSnapshot,historical);assert(!JSON.stringify(res.value).includes('PRIVATE_FAILURE'));
  }
 });
 test('isolated receiver preview can identify date rejection without a real DB or dispatch',async()=>{const payload={date:'2026-10-13',host:{account:'900003',tenantKey:'fixture'},tasks:[{id:todo,due:'2026-10-20',owner:{account:'900003'}}]};let batches=0;const diagnosis=await previewMeetingDelivery(payload,{createTaskService:()=>({create:()=>{throw Error('截止日不能早於執行日期。');}})},async(v,env,deps)=>deps.core.createTaskService().create({}, {id:'work-fixture',sourceDate:v.date,dueDate:v.tasks[0].due}),'https://fixture.invalid');assert.equal(diagnosis.code,'START_AFTER_DUE');assert.equal(diagnosis.writes,0);assert.equal(diagnosis.items[0].dueDate,'2026-10-20');assert.equal(diagnosis.items[0].submittedStartDate,null);assert(diagnosis.items[0].fallbackStartDate);const passed=await previewMeetingDelivery(payload,{},async(v,env)=>{await env.DB.batch([]);batches++;},'https://fixture.invalid');assert.equal(passed.state,'passed');assert.equal(batches,0);});
