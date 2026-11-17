@@ -99,9 +99,9 @@ export function hubClient(BOOT){
  async function requestedCalendar(){const q=new URLSearchParams(location.search),id=q.get('event');if(!id)return;const event=calendarItems.find(e=>e.id===id);if(!event)throw Error('此行程已變更、結束或不在目前個人日曆，請重新讀取。');const saved=items.find(x=>x.id===event.meetingId||x.id===event.workspaceId);if(saved){location.assign(saved.url);return;}await openCalendar(event,$('#new'));}
  (async()=>{try{const start=new URLSearchParams(location.search).get('start');if(/^\d{4}-\d{2}-\d{2}$/.test(start||''))weekStart=start;if(await window.loginContinuationSession?.()){await Promise.all([load(true),loadCalendar(),loadShared(true)]);await requestedCalendar();return;}if(await window.tryLoginContinuation?.())return;await liff.init({liffId:BOOT.liffId});if(!liff.isLoggedIn()){liff.login({redirectUri:location.origin+'/meetings/review/hub'});return;}token=liff.getAccessToken();await Promise.all([load(true),loadCalendar(),loadShared(true)]);await requestedCalendar();}catch(e){fail(e);}})();
 }
-export function hubWorkspaceClient({id,token,host=true,state='setup'}){
- if(window.meetingHubPageId===id){window.updateMeetingHub?.({host,state});return;}window.meetingHubPageId=id;
- const $=s=>document.querySelector(s),panel=document.createElement('section');panel.id='hubPreparation';panel.className='card';panel.innerHTML='<details id="preparationPanel" class="edit-section compact-section"><summary>會前筆記／議程（Agenda）</summary><p>事前議程、背景及參考資料。此區不隨公開連結或內部只讀分享開放。貼網址只保存連結，不自動讀取網頁內容。</p><p>支援 Markdown 標題、粗體、清單、核取方塊、表格及連結。編輯時保留原始語法，預覽不會自動儲存。</p><div class="actions" role="group" aria-label="會前資料顯示方式"><button type="button" id="preparationEdit" class="secondary" aria-pressed="false">編輯 Markdown</button><button type="button" id="preparationView" class="secondary" aria-pressed="true">格式預覽</button></div><label id="preparationEditor" hidden>會前資料（Markdown 原文）<textarea id="preparation" maxlength="60000" placeholder="貼上 Markdown 議程、背景、討論事項、參考連結"></textarea></label><div id="preparationPreview" role="region" aria-label="會前資料格式預覽"></div><p id="preparationStatus" role="status"></p><button id="savePreparation">儲存會前資料</button><details id="planSchedule"><summary>排程與 Calendar</summary><p>請由這裡改期，Calendar 外部修改不自動回寫。</p><label>主題<input id="planTopic" maxlength="200"></label><div class="grid"><label>開始（台灣時間）<input id="planStart" type="datetime-local"></label><label>結束（台灣時間）<input id="planEnd" type="datetime-local"></label></div><label>地點／線上連結<input id="planLocation" maxlength="2000"></label><label><input type="checkbox" id="planCalendar">同步本人與已選參與者的 Calendar</label><label><input type="checkbox" id="planCancelled">取消這場會議</label><div id="planParticipants"></div><button id="planChoosePeople" class="secondary">調整參與者</button><button id="savePlan">儲存排程／重試 Calendar</button><p id="invitationStatus" role="status"></p><p id="calendarStatus" role="status"></p><button id="refreshCalendar" class="secondary">重新確認同步結果</button></details></details><section id="meetingSources"><h3>錄音、音檔或逐字稿</h3><label>本次整理來源<select id="generationSource"><option value="audio">錄音／音檔</option><option value="transcript">逐字稿</option></select></label><div id="recorder"><h3>會議錄音</h3><p>錄音期間請保持頁面開啟；鎖屏或切到背景可能中斷。音檔在此裝置暫存，可按繼續上傳。單份上限512MB。</p><div class="actions"><button id="recordStart">開始錄音</button><button id="recordStop" disabled>停止錄音</button><button id="recordUpload" class="secondary">繼續上傳／保存錄音</button></div><p id="recordStatus" role="status"></p><audio id="localAudio" controls hidden></audio><label>或選擇既有錄音<input id="recordFile" type="file" accept="audio/*"></label></div><details id="transcriptInputPanel"><summary>貼上逐字稿</summary><p>可直接貼上已有的逐字稿，保留姓名與時間標記。選擇「逐字稿」並儲存後，即可整理，不必先錄音。</p><label>逐字稿內容<textarea id="inputTranscript" maxlength="300000" placeholder="貼上逐字稿，可包含發言者與時間"></textarea></label></details><button id="saveTranscriptInput">儲存整理來源／逐字稿</button><p id="transcriptInputStatus" role="status"></p></section><p id="hubStatus" role="status"></p>';
+export function hubWorkspaceClient({id,token,host=true,state='setup',returned=false}){
+ if(window.meetingHubPageId===id){window.updateMeetingHub?.({host,state,returned});return;}window.meetingHubPageId=id;
+ const $=s=>document.querySelector(s),panel=document.createElement('section');panel.id='hubPreparation';panel.className='card';panel.innerHTML='<details id="preparationPanel" class="edit-section compact-section"><summary>會前筆記／議程（Agenda）</summary><p>事前議程、背景及參考資料。此區不隨公開連結或內部只讀分享開放。貼網址只保存連結，不自動讀取網頁內容。</p><p>支援 Markdown 標題、粗體、清單、核取方塊、表格及連結。編輯時保留原始語法，預覽不會自動儲存。</p><div class="actions" role="group" aria-label="會前資料顯示方式"><button type="button" id="preparationEdit" class="secondary" aria-pressed="false">編輯 Markdown</button><button type="button" id="preparationView" class="secondary" aria-pressed="true">格式預覽</button></div><label id="preparationEditor" hidden>會前資料（Markdown 原文）<textarea id="preparation" maxlength="60000" placeholder="貼上 Markdown 議程、背景、討論事項、參考連結"></textarea></label><div id="preparationPreview" role="region" aria-label="會前資料格式預覽"></div><p id="preparationStatus" role="status"></p><button id="savePreparation">儲存會前資料</button><details id="planSchedule"><summary>排程與 Calendar</summary><p>請由這裡改期，Calendar 外部修改不自動回寫。</p><label>主題<input id="planTopic" maxlength="200"></label><div class="grid"><label>開始（台灣時間）<input id="planStart" type="datetime-local"></label><label>結束（台灣時間）<input id="planEnd" type="datetime-local"></label></div><label>地點／線上連結<input id="planLocation" maxlength="2000"></label><label><input type="checkbox" id="planCalendar">同步本人與已選參與者的 Calendar</label><label><input type="checkbox" id="planCancelled">取消這場會議</label><div id="planParticipants"></div><button id="planChoosePeople" class="secondary">調整參與者</button><button id="savePlan">儲存排程／重試 Calendar</button><p id="invitationStatus" role="status"></p><p id="calendarStatus" role="status"></p><button id="refreshCalendar" class="secondary">重新確認同步結果</button></details></details><section id="meetingSources"><h3>錄音、音檔或逐字稿</h3><label>本次整理來源<select id="generationSource"><option value="audio">錄音／音檔</option><option value="transcript">逐字稿</option></select></label><div id="recorder"><h3>會議錄音</h3><p>錄音期間請保持頁面開啟；鎖屏或切到背景可能中斷。音檔在此裝置暫存，可按繼續上傳。單份上限512MB。</p><div class="actions"><button id="recordStart">開始錄音</button><button id="recordStop" disabled>停止錄音</button><button id="recordUpload" class="secondary">繼續上傳／保存錄音</button></div><p id="recordStatus" role="status"></p><audio id="localAudio" controls hidden></audio><label>加入錄音檔<input id="recordFile" type="file" accept="audio/*" multiple></label><p class="muted">確認錄音順序後再保存。每場最多 10 份，合計 2 GB。</p><ol id="recordingList" aria-label="錄音順序" style="overflow-wrap:anywhere"></ol><button type="button" class="secondary" id="discardRecordingList" hidden>取消未保存的清單修改</button></div><details id="transcriptInputPanel"><summary>貼上逐字稿</summary><p>可直接貼上已有的逐字稿，保留姓名與時間標記。選擇「逐字稿」並儲存後，即可整理，不必先錄音。</p><label>逐字稿內容<textarea id="inputTranscript" maxlength="300000" placeholder="貼上逐字稿，可包含發言者與時間"></textarea></label></details><button id="saveTranscriptInput">儲存整理來源／逐字稿</button><p id="transcriptInputStatus" role="status"></p></section><p id="hubStatus" role="status"></p>';
  document.querySelector('#meetingHeading').after(panel);let pendingParticipants=null,data,prepVersion,recorder,stream,recording=false,uploadKey,parts=0,mime='audio/webm',filename='',queue=Promise.resolve(),uploading=false,localUrl='',localRecording=null,activeSlot='',recordStartedAt=0,recordTimer=null;
  const api=async v=>{const r=await fetch('/meetings/review/work/'+id+'/hub',{method:'POST',headers:{...token?{Authorization:'Bearer '+token}:{},'Content-Type':'application/json'},body:JSON.stringify(v),signal:AbortSignal.timeout(v.action==='audio-finish'?300000:60000)}),j=await r.json();if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}if(!r.ok)throw Object.assign(Error(j.error||'操作未完成'),{status:r.status});return j;};
  function preparationMode(edit){
@@ -112,7 +112,7 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
  $('#preparationEdit').onclick=()=>preparationMode(true);$('#preparationView').onclick=()=>preparationMode(false);
  $('#preparation').oninput=()=>{$('#preparationStatus').textContent='會前資料尚未儲存';};
  let inputVersion=0,savedInput={source:'audio',text:''},sourceReady=false;
- window.updateMeetingHub=next=>{host=next.host;state=next.state;panel.hidden=false;const allowed=sourceReady&&host&&['setup','failed'].includes(state);$('#meetingSources').hidden=!host||!['setup','failed'].includes(state);$('#meetingSources').querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=!allowed);$('#recordStart').disabled=!allowed||recording||uploading;$('#recordStop').disabled=!allowed||!recording;$('#recordUpload').disabled=!allowed||uploading;$('#recordFile').disabled=!allowed||recording||uploading;$('#preparation').disabled=!sourceReady;$('#savePreparation').disabled=!sourceReady;};window.updateMeetingHub({host,state});
+ window.updateMeetingHub=next=>{host=next.host;state=next.state;returned=!!next.returned;panel.hidden=false;const allowed=sourceReady&&host&&['setup','failed','review'].includes(state);$('#meetingSources').hidden=!host||!['setup','failed','review'].includes(state)||state==='review'&&!next.returned;$('#meetingSources').querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=!allowed);$('#recordStart').disabled=!allowed||recording||uploading;$('#recordStop').disabled=!allowed||!recording;$('#recordUpload').disabled=!allowed||uploading;$('#recordFile').disabled=!allowed||recording||uploading;$('#generationSource').disabled=!allowed||state==='review';$('#inputTranscript').disabled=!allowed||state==='review';$('#saveTranscriptInput').disabled=!allowed||state==='review';$('#preparation').disabled=!sourceReady;$('#savePreparation').disabled=!sourceReady;};window.updateMeetingHub({host,state,returned});
  const error=e=>$('#hubStatus').textContent=e.message||String(e),time=s=>s?new Date(Date.parse(s)+8*3600000).toISOString().slice(0,16):'';
  // IndexedDB retains unuploaded chunks across reloads; no audio is sent to AI until explicitly started.
  const dbReady=new Promise((resolve,reject)=>{const q=indexedDB.open('leaf-meeting-recorder-v1',1);q.onupgradeneeded=()=>q.result.createObjectStore('chunks');q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(Error('此瀏覽器無法暫存錄音，請使用外部瀏覽器或上傳音檔。'));});
@@ -128,28 +128,104 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
    await new Promise(resolve=>setTimeout(resolve,Math.min(16000,1000*2**attempt)));
   }
  }
- async function fastUpload(){
+ async function fastUpload(staged=null){
   if(data?.audioTransport!=='drive-binary-resume-v2')return false;
   $('#recordStatus').textContent='正在核對裝置錄音…';
-  const manifest=[];for(let part=0;part<parts;part++){const b=await local('readonly',activeSlot+':'+uploadKey+':'+part);if(!b)throw Error('裝置缺少部分錄音，請保留原音檔。');const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await b.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');manifest.push([b.size,hash]);}
-  if(!localRecording)await preview();
+  const manifest=[];for(let part=0;!staged&&part<parts;part++){const b=await local('readonly',activeSlot+':'+uploadKey+':'+part);if(!b)throw Error('裝置缺少部分錄音，請保留原音檔。');const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await b.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');manifest.push([b.size,hash]);}
+  if(!staged&&!localRecording)await preview();
+  const blobSource=staged?.blob||localRecording;
+  const transferId=staged?.id||uploadKey;
+  const hashBlob=async blob=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');
+  if(staged)for(let at=0;at<blobSource.size;at+=2097152){
+   const piece=blobSource.slice(at,at+2097152);
+   manifest.push([piece.size,await hashBlob(piece)]);
+  }
   const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(manifest)))),v=>v.toString(16).padStart(2,'0')).join('');
-  const state=await audioRequest({action:'audio-fast-begin',uploadId:uploadKey,mime,filename,total:localRecording.size,manifest:fingerprint});
+  const state=await audioRequest({action:'audio-fast-begin',uploadId:transferId,mime:staged?.mime||mime,filename:staged?.filename||filename,total:blobSource.size,manifest:fingerprint,stage:!!staged});
   if(state.transport==='legacy')return false;
-  if(state.transport!=='drive-binary-resume-v2'||state.total!==localRecording.size||state.blockSize!==8388608||!Number.isSafeInteger(state.offset)||state.offset<0||state.offset>state.total)throw Error('上傳進度無法確認，裝置暫存仍保留。');
+  if(state.transport!=='drive-binary-resume-v2'||state.total!==blobSource.size||state.blockSize!==8388608||!Number.isSafeInteger(state.offset)||state.offset<0||state.offset>state.total)throw Error('上傳進度無法確認，裝置暫存仍保留。');
   if(!state.saved){
    let offset=state.offset;const started=performance.now(),initial=offset;
    while(offset<state.total){
-    const from=Math.floor(offset/state.blockSize)*state.blockSize,blob=localRecording.slice(from,Math.min(state.total,from+state.blockSize));
+    const from=Math.floor(offset/state.blockSize)*state.blockSize,blob=blobSource.slice(from,Math.min(state.total,from+state.blockSize));
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');
-    const result=await audioRequest(null,async()=>{const r=await fetch('/meetings/review/work/'+id+'/hub?'+new URLSearchParams({uploadId:uploadKey,offset:String(from)}),{method:'POST',headers:{...token?{Authorization:'Bearer '+token}:{},'Content-Type':'application/octet-stream','X-Audio-SHA256':hash},body:blob,signal:AbortSignal.timeout(210000)}),j=await r.json();if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}if(!r.ok)throw Object.assign(Error(j.error||'上傳尚未完成'),{status:r.status});return j;});
+    const result=await audioRequest(null,async()=>{const r=await fetch('/meetings/review/work/'+id+'/hub?'+new URLSearchParams({uploadId:transferId,offset:String(from),...(staged?{stage:'1'}:{})}),{method:'POST',headers:{...token?{Authorization:'Bearer '+token}:{},'Content-Type':'application/octet-stream','X-Audio-SHA256':hash},body:blob,signal:AbortSignal.timeout(210000)}),j=await r.json();if(r.status===428&&j.onboardingUrl){const u=new URL('/first-use','https://uof-line.ghotel.tw');u.searchParams.set('return',location.href);location.replace(u.href);throw Error('請完成 LINE 與 UOF 綁定後繼續。');}if(!r.ok)throw Object.assign(Error(j.error||'上傳尚未完成'),{status:r.status});return j;});
     if(!Number.isSafeInteger(result.offset)||result.offset<=offset||result.offset>state.total)throw Error('上傳進度無法確認，請保留原音檔。');offset=result.offset;
     const mb=n=>(n/1048576).toFixed(1),seconds=(performance.now()-started)/1000,speed=(offset-initial)/Math.max(seconds,0.1),remaining=speed>0?Math.ceil((state.total-offset)/speed):0;
     $('#recordStatus').textContent='已保存 '+mb(offset)+'／'+mb(state.total)+' MB（'+Math.floor(offset/state.total*100)+'%） · '+mb(speed)+' MB/秒'+(remaining?' · 約剩 '+Math.ceil(remaining/60)+' 分鐘':'');
    }
   }
   $('#recordStatus').textContent='音檔已傳送，正在核對雲端保存…';
-  const result=await audioRequest({action:'audio-fast-finish',uploadId:uploadKey});data={...data,...result};return true;
+  const result=await audioRequest({action:'audio-fast-finish',uploadId:transferId,stage:!!staged});if(!staged)data={...data,...result};return true;
+ }
+ let pendingList=null,listBaseline=[];
+ const collectionKey=()=>activeSlot+':recording-list';
+ const savedList=()=>data?.recordings||[];
+ const matchesBaseline=(baseline,latest=data)=>JSON.stringify(latest.audioStamp??latest.recordings?.map(x=>x.id)??[])===JSON.stringify(baseline);
+ function audioType(blob){
+  const ext=blob.name.toLowerCase().split('.').at(-1);
+  return {m4a:'audio/mp4',mp3:'audio/mpeg',wav:'audio/wav',aac:'audio/aac',ogg:'audio/ogg',webm:'audio/webm',mp4:'audio/mp4'}[ext]||blob.type;
+ }
+ function renderRecordings(){
+  const list=$('#recordingList'),items=pendingList??savedList();
+  list.replaceChildren();$('#discardRecordingList').hidden=pendingList===null;$('#discardRecordingList').disabled=uploading||recording;
+  items.forEach((item,i)=>{
+   const line=document.createElement('li'),name=document.createElement('span'),actions=document.createElement('div');
+   name.textContent=item.filename+(item.size?' · '+(item.size/1048576).toFixed(1)+' MB':'')+(item.blob?' · 待上傳':' · 已保存');
+   actions.className='actions';line.append(name,actions);list.append(line);
+   const control=(label,disabled,run)=>{
+    const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=label;button.disabled=disabled||uploading||recording;
+    button.onclick=async()=>{if(uploading||recording)return;try{await run();}catch(e){error(e);}};actions.append(button);
+   };
+   if(item.blob)control('試聽',false,()=>{
+    if(localUrl)URL.revokeObjectURL(localUrl);localUrl=URL.createObjectURL(item.blob);$('#localAudio').src=localUrl;$('#localAudio').hidden=false;return $('#localAudio').play();
+   });
+   control('往上',i===0,()=>changeList(next=>{[next[i-1],next[i]]=[next[i],next[i-1]];}));
+   control('往下',i===items.length-1,()=>changeList(next=>{[next[i],next[i+1]]=[next[i+1],next[i]];}));
+   control('移除',false,()=>changeList(next=>next.splice(i,1)));
+  });
+ }
+ $('#discardRecordingList').onclick=async()=>{if(uploading||recording)return;try{data=await api({action:'plan-read'});await local('readwrite',collectionKey());pendingList=null;renderRecordings();$('#recordStatus').textContent='已恢復上次保存的錄音清單。';}catch(e){error(e);}};
+ async function changeList(mutate){
+  if(recording)throw Error('請先停止錄音。');
+  if(!pendingList){listBaseline=data.audioStamp??savedList().map(x=>x.id);}
+  const next=[...(pendingList??savedList())];mutate(next);
+  if(next.length>10||next.reduce((n,x)=>n+(x.size||0),0)>2147483648)throw Error('每場最多 10 份錄音，合計 2 GB。');
+  if(next.some(x=>x.blob&&(!x.size||x.size>536870912||!/^audio\/(webm|mp4|mpeg|wav|x-wav|ogg|aac|x-m4a)(?:;codecs=[a-z0-9., -]+)?$/i.test(x.mime)||x.filename.length>180)))throw Error('請選擇支援的錄音格式，單份上限 512 MB。');
+  await local('readwrite',collectionKey(),{items:next,baseline:listBaseline});
+  pendingList=next;renderRecordings();$('#recordStatus').textContent='請確認順序，再按「繼續上傳／保存錄音」。';
+ }
+ async function queueRecordings(files){await changeList(items=>items.push(...files));}
+ async function saveCollection(){
+  const latest=await api({action:'plan-read'}),ids=pendingList.map(item=>item.id);
+  const now=JSON.stringify(latest.recordings.map(x=>x.id));
+  if(now!==JSON.stringify(ids)){
+   if(!matchesBaseline(listBaseline,latest))throw Error('其他分頁已更新錄音清單，請重新開啟後比較。');
+   for(const [index,item]of pendingList.entries()){
+    if(!item.blob)continue;
+    $('#recordStatus').textContent='上傳第 '+(index+1)+'／'+pendingList.length+' 份錄音：'+item.filename;
+    if(!await fastUpload(item))throw Error('多份錄音需使用新版續傳，請重新開啟會議。');
+   }
+   data=await audioRequest({action:'audio-list-save',ids,revision:latest.audioRevision});
+  }else data=latest;
+  await local('readwrite',collectionKey());pendingList=null;renderRecordings();
+  await window.refreshMeetingWorkspace?.();
+  $('#recordStatus').textContent='錄音已保存，共 '+ids.length+' 份。';
+ }
+ async function uploadCollection(){
+  if(recording||uploading)throw Error('請先停止錄音，或等待目前上傳完成。');
+  uploading=true;window.updateMeetingHub({host,state,returned});renderRecordings();
+  try{if(uploadKey&&pendingList.some(item=>item.recorderUploadId===uploadKey))await clearLocalRecording();await saveCollection();}finally{uploading=false;window.updateMeetingHub({host,state,returned});renderRecordings();}
+ }
+ async function clearLocalRecording(){
+  const db=await dbReady;
+  await new Promise((resolve,reject)=>{
+   const tx=db.transaction('chunks','readwrite'),os=tx.objectStore('chunks');
+   for(let i=0;i<parts;i++)os.delete(activeSlot+':'+uploadKey+':'+i);
+   os.delete(activeSlot);
+   tx.oncomplete=resolve;tx.onerror=()=>reject(Error('裝置暫存清理未完成，可重新確認。'));
+  });
+  uploadKey='';parts=0;localRecording=null;
  }
  async function upload(){
   if(recording||uploading)throw Error('請先停止錄音，或等待目前上傳完成。');
@@ -157,7 +233,12 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
   uploading=true;$('#recordUpload').disabled=true;$('#recordStart').disabled=true;$('#recordFile').disabled=true;$('#hubStatus').textContent='';
   try{
    await queue;
-   if(!await fastUpload()){
+   if(data.audioCollection||(data.recordings?.length||0)>0||state==='review'){
+    if(!localRecording)await preview();
+    await queueRecordings([{id:crypto.randomUUID(),filename,mime,blob:localRecording,size:localRecording.size,recorderUploadId:uploadKey}]);
+    await clearLocalRecording();
+    await saveCollection();
+   }else if(!await fastUpload()){
    const state=await audioRequest({action:'audio-begin',uploadId:uploadKey,mime,filename}),received=new Map((state.received||[]).map(x=>[x.part,x.hash]));
    if(!state.saved){
     for(let part=0;part<parts;part++){
@@ -176,8 +257,8 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
    }else data=await audioRequest({action:'plan-read'});
    }
    if(!data.audio)throw Error('尚未確認錄音保存完成，裝置暫存仍保留，請重試。');
-   const db=await dbReady;await new Promise((resolve,reject)=>{const tx=db.transaction('chunks','readwrite'),os=tx.objectStore('chunks');for(let i=0;i<parts;i++)os.delete(activeSlot+':'+uploadKey+':'+i);os.delete(activeSlot);tx.oncomplete=resolve;tx.onerror=()=>reject(Error('錄音已保存，裝置暫存清理未完成，可重新確認。'));});uploadKey='';parts=0;localRecording=null;
-   $('#recordStatus').textContent='錄音已保存。請按「進行會議記錄整理」。';
+   if(parts)await clearLocalRecording();
+   renderRecordings();await window.refreshMeetingWorkspace?.();$('#recordStatus').textContent='錄音已保存。請按「進行會議記錄整理」。';
   }catch(e){$('#recordStatus').textContent='上傳暫停，裝置暫存仍保留。按「繼續上傳／保存錄音」會接續缺少的片段。';throw e;}
   finally{uploading=false;$('#recordUpload').disabled=false;$('#recordStart').disabled=false;$('#recordFile').disabled=false;}
  }
@@ -186,11 +267,12 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
  $('#savePreparation').onclick=async()=>{const button=$('#savePreparation'),text=$('#preparation').value;button.disabled=true;try{data=await api({action:data.plan?'preparation':'preparation-init',text,version:prepVersion});prepVersion=Number(data.plan.preparation_version);$('#hubStatus').textContent='會前資料已儲存';$('#preparationStatus').textContent=$('#preparation').value===text?'會前資料已儲存':'先前內容已儲存，目前修改尚未儲存';if($('#preparation').value===text)preparationMode(false);}catch(e){error(e);}finally{button.disabled=false;}};
  $('#planChoosePeople').onclick=async()=>{const button=$('#planChoosePeople');button.disabled=true;try{const {organization:org}=await api({action:'plan-organization'}),current=(pendingParticipants?[...pendingParticipants].map(account=>org.people.find(p=>p.account===account)||data.plan.participants.find(p=>p.account===account)).filter(Boolean):data.plan.participants),picked=await window.chooseMeetingPeople({organization:org,selected:current,title:'選擇會議參與者'});if(picked){const prior=current.map(p=>p.account).sort().join(',');pendingParticipants=new Set(picked.map(p=>p.account));$('#planParticipants').textContent='已選：'+(picked.map(p=>p.name+'（'+p.account+'）').join('、')||'尚未選擇');if(picked.map(p=>p.account).sort().join(',')!==prior)$('#invitationStatus').textContent='參與者名單尚未儲存';}}catch(e){error(e);}finally{button.disabled=false;button.focus();}};
  $('#savePlan').onclick=async()=>{const button=$('#savePlan');button.disabled=true;$('#invitationStatus').textContent='正在儲存參與者…';try{const p=data.plan;data=await api({action:data.externalCalendar?'invite-save':'plan-save',version:Number(p.version),topic:$('#planTopic').value,start:$('#planStart').value+':00+08:00',end:$('#planEnd').value+':00+08:00',location:$('#planLocation').value,calendar:$('#planCalendar').checked,cancelled:$('#planCancelled').checked,accounts:pendingParticipants?[...pendingParticipants]:p.participants.map(x=>x.account)});pendingParticipants=null;$('#invitationStatus').textContent='內部邀請已儲存：'+(data.plan.participants.map(x=>x.name).join('、')||'尚未選擇參與者')+'。對方可從「我的會議」查看。';showCalendar();watchCalendar();}catch(e){$('#invitationStatus').textContent=e.message||'邀請尚未儲存，請重試';}finally{button.disabled=false;button.focus();}};
- $('#recordStart').onclick=async()=>{try{if(recording||uploading)return;if(uploadKey&&parts)throw Error('此裝置還有未上傳錄音，請先繼續上傳並保存。');if(!window.MediaRecorder||!navigator.mediaDevices?.getUserMedia)throw Error('此環境無法錄音，請改用外部瀏覽器或上傳音檔。');await dbReady;stream=await navigator.mediaDevices.getUserMedia({audio:true});mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));if(!mime)throw Error('此瀏覽器不支援錄音格式，請上傳音檔。');uploadKey=crypto.randomUUID();parts=0;filename='會議錄音-'+new Date().toISOString().replaceAll(':','-')+(mime.includes('mp4')?'.m4a':mime.includes('ogg')?'.ogg':'.webm');await remember();recorder=new MediaRecorder(stream,{mimeType:mime});queue=Promise.resolve();recorder.ondataavailable=e=>{if(e.data.size)queue=queue.then(()=>append(e.data));queue.catch(error);};recorder.onstop=()=>{recording=false;clearInterval(recordTimer);stream.getTracks().forEach(t=>t.stop());$('#recordStart').disabled=false;$('#recordStop').disabled=true;queue.then(preview).catch(error);};recorder.onerror=()=>{error(Error('錄音已中斷，已暫存的分段仍保留，請停止並保存。'));};recorder.start(10000);recording=true;recordStartedAt=Date.now();recordTimer=setInterval(()=>{const n=Math.floor((Date.now()-recordStartedAt)/1000);$('#recordStatus').textContent='正在錄音 '+Math.floor(n/60)+':'+String(n%60).padStart(2,'0')+' · 已暫存 '+parts+' 段';},1000);$('#recordStart').disabled=true;$('#recordStop').disabled=false;$('#recordStatus').textContent='正在錄音，請保持頁面開啟。';}catch(e){stream?.getTracks().forEach(t=>t.stop());error(e);}};
- $('#recordStop').onclick=()=>{if(recorder?.state!=='inactive')recorder.stop();};$('#recordUpload').onclick=()=>upload().catch(error);
- $('#recordFile').onchange=async()=>{try{if(recording||uploading)throw Error('請先停止錄音或等待上傳。');if(uploadKey&&parts)throw Error('請先上傳此裝置尚未保存的錄音。');const f=$('#recordFile').files[0];if(!f)return;if(f.size>512*1024*1024)throw Error('單份音檔上限512MB。');uploadKey=crypto.randomUUID();parts=0;mime=f.type||(/\.m4a$/i.test(f.name)?'audio/mp4':/\.mp3$/i.test(f.name)?'audio/mpeg':'audio/wav');filename=f.name;await append(f);await preview();$('#recordStatus').textContent='音檔已在裝置暫存，請按繼續上傳／保存錄音。';}catch(e){error(e);}};
- window.addEventListener('beforeunload',e=>{if(recording||uploading||sourceReady&&($('#preparation').value!==(data?.plan?.preparation||'')||$('#generationSource').value!==savedInput.source||$('#inputTranscript').value!==savedInput.text)){e.preventDefault();e.returnValue='';}});
- document.querySelectorAll('#start,#regenerate').forEach(button=>button.addEventListener('click',e=>{const deny=message=>{e.preventDefault();e.stopImmediatePropagation();error(Error(message));window.showMeetingStartError?.(message);};if(!sourceReady){deny('會議工具尚未載入，請按重新載入工具。');return;}if($('#generationSource').value!==savedInput.source||$('#inputTranscript').value!==savedInput.text){deny('請先儲存整理來源與逐字稿。');return;}if($('#preparation').value!==(data?.plan?.preparation||'')||recording||uploading||parts){deny('請先儲存會前資料，並停止、保存目前錄音後，再進行會議記錄整理。');}},true));
+ $('#recordStart').onclick=async()=>{try{if(recording||uploading)return;if(pendingList!==null||uploadKey&&parts)throw Error('請先上傳並保存清單中的錄音。');if(!window.MediaRecorder||!navigator.mediaDevices?.getUserMedia)throw Error('此環境無法錄音，請改用外部瀏覽器或上傳音檔。');await dbReady;stream=await navigator.mediaDevices.getUserMedia({audio:true});mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));if(!mime)throw Error('此瀏覽器不支援錄音格式，請上傳音檔。');uploadKey=crypto.randomUUID();parts=0;filename='會議錄音-'+new Date().toISOString().replaceAll(':','-')+(mime.includes('mp4')?'.m4a':mime.includes('ogg')?'.ogg':'.webm');await remember();recorder=new MediaRecorder(stream,{mimeType:mime});queue=Promise.resolve();recorder.ondataavailable=e=>{if(e.data.size)queue=queue.then(()=>append(e.data));queue.catch(error);};recorder.onstop=()=>{recording=false;clearInterval(recordTimer);stream.getTracks().forEach(t=>t.stop());$('#recordStart').disabled=false;$('#recordStop').disabled=true;queue.then(preview).catch(error);};recorder.onerror=()=>{error(Error('錄音已中斷，已暫存的分段仍保留，請停止並保存。'));};recorder.start(10000);recording=true;recordStartedAt=Date.now();recordTimer=setInterval(()=>{const n=Math.floor((Date.now()-recordStartedAt)/1000);$('#recordStatus').textContent='正在錄音 '+Math.floor(n/60)+':'+String(n%60).padStart(2,'0')+' · 已暫存 '+parts+' 段';},1000);$('#recordStart').disabled=true;$('#recordStop').disabled=false;$('#recordStatus').textContent='正在錄音，請保持頁面開啟。';}catch(e){stream?.getTracks().forEach(t=>t.stop());error(e);}};
+ $('#recordStop').onclick=()=>{if(recorder?.state!=='inactive')recorder.stop();};
+ $('#recordUpload').onclick=()=> (pendingList===null?upload():uploadCollection()).catch(error);
+ $('#recordFile').onchange=async()=>{try{if(recording||uploading)throw Error('請先停止錄音或等待上傳。');if(uploadKey&&parts)throw Error('請先上傳此裝置尚未保存的錄音。');const files=[...$('#recordFile').files];$('#recordFile').value='';const f=files[0];if(!f)return;if(Array.isArray(data.recordings)||files.length>1||pendingList!==null||state==='review'){await queueRecordings(files.map(blob=>({id:crypto.randomUUID(),filename:blob.name,mime:audioType(blob),blob,size:blob.size})));return;}if(f.size>512*1024*1024)throw Error('單份音檔上限512MB。');uploadKey=crypto.randomUUID();parts=0;mime=audioType(f);filename=f.name;await append(f);await preview();$('#recordStatus').textContent='音檔已在裝置暫存，請按繼續上傳／保存錄音。';}catch(e){error(e);}};
+ window.addEventListener('beforeunload',e=>{if(recording||uploading||pendingList!==null||sourceReady&&($('#preparation').value!==(data?.plan?.preparation||'')||$('#generationSource').value!==savedInput.source||$('#inputTranscript').value!==savedInput.text)){e.preventDefault();e.returnValue='';}});
+ document.querySelectorAll('#start,#regenerate').forEach(button=>button.addEventListener('click',e=>{const deny=message=>{e.preventDefault();e.stopImmediatePropagation();error(Error(message));window.showMeetingStartError?.(message);};if(!sourceReady){deny('會議工具尚未載入，請按重新載入工具。');return;}if($('#generationSource').value!==savedInput.source||$('#inputTranscript').value!==savedInput.text){deny('請先儲存整理來源與逐字稿。');return;}if($('#preparation').value!==(data?.plan?.preparation||'')||recording||uploading||parts||pendingList!==null){deny('請先儲存會前資料，並停止、保存目前錄音後，再進行會議記錄整理。');}},true));
  let syncTimer;
  function showCalendar(){const states={pending:'待同步',synced:'已同步',reused:'已同步（沿用既有行程）',removed:'已取消本系統同步',failed:'需重試'};$('#calendarStatus').textContent=(data.externalCalendar?'主持人：沿用原 Google 行程，不新增副本。原行程的時間／地點仍由原日曆管理。 ':'')+(data.calendar.map(x=>(data.plan.participants.find(p=>p.account===x.account)?.name||x.account)+'：'+(states[x.state]||x.state)+(x.error_code?'（'+x.error_code+'）':'')).join('；')||'尚未加入 Google Calendar');}
  async function refreshCalendar(){try{const latest=await api({action:'plan-read'});data.calendar=latest.calendar;showCalendar();watchCalendar();}catch(e){$('#calendarStatus').textContent='同步結果暫時無法讀取，請按重新確認。';}}
@@ -205,8 +287,8 @@ export function hubWorkspaceClient({id,token,host=true,state='setup'}){
    savedInput={source:data.input?.source||'audio',text:data.input?.text||''};inputVersion=Number(data.input?.version||0);$('#generationSource').value=savedInput.source;$('#inputTranscript').value=savedInput.text;
    prepVersion=Number(p?.preparation_version||0);$('#preparation').value=p?.preparation||'';preparationMode(!$('#preparation').value.trim());$('#planSchedule').hidden=!p?.start_at;
    if(p?.start_at){$('#planTopic').value=p.topic;$('#planStart').value=time(p.start_at);$('#planEnd').value=time(p.end_at);$('#planLocation').value=p.location;$('#planCalendar').checked=p.calendar_enabled;$('#planCancelled').checked=p.cancelled;$('#planParticipants').textContent='參與者：'+p.participants.map(x=>x.name+'（'+x.account+'）').join('、');$('#planSchedule').querySelectorAll('input,button').forEach(x=>x.disabled=!data.host||data.externalCalendar);$('#refreshCalendar').disabled=false;if(data.host){$('#planChoosePeople').disabled=false;$('#savePlan').disabled=false;$('#planCalendar').disabled=false;}if(data.externalCalendar){$('#savePlan').textContent='儲存內部邀請／重試同步';$('#planSchedule > p').textContent='原 Google 行程的時間與地點請在原日曆調整；此處可獨立邀請內部同仁。';}$('#invitationStatus').textContent='已儲存參與者：'+(p.participants.map(x=>x.name).join('、')||'尚未選擇');showCalendar();watchCalendar();}
-   $('#recorder').hidden=!data.host;activeSlot=id+':'+data.actorId;sourceReady=true;window.updateMeetingHub({host:data.host,state});$('#hubStatus').textContent='';$('#retryMeetingTools').hidden=true;
-   if(data.host)try{const saved=await local('readonly',activeSlot);if(saved){({uploadKey,parts,mime,filename}=saved);$('#recordStatus').textContent='此裝置有 '+parts+' 段尚未保存錄音，可繼續上傳。';await preview();}}catch(e){$('#recordStatus').textContent=e.message;}
+   $('#recorder').hidden=!data.host;activeSlot=id+':'+data.actorId;sourceReady=true;window.updateMeetingHub({host:data.host,state,returned});$('#hubStatus').textContent='';$('#retryMeetingTools').hidden=true;
+   if(data.host)try{const pending=await local('readonly',collectionKey());if(pending){pendingList=pending.items;listBaseline=pending.baseline;if(!matchesBaseline(pending.baseline)&&JSON.stringify(savedList().map(x=>x.id))===JSON.stringify(pending.items.map(x=>x.id))){pendingList=null;await local('readwrite',collectionKey());}else if(!matchesBaseline(pending.baseline)){error(Error('其他分頁已更新錄音清單，暫存仍保留。'));}else $('#recordStatus').textContent='此裝置有尚未保存的錄音清單，可繼續上傳。';}renderRecordings();const saved=await local('readonly',activeSlot);if(saved){({uploadKey,parts,mime,filename}=saved);$('#recordStatus').textContent='此裝置有 '+parts+' 段尚未保存錄音，可繼續上傳。';await preview();}}catch(e){$('#recordStatus').textContent=e.message;}
    const start=$('#start');if(start)start.textContent='進行會議記錄整理';
   }catch(e){error(e);$('#retryMeetingTools').hidden=false;}
  }

@@ -28,8 +28,8 @@ const platform={publicBaseUrl:'https://meeting.example.test',publicLinkSecret:'s
 }};
 async function request(path,method='GET',body){
  if(path.includes('/query'))return {results:[...pages.values()].filter(p=>p.marker===body.filter.rich_text.equals)};
- if(path==='/pages'&&method==='POST'){const page={id:'fixture-page',marker:body.properties['來源識別'].rich_text[0].text.content,children:[]};pages.set(page.id,page);if(createLost){createLost=false;throw Error('response_lost');}return page;}
- const page=pages.get('fixture-page');if(path.includes('/children')&&method==='GET')return {results:page.children,has_more:false};
+ if(path==='/pages'&&method==='POST'){const page={id:pages.size?'fixture-page-'+pages.size:'fixture-page',marker:body.properties['來源識別'].rich_text[0].text.content,children:[]};pages.set(page.id,page);if(createLost){createLost=false;throw Error('response_lost');}return page;}
+ const page=pages.get(path.split('/')[2]);if(path.includes('/children')&&method==='GET')return {results:page.children,has_more:false};
  if(path.includes('/children')&&method==='PATCH'){page.children.push(...body.children);if(revisionLost&&body.children.some(b=>b.paragraph.rich_text[0].text.content.startsWith('會議修訂 '))){revisionLost=false;throw Error('revision_reply_lost');}return {};}
  throw Error('Unexpected Notion');
 }
@@ -44,7 +44,7 @@ assert.equal(pushes[0].message.template.actions[0].data,'meetingwork:yes:'+id);
 await service.offer(row,event,'fixture.m4a','主持人');assert.equal(pushes.length,1);
 await service.choice({source:{...event.source,userId:member},postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'offered');
 await service.choice({source:event.source,postback:{data:'meetingwork:yes:'+id}},key);assert.equal((await service.store.get(id)).state,'setup');assert(pushes[1].message.includes('/meetings/review/work/'+id));
-async function api(input,token='host',origin=platform.publicBaseUrl){let status=200,encoded='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};const res={headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},get statusCode(){return status;},end(v){encoded=v;}};await service.handle(req,res,new URL(platform.publicBaseUrl+'/meetings/review/work/'+id+'/api'));return {status,value:JSON.parse(encoded)};}
+async function api(input,token='host',origin=platform.publicBaseUrl,workspace=id){let status=200,encoded='';const req=Readable.from([JSON.stringify(input)]);req.method='POST';req.headers={authorization:'Bearer '+token,origin};const res={headersSent:false,setHeader(){},writeHead(s){status=s;},set statusCode(s){status=s;},get statusCode(){return status;},end(v){encoded=v;}};await service.handle(req,res,new URL(platform.publicBaseUrl+'/meetings/review/work/'+workspace+'/api'));return {status,value:JSON.parse(encoded)};}
 async function page(origin,path='/meetings/review/work/'+id){const headers={};let status=200,html='';const handled=await service.handle({method:'GET',headers:{host:new URL(origin).host}},{writeHead(v,h){status=v;Object.assign(headers,h);},setHeader(k,v){headers[k]=v;},set statusCode(v){status=v;},get statusCode(){return status;},end(v){html=v||'';}},new URL(origin+path));return {status,headers,html,handled};}
 let firstUseLinked=false;
 platform.ensureFirstUseBinding=createFirstUseMeetingGuard(async()=>({ok:true,linked:firstUseLinked}));
@@ -108,6 +108,43 @@ firstUseLinked=true;assert.equal((await api({action:'read'},'outside')).value.ac
 assert.equal((await api({action:'read'},'')).status,401,'anonymous shared read cannot bypass first-use verification');
 await pg.query('UPDATE central_archive.meeting_workspaces SET sharing_enabled=false WHERE id=$1',[id]);
 delete platform.ensureFirstUseBinding;
-if(!process.env.MEETING_WORKSPACE_PREVIEW){globalThis.fetch=originalFetch;await pg.close();}
+if(!process.env.MEETING_WORKSPACE_PREVIEW){
+ const original=(await service.store.get(id)).fields;
+ const newEvent={...event,message:{...event.message,id:'fixture-multiple-recordings'}};
+ const multi=(await service.store.create(key,newEvent,'前半場.wav','主持人')).id;
+ const manifest=[
+  {id:'audio-first',filename:'前半場.wav',file:{id:'first',webViewLink:'https://drive.google.com/file/d/first/view'}},
+  {id:'audio-second',filename:'後半場.m4a',file:{id:'second',webViewLink:'https://drive.google.com/file/d/second/view'}},
+ ];
+ await pg.query(`UPDATE central_archive.meeting_workspaces SET state='setup',receipt=$2::jsonb WHERE id=$1`,[multi,JSON.stringify({audioManifest:manifest,linkSent:true})]);
+ let next=await service.store.get(multi);
+ await service.store.edit(multi,{id:host,name:'主持人'},{field:'settings',value:{...next.fields.settings,topic:'多檔發布'},version:0});
+ next=await service.store.get(multi);
+ const owner={id:host,name:'主持人'},processing=await service.store.transition(multi,owner,'start',Number(next.revision));
+ const stopped=await service.store.transition(multi,owner,'stop-generation',Number(processing.revision));
+ assert.equal(stopped.state,'failed');assert.deepEqual(stopped.receipt.generationSnapshot.recordings,manifest);
+ next=stopped;
+ const operate=input=>api(input,'host',platform.publicBaseUrl,multi);
+ assert.equal((await operate({action:'start',revision:Number(next.revision)})).status,200);
+ await service.drain();await service.settle();
+ next=await service.store.get(multi);assert.equal(next.state,'review');assert.deepEqual(next.receipt.generationSnapshot.recordings,manifest);
+ await pg.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{audioManifest}',$2::jsonb) WHERE id=$1`,[multi,JSON.stringify(manifest.toReversed())]);
+ assert.equal((await operate({action:'publish',revision:Number(next.revision)})).status,409,'Changed source order has to be regenerated');
+ await pg.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{audioManifest}',$2::jsonb) WHERE id=$1`,[multi,JSON.stringify(manifest)]);
+ assert.equal((await operate({action:'publish',revision:Number(next.revision)})).status,200);
+ await service.drain();await service.settle();
+ assert.equal((await service.store.get(multi)).state,'published');
+ assert.equal((await operate({action:'publish',revision:Number(next.revision)})).status,200);
+ assert.equal(pages.size,2);
+ const multiPage=pages.get('fixture-page-1');
+ const text=multiPage.children.map(b=>b.paragraph.rich_text.map(t=>t.text.content).join('')).join('\n');
+ assert.match(text,/原始錄音 1：前半場\.wav https:\/\/drive\.google\.com\/file\/d\/first\/view/);
+ assert.match(text,/原始錄音 2：後半場\.m4a https:\/\/drive\.google\.com\/file\/d\/second\/view/);
+ assert.deepEqual(multiPage.children.flatMap(block=>block.paragraph.rich_text.flatMap(t=>t.text.link?[t.text.link.url]:[])),['https://drive.google.com/file/d/first/view','https://drive.google.com/file/d/second/view']);
+ assert.deepEqual((await service.store.get(id)).fields,original);
+ assert.equal(pushes.filter(p=>p.key==='workspace-published:'+multi).length,1);
+ globalThis.fetch=originalFetch;await pg.close();
+ console.log('Multi-recording publication: fixed source snapshot, changed-order gate, every audio source in one Notion page, idempotent publication, and untouched previous meeting passed.');
+}
 export const fixture={service,pool,pg,platform,row,event,env,pages,taskIds,pushes,resetMembership:()=>{foreign=false;},loseRevision:()=>{revisionLost=true;}};
 console.log('Full workspace service: LINE offer/host consent, current member auth, foreign-origin refusal, generation without publication, roster fallback, host immutable publication, lost Notion create and task-response recovery without duplicates passed.');

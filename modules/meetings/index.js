@@ -3,7 +3,9 @@ import {providerResponse, uploadGeminiAudio} from './gemini-audio-upload.js';
 import {DECISION_RECORD_INSTRUCTIONS,normalizeDecisionTopics,decisionRecordText,meetingNotionBlocks,appendVerifiedMeetingBlocks} from './decision-record.js';
 import {glossaryPrompt} from './glossary.js';
 import {transcriptionQuality,meetingSummaryParts} from './transcription-quality.js';
+import {combineRecordingSegments,recordingTimestamp} from './audio-manifest.js';
 import {meetingLineRecord} from './line-record.js';
+import {createHash} from 'node:crypto';
 // AM Platform 模組:meetings
 // 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
 // ─────────────────────────────────────────────────────────────────────────
@@ -717,7 +719,7 @@ const SUMMARY_SCHEMA = {
 // profile:'quality' → assemblyai gateway 領銜、直連 gemini 接手。實測 27,000 字逐字稿:
 // gateway 三模型 9/9 成功、輸出上看 12,718 tokens(故 maxTokens 不得低於 16000);
 // MiniMax-M3 直連只有 1/3~2/3 吐得出 JSON。
-async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function summarize({ tenant, diarized, sourceTranscript=diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
   const j = await llmForTenant(tenant).completeJson({
     system: meetingPrompt({ who, topic: roster.topic, today: roster.date || todayStr(), kind: roster.kind, cfg }) + (roster.workspacePrompt ? `\n本場類型與整理要求：${roster.workspacePrompt}\n忠實引用來源，不可捏造決議、負責人或日期。不確定內容標示待確認。` : '') + DECISION_RECORD_INSTRUCTIONS,
@@ -726,7 +728,7 @@ async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETI
     profile: 'quality',
     maxTokens: 16000,
   });
-  const parsed=normalizeParsed(j,diarized);if(!parsed.topics.length)throw Error('Meeting summary has no supported topics');return parsed;
+  const parsed=normalizeParsed(j,sourceTranscript);if(!parsed.topics.length)throw Error('Meeting summary has no supported topics');return parsed;
 }
 
 // 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)。
@@ -2131,7 +2133,7 @@ function raceTimeout(promise, ms, fallback) {
 //
 // Gemini 直接讀音檔 → 整理成 parsed(供「無 AssemblyAI key」與「AssemblyAI 失敗備援」共用)。
 // 走 Google 網路(從雲端主機穩定),但無講者分離,故不產署名逐字稿。
-async function geminiTranscribeParsed({tenant,buffer,filename,contentType,sourceIsVideo=false,roster,cfg=GENERIC_MEETINGS_CONFIG,audioStreamFactory,checkpoint}) {
+async function geminiTranscribeParsed({tenant,buffer,filename,contentType,sourceIsVideo=false,roster,cfg=GENERIC_MEETINGS_CONFIG,audioStreamFactory,checkpoint,segmentsOnly=false}) {
   const ai = aiForTenant(tenant);
   if (!ai.geminiKey) throw Object.assign(Error('Gemini API key not configured for tenant'),{status:401});
   let file = checkpoint?.value.geminiFile;
@@ -2163,14 +2165,19 @@ async function geminiTranscribeParsed({tenant,buffer,filename,contentType,source
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: roster?.date || todayStr(), kind: roster?.kind, cfg }) + (roster?.workspacePrompt ? `\n本場整理要求：${roster.workspacePrompt}\n勿捏造負責人、期限或決議。` : '')
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '') + glossaryPrompt(await vocabulary(roster)) + DECISION_RECORD_INSTRUCTIONS;
+  const inputPrompt=segmentsOnly?'逐句轉錄整份音檔，用繁體中文。勿摘要、勿猜姓名。依原始音檔時間以毫秒（整數）標註起訖，從第一句到最後一句都必須保留。只回傳 JSON {"segments":[{"start":0,"end":1000,"speaker":"A","text":"原話"}]}。'+glossaryPrompt(await vocabulary(roster)):prompt;
   const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${ai.meetingModel || 'gemini-2.5-flash'}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: prompt }] }] }),
+    body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: inputPrompt }] }] }),
     signal:AbortSignal.timeout(12*60_000),
   }, { tries: checkpoint?1:5, label: 'Gemini generate', baseDelay: 6000 });
   const genJson = await gen.json();
   const raw = (genJson.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
   const j = JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]);
+  if(segmentsOnly){
+    if(genJson.candidates?.[0]?.finishReason!=='STOP'||!Array.isArray(j.segments)||!j.segments.length)throw Error('incomplete_fallback_transcript');
+    return j.segments;
+  }
   // 這條路徑不經 llm.js,拿不到 schema 檢查 —— 同一個「包一層」的洞在這裡也開著。
   // 寧可讓 finalizeMeeting 的 catch 誠實報「整理失敗」(錄音留底還在),也不要靜靜產出一頁空白。
   const missing = REQUIRED_SUMMARY_KEYS.filter((k) => !(k in j));
@@ -2268,7 +2275,7 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
 // Workspace generation deliberately has no Notion/LINE/task side effects.
 async function generateWorkspace({
   tenant,buffer,filename,contentType,settings,audioStreamFactory,loadAudio,
-  preparation='',inputTranscript=null,confirmedSpeakerCount,checkpoint
+  preparation='',inputTranscript=null,confirmedSpeakerCount,checkpoint,recordings,audioForRecording,priorRecordingCache
 }) {
   const cfg=meetingsCfg(tenant);
   const roster={
@@ -2282,10 +2289,62 @@ async function generateWorkspace({
   const glossaryUsed=roster.glossarySnapshot.filter(e=>e.enabled).map(e=>({id:e.id,version:e.version}));
 
   let diarized='',segments=[],warning='',diagnostics=null;
+  const audioKey=recordings?.length?createHash('sha256').update(JSON.stringify({
+    topic:roster.topic,speakers:roster.speakers.map(s=>[s.name,s.gender,s.role]),glossaryUsed,
+    terms:cfg.keyterms,hint:cfg.transcriptionHint
+  })).digest('hex'):null;
+  let recordingCache=null;
   let legend=new Map(roster.speakers.map((s,i)=>[String.fromCharCode(65+i),s.name]));
   if (inputTranscript!==null) {
     if (typeof inputTranscript!=='string'||!inputTranscript.trim()||inputTranscript.length>300000) throw Error('invalid_input_transcript');
     diarized=inputTranscript;
+  } else if(recordings?.length>1){
+    const fileResults=[];
+    const multiRoster={...roster,confirmedSpeakerCount:undefined};
+    if(checkpoint.value.recordingAudioKey!==audioKey)await checkpoint.save({recordingAudioKey:audioKey});
+    for(const [index,file] of recordings.entries()){
+      const cached=priorRecordingCache?.key===audioKey?priorRecordingCache.files.find(item=>item.recordingId===file.id):null;
+      const saved=checkpoint.value.fileJobs?.[file.id]?.result||cached;
+      if(saved){fileResults.push(saved);continue;}
+      const fileCheckpoint={
+        get value(){return {...checkpoint.value.fileJobs?.[file.id],attempts:checkpoint.value.attempts||0};},
+        save(patch){return checkpoint.save({fileJobs:{...checkpoint.value.fileJobs,[file.id]:{...this.value,...patch}},
+          stage:patch.stage||checkpoint.value.stage,attempts:patch.attempts??checkpoint.value.attempts});}
+      };
+      if(checkpoint.value.activeRecording!==file.id)await checkpoint.save({activeRecording:file.id,recordingNumber:index+1,stage:'upload',attempts:0});
+      const args={tenant,filename:file.filename,roster:multiRoster,cfg,audioStreamFactory:options=>audioForRecording(file,options),checkpoint:fileCheckpoint};
+      let rawSegments, fileWarning='';
+      if(fileCheckpoint.value.stage!=='fallback'){
+        try{
+          if(!aiForTenant(tenant).assemblyKey)throw Object.assign(Error('primary_transcription_not_configured'),{assemblyTerminal:true});
+          const tr=await transcribeWithAssembly(args);
+          rawSegments=tr.utterances;
+          if(!rawSegments?.length)throw Object.assign(Error('incomplete_transcription'),{assemblyTerminal:true});
+          fileWarning=transcriptionQuality(tr,[]).warnings.join(' ');
+        }catch(error){
+          const terminal=error.status>=400&&error.status<500&&![408,422,429].includes(error.status);
+          const spent=!fileCheckpoint.value.assemblyId&&fileCheckpoint.value.attempts>=2&&
+            (error instanceof TypeError||error.name==='TimeoutError'||[408,422,429].includes(error.status)||error.status>=500);
+          if(error instanceof GenerationWait||!error.assemblyTerminal&&!terminal&&!spent)throw error;
+          await fileCheckpoint.save({stage:'fallback',attempts:0});
+        }
+      }
+      if(!rawSegments){
+        rawSegments=await geminiTranscribeParsed({...args,segmentsOnly:true});
+        fileWarning='使用備援逐字稿，請核對原始錄音的講者與時間。';
+      }
+      const result={recordingId:file.id,segments:rawSegments.map(({speaker,start,end,text})=>({speaker,start,end,text})),warning:fileWarning};
+      combineRecordingSegments([file],[result]);
+      await fileCheckpoint.save({result,attempts:0});
+      fileResults.push(result);
+    }
+    segments=combineRecordingSegments(recordings,fileResults);
+    recordingCache={key:audioKey,files:fileResults};
+    warning=fileResults.map((f,i)=>f.warning?'錄音 '+(i+1)+'：'+f.warning:'').filter(Boolean).join('\n');
+    legend=new Map(segments.map(s=>[s.speaker,s.speaker]));
+    diarized=segments.map(s=>'['+recordingTimestamp(s.recordingIndex,s.start)+'] '+s.speaker+'：'+s.text.replace(/\s*\r?\n\s*/g,' ')).join('\n');
+    if(diarized.length>300000)throw Object.assign(Error('整場逐字稿超過 30 萬字，請縮短錄音範圍再整理。'),{status:413});
+    await checkpoint.save({activeRecording:null});
   } else {
     let transcript=checkpoint?.value.transcript;
     let fallback=checkpoint?.value.stage==='fallback';
@@ -2308,7 +2367,9 @@ async function generateWorkspace({
         diagnostics=transcriptionQuality(tr,roster.speakers);
         legend=buildSpeakerLegend(tr.utterances,roster.speakers);
         segments=(tr.utterances||[]).map(u=>({speaker:legend.get(u.speaker)||u.speaker,start:u.start,end:u.end,text:u.text}));
-        transcript={segments,text:segments.length?'':String(tr.text||''),legend:[...legend],diagnostics};
+        const rawSegments=recordings?.length&&!confirmedSpeakerCount&&tr.utterances?.length
+          ?tr.utterances.map(({speaker,start,end,text})=>({speaker,start,end,text})):null;
+        transcript={segments,text:segments.length?'':String(tr.text||''),legend:[...legend],diagnostics,...rawSegments?{rawSegments}:{}};
         if (checkpoint) await checkpoint.save({stage:'summary',attempts:0,transcript});
       }
     }
@@ -2321,6 +2382,7 @@ async function generateWorkspace({
     }
     ({segments,diagnostics}=transcript);
     warning=diagnostics.warnings.join('\n');
+    if(transcript.rawSegments)recordingCache={key:audioKey,files:[{recordingId:recordings[0].id,segments:transcript.rawSegments,warning:transcriptionQuality({utterances:transcript.rawSegments,audio_duration:diagnostics.audioDurationSeconds},[]).warnings.join(' ')}]};
     legend=new Map(transcript.legend);
     diarized=segments.length?segments.map(s=>'['+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+'] '+s.speaker+'：'+s.text).join('\n'):transcript.text;
   }
@@ -2330,14 +2392,24 @@ async function generateWorkspace({
   const results=[...(checkpoint?.value.summaryParts||[])];
   for (let i=results.length;i<parts.length;i++) {
     const suffix=parts.length>1?'\n這是完整錄音依序分段的第 '+(i+1)+'／'+parts.length+' 段。逐一保留本段各個議題、數字、條件、分歧與未決事項；不要只選主要議題。不得把未出現的其他段內容補進來。':'';
-    results.push(await summarize({tenant,diarized:parts[i],roster:{...roster,workspacePrompt:roster.workspacePrompt+suffix},legend,cfg}));
+    const sources=recordings?.length>1&&inputTranscript===null?'\n時間標記如 2@3:20 是錄音 2 的 3 分 20 秒。對話依據及每項 todos 的 timestamp 都要照抄可查的時間標記。不同錄音的講者代號不代表同一人。':'';
+    results.push(await summarize({tenant,diarized:parts[i],roster:{...roster,workspacePrompt:roster.workspacePrompt+suffix+sources},legend,cfg}));
     if (checkpoint) await checkpoint.save({summaryParts:results,attempts:0});
   }
-  const parsed=results.length===1?results[0]:{
+  let parsed=results.length===1?results[0]:{
     ...results[0],topics:results.flatMap(r=>r.topics),todos:results.flatMap(r=>r.todos||[]),
     nextMeeting:results.map(r=>r.nextMeeting).filter(Boolean).at(-1)||'',
   };
-  return {parsed,diarized,segments,warning,diagnostics,glossaryUsed};
+  if(recordings?.length>1&&inputTranscript===null&&results.length>1){
+    const consolidated=checkpoint.value.combinedSummary||await summarize({
+      tenant,diarized:JSON.stringify(results),sourceTranscript:diarized,legend,cfg,
+      roster:{...roster,workspacePrompt:roster.workspacePrompt+'\n輸入為同一場會議依發生順序的各段摘要。合併同議題與同一待辦。後段明確改期、取消或完成應取代暫定狀態，保留前後依據。無法判定是否同一件或仍有分歧時，標為待確認。保留各段獨有議題、風險、日期、條件及來源標記。時間如 2@3:20 表示錄音 2 的 3 分 20 秒，照抄時間標記與講者代號，每項 todos 保留 timestamp，不推定跨檔身分。'}
+    });
+    if(!checkpoint.value.combinedSummary)await checkpoint.save({combinedSummary:consolidated});
+    parsed=consolidated;
+  }
+  if(recordings?.length>1&&inputTranscript===null&&parsed.todos.length>60)throw Object.assign(Error('整場待辦超過 60 項，請縮短錄音範圍再整理。'),{status:413});
+  return {parsed,diarized,segments,warning,diagnostics,glossaryUsed,...recordingCache?{recordingCache}:{}};
 }
 
 export default {

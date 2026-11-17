@@ -14,11 +14,17 @@ export const DECISION_RECORD_INSTRUCTIONS=`
 `;
 const oneLine=(value,max)=>String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 const seconds=value=>{const p=String(value||'').split(':').map(Number);return /^\d{1,3}:\d{2}(?::\d{2})?$/.test(value||'')&&p.slice(1).every(n=>n<60)?p.reduce((a,n)=>a*60+n,0):null;};
+function evidenceTime(value){
+ const [first,local]=String(value||'').split('@');
+ if(local===undefined)return seconds(first);
+ const at=seconds(local);
+ return /^[1-9]\d?$/.test(first)&&at!==null&&value===first+'@'+local?first+'@'+at:null;
+}
 export function normalizeDecisionTopics(input,transcript=''){
- const source=new Map();for(const m of String(transcript).matchAll(/\[(\d{1,3}:\d{2}(?::\d{2})?)\]\s*([^：\n]+)：/g)){const key=seconds(m[1]);if(!source.has(key))source.set(key,new Set());source.get(key).add(m[2].trim());}
+ const source=new Map();for(const m of String(transcript).matchAll(/\[((?:[1-9]\d?@)?\d{1,3}:\d{2}(?::\d{2})?)\]\s*([^：\n]+)：/g)){const key=evidenceTime(m[1]);if(!source.has(key))source.set(key,new Set());source.get(key).add(m[2].trim());}
  let count=0;const walk=(items,depth)=>{const seen=new Set();return (Array.isArray(items)?items:[]).slice(0,24).flatMap(item=>{
   if(!item||typeof item!=='object'||count>=60)return [];const title=oneLine(item.title,140),summary=oneLine(item.summary,700),key=(title+' '+summary).replace(/\s/g,'');if(!title||!summary||seen.has(key))return [];seen.add(key);count++;
-  const evidence=(Array.isArray(item.evidence)?item.evidence:[]).slice(0,8).flatMap(e=>{if(!e||typeof e!=='object')return [];const text=oneLine(e.text,1600);if(!text)return [];let timestamp=oneLine(e.timestamp,12),speaker=oneLine(e.speaker,100);const at=seconds(timestamp),matches=name=>name===speaker||name.replace(/\([^)]*\)$/,'').trim()===speaker;const names=[...(source.get(at)||[])].filter(matches);if(at===null||names.length!==1)timestamp='';else speaker=names[0];if(source.size&&![...source.values()].some(set=>[...set].some(matches)))speaker='發言者待核對';return [{timestamp,speaker,text}];});
+  const evidence=(Array.isArray(item.evidence)?item.evidence:[]).slice(0,8).flatMap(e=>{if(!e||typeof e!=='object')return [];const text=oneLine(e.text,1600);if(!text)return [];let timestamp=oneLine(e.timestamp,12),speaker=oneLine(e.speaker,100);const at=evidenceTime(timestamp),matches=name=>name===speaker||name.replace(/\([^)]*\)$/,'').trim()===speaker;const names=[...(source.get(at)||[])].filter(matches);if(at===null||names.length!==1)timestamp='';else speaker=names[0];if(source.size&&![...source.values()].some(set=>[...set].some(matches)))speaker='發言者待核對';return [{timestamp,speaker,text}];});
   return [{title,summary,status:oneLine(item.status,100)||'待確認',evidence,children:depth<3?walk(item.children,depth+1):[]}];
  });};return walk(input,1);
 }
@@ -50,6 +56,11 @@ export function meetingNotionBlocks(lines){
  const paragraph=text=>({object:'block',type:'paragraph',paragraph:{rich_text:rich(text)}});
  const chunks=text=>{const out=[];for(let i=0;i<text.length||i===0;i+=1800)out.push(paragraph(text.slice(i,i+1800)));return out;};
  return lines.flatMap(line=>{
+  if(line&&typeof line==='object'&&typeof line.label==='string'&&typeof line.url==='string'){
+   const block=paragraph(line.label+' '+line.url);
+   block.paragraph.rich_text=[...rich(line.label+' '),{type:'text',text:{content:line.url,link:{url:line.url}}}];
+   return [block];
+  }
   const parsed=parseDecisionRecord(line);if(!parsed)return chunks(String(line));
   const walk=items=>items.map(t=>({object:'block',type:'toggle',toggle:{rich_text:rich([t.title,...t.summary,t.status].filter(Boolean).join('\n')),children:[...walk(t.children),...(t.evidence.length?[paragraph('對話依據 · 摘意'),...t.evidence.flatMap(chunks)]:[])]}}));
   return [{object:'block',type:'heading_2',heading_2:{rich_text:rich('重點與決議')}},...walk(parsed.topics),...parsed.tail.flatMap(chunks)];
@@ -59,11 +70,13 @@ export function meetingNotionBlocks(lines){
 // tree without duplicating a topic; an unexpected external edit stops the job.
 export async function appendVerifiedMeetingBlocks(request,pageId,planned,marker=''){
  const content=block=>(block[block.type]?.rich_text||[]).map(t=>t.plain_text??t.text?.content??'').join('');
+ const links=block=>(block[block.type]?.rich_text||[]).map(t=>t.href||t.text?.link?.url).filter(Boolean);
+ const equal=(saved,planned)=>saved.type===planned.type&&content(saved)===content(planned)&&JSON.stringify(links(saved))===JSON.stringify(links(planned));
  const list=async id=>{const out=[];let cursor='';do{const data=await request('/blocks/'+id+'/children?page_size=100'+(cursor?'&start_cursor='+cursor:''));out.push(...data.results);cursor=data.has_more?data.next_cursor:'';}while(cursor);return out;};
  async function append(id,blocks,existing){
   if(existing.length>blocks.length)throw Error('notion_revision_content_changed');
   for(let i=0;i<existing.length;i++){
-   if(existing[i].type!==blocks[i].type||content(existing[i])!==content(blocks[i]))throw Error('notion_revision_content_changed');
+   if(!equal(existing[i],blocks[i]))throw Error('notion_revision_content_changed');
    const children=blocks[i][blocks[i].type]?.children;if(children?.length){if(!existing[i].id)throw Error('notion_evidence_id_missing');await append(existing[i].id,children,await list(existing[i].id));}else if(existing[i].has_children)throw Error('notion_revision_content_changed');
   }
   for(let i=existing.length;i<blocks.length;i+=50){
@@ -72,7 +85,7 @@ export async function appendVerifiedMeetingBlocks(request,pageId,planned,marker=
    // recursively fill their children so retries verify the same tree.
    const sent=deep?batch.map(b=>{const copy=structuredClone(b);delete copy[copy.type].children;return copy;}):batch;
    await request('/blocks/'+id+'/children','PATCH',{children:sent});
-   if(deep){const saved=(await list(id)).slice(-batch.length);if(saved.length!==batch.length)throw Error('notion_evidence_id_missing');for(let j=0;j<batch.length;j++){if(saved[j].type!==batch[j].type||content(saved[j])!==content(batch[j]))throw Error('notion_revision_content_changed');const children=batch[j][batch[j].type]?.children;if(children?.length)await append(saved[j].id,children,await list(saved[j].id));}}
+   if(deep){const saved=(await list(id)).slice(-batch.length);if(saved.length!==batch.length)throw Error('notion_evidence_id_missing');for(let j=0;j<batch.length;j++){if(!equal(saved[j],batch[j]))throw Error('notion_revision_content_changed');const children=batch[j][batch[j].type]?.children;if(children?.length)await append(saved[j].id,children,await list(saved[j].id));}}
   }
  }
  const existing=await list(pageId),start=marker?existing.findIndex(b=>content(b)===marker):0;

@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {validateAudioManifest, combineRecordingSegments, MAX_RECORDING_BYTES} from '../modules/meetings/audio-manifest.js';
+
+const a={id:'audio_a',filename:'同名.m4a',size:200,hash:'a'.repeat(64)};
+const b={id:'audio_b',filename:'同名.m4a',size:300,hash:'b'.repeat(64)};
+assert.deepEqual(validateAudioManifest([b,a]).map(x=>x.id),['audio_b','audio_a']);
+assert.throws(()=>validateAudioManifest([]),/invalid_recording_count/);
+assert.throws(()=>validateAudioManifest(Array(11).fill(a)),/invalid_recording_count/);
+assert.throws(()=>validateAudioManifest([a,{...b,hash:a.hash}]),/duplicate_recording/);
+assert.throws(()=>validateAudioManifest([a,{...b,id:a.id}]),/duplicate_recording/);
+assert.throws(()=>validateAudioManifest([{...a,size:MAX_RECORDING_BYTES+1}]),/invalid_recording/);
+assert.throws(()=>validateAudioManifest(Array.from({length:5},(_,i)=>({id:'id'+i,filename:'x',size:MAX_RECORDING_BYTES,hash:i.toString(16).repeat(64)}))),/meeting_recordings_too_large/);
+const line={speaker:'A',start:2000,end:3000,text:'請確認'};
+const results=[{recordingId:a.id,segments:[line]},{recordingId:b.id,segments:[line]}];
+const combined=combineRecordingSegments([a,b],results);
+assert.deepEqual(combined.map(x=>[x.recordingId,x.speaker,x.start]),[['audio_a','第1段講者 A',2000],['audio_b','第2段講者 A',2000]]);
+assert.throws(()=>combineRecordingSegments([a,b],[results[0]]),/incomplete_transcription/);
+assert.throws(()=>combineRecordingSegments([a,b],results.toReversed()),/incomplete_transcription/);
+assert.throws(()=>combineRecordingSegments([a],[{recordingId:a.id,segments:[{...line,start:-1}]}]),/invalid_segment/);
+assert.throws(()=>combineRecordingSegments([a],[{recordingId:a.id,segments:[]}]),/incomplete_transcription/);
+console.log('meeting audio manifest tests passed');

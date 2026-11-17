@@ -7,7 +7,11 @@ const validId=id=>typeof id==='string'&&/^[-_a-zA-Z0-9]{1,200}$/.test(id);
 // A session capability never leaves the server. No raw audio enters PostgreSQL.
 export function meetingAudioStream({pool,store,platform,env,check}){
  const get=async(r,id)=>(await pool.query(`SELECT s.*,u.actor_id,u.mime,u.filename,u.state FROM central_archive.meeting_audio_streams s JOIN central_archive.meeting_audio_uploads u USING(workspace_id,upload_id) WHERE s.workspace_id=$1 AND s.upload_id=$2`,[r.id,id])).rows[0];
- function mutable(r){if(!['setup','failed'].includes(r.state))throw failure(409,'此階段不能替換錄音。');}
+ function mutable(r,staging=false){
+  if(r.receipt?.deletion?.active || !['setup','failed',...(staging?['review']:[])].includes(r.state) || !staging&&Array.isArray(r.receipt?.audioManifest)) {
+   throw failure(409,'此階段不能替換錄音，請從新版錄音清單操作。');
+  }
+ }
  function session(url){let u;try{u=new URL(url);}catch{}if(!u||u.protocol!=='https:'||u.hostname!=='www.googleapis.com'||!u.pathname.startsWith('/upload/drive/')||u.username||u.password)throw failure(503,'雲端上傳連線無法確認，裝置暫存仍保留。');return u.href;}
  async function drive(url,options={}){return fetch(url,{...options,redirect:'manual',signal:AbortSignal.timeout(180000)});}
  async function metadata(u){
@@ -39,7 +43,7 @@ export function meetingAudioStream({pool,store,platform,env,check}){
  }
  const receipt=u=>({ok:true,transport:AUDIO_TRANSPORT,uploadId:u.upload_id,offset:Number(u.bytes_saved),total:Number(u.total_bytes),blockSize:AUDIO_BLOCK,saved:u.state==='saved'});
  async function begin(r,row,actor,v){
-  audioInput({...v,action:'audio-begin'});mutable(r);
+  audioInput({...v,action:'audio-begin'});mutable(r,v.stage===true);
   if(!Number.isSafeInteger(v.total)||v.total<1||v.total>512*1024*1024||!(/^[a-f0-9]{64}$/).test(v.manifest||''))throw failure(400,'錄音大小或內容識別不正確。');
   const prior=(await pool.query('SELECT * FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0];
   if(prior&&(prior.actor_id!==actor.id||prior.filename!==v.filename||prior.mime!==v.mime))throw failure(409,'上傳識別已用於其他錄音。');
@@ -55,17 +59,29 @@ export function meetingAudioStream({pool,store,platform,env,check}){
   return exclusive(r,v.uploadId,actor,async current=>receipt(current.state==='saved'?current:await remote(current)));
  }
  async function finish(r,row,actor,v){
-  audioInput(v);mutable(r);const u=await get(r,v.uploadId);if(!u||u.actor_id!==actor.id)throw failure(403,'找不到本人的錄音上傳。');
+  const staging=v.stage===true;
+  audioInput(v);mutable(r,staging);const u=await get(r,v.uploadId);if(!u||u.actor_id!==actor.id)throw failure(403,'找不到本人的錄音上傳。');
   return exclusive(r,v.uploadId,actor,async current=>{
    if(row.drive_folder_id&&row.drive_folder_id!==current.folder_id)throw failure(409,'原錄音資料夾已變更，請先核對來源。');
    const f=await metadata(current);if(!f)throw failure(409,'錄音尚未完整保存，請繼續上傳。');
    await check(await store.get(r.id),row,actor,true);
-   await store.locked(r.id,async(fresh,db)=>{mutable(fresh);if(fresh.host_id!==actor.id||fresh.conversation_key!==r.conversation_key)throw failure(403,'原會議主持人或來源已變更，請重新確認。');const existing=fresh.receipt?.hubAudio?.id||'';if(existing!==current.base_file_id&&existing!==f.id)throw failure(409,'會議已有另一份新錄音，不能由較早上傳覆蓋。');f.webViewLink||='https://drive.google.com/file/d/'+f.id+'/view';await db.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{hubAudio}',$2::jsonb),filename=$3,revision=revision+CASE WHEN receipt->'hubAudio'->>'id'=$4 THEN 0 ELSE 1 END WHERE id=$1`,[r.id,JSON.stringify(f),current.filename,f.id]);await db.query(`UPDATE central_archive.meeting_audio_uploads SET state='saved',drive_file=$3::jsonb WHERE workspace_id=$1 AND upload_id=$2`,[r.id,v.uploadId,JSON.stringify(f)]);await db.query(`UPDATE central_archive.meeting_audio_streams SET bytes_saved=total_bytes,uncertain=false,session_url=NULL,updated_at=now() WHERE workspace_id=$1 AND upload_id=$2`,[r.id,v.uploadId]);});
+   await store.locked(r.id,async(fresh,db)=>{
+    mutable(fresh,staging);
+    if(fresh.host_id!==actor.id||fresh.conversation_key!==r.conversation_key)throw failure(403,'原會議主持人或來源已變更，請重新確認。');
+    f.webViewLink||='https://drive.google.com/file/d/'+f.id+'/view';
+    if(!staging){
+     const existing=fresh.receipt?.hubAudio?.id||'';
+     if(existing!==current.base_file_id&&existing!==f.id)throw failure(409,'會議已有另一份新錄音，不能由較早上傳覆蓋。');
+     await db.query(`UPDATE central_archive.meeting_workspaces SET receipt=jsonb_set(receipt,'{hubAudio}',$2::jsonb),filename=$3,revision=revision+CASE WHEN receipt->'hubAudio'->>'id'=$4 THEN 0 ELSE 1 END WHERE id=$1`,[r.id,JSON.stringify(f),current.filename,f.id]);
+    }
+    await db.query(`UPDATE central_archive.meeting_audio_uploads SET state='saved',drive_file=$3::jsonb WHERE workspace_id=$1 AND upload_id=$2`,[r.id,v.uploadId,JSON.stringify(f)]);
+    await db.query(`UPDATE central_archive.meeting_audio_streams SET bytes_saved=total_bytes,uncertain=false,session_url=NULL,updated_at=now() WHERE workspace_id=$1 AND upload_id=$2`,[r.id,v.uploadId]);
+   });
    return {ok:true,audio:true,saved:true,transport:AUDIO_TRANSPORT};
   });
  }
  async function chunk(req,r,row,actor,url){
-  await check(r,row,actor,true);mutable(r);const id=url.searchParams.get('uploadId'),offset=Number(url.searchParams.get('offset')),hash=String(req.headers['x-audio-sha256']||'');audioInput({uploadId:id});
+  await check(r,row,actor,true);mutable(r,url.searchParams.get('stage')==='1');const id=url.searchParams.get('uploadId'),offset=Number(url.searchParams.get('offset')),hash=String(req.headers['x-audio-sha256']||'');audioInput({uploadId:id});
   if(!url.searchParams.has('offset')||!Number.isSafeInteger(offset)||offset<0||offset%AUDIO_BLOCK!==0||!(/^[a-f0-9]{64}$/).test(hash))throw failure(400,'錄音分段識別不正確。');
   const own=await get(r,id);if(!own||own.actor_id!==actor.id)throw failure(403,'找不到本人的錄音上傳。');
   let length=0,parts=[];for await(const b of req){length+=b.length;if(length>AUDIO_BLOCK)throw failure(413,'錄音分段過大。');parts.push(Buffer.from(b));}const bytes=Buffer.concat(parts);parts=null;

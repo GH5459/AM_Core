@@ -1,4 +1,5 @@
 import {claimGeneration, generationCheckpoint, GenerationWait, GENERATION_CONTRACT, reserveMeetingGeneration} from './generation-queue.js';
+import {recordingList,recordingTimestamp,ORIGINAL_RECORDING} from './audio-manifest.js';
 import {meetingMultilingual,multilingualScript} from "./multilingual.js";
 import crypto from 'node:crypto';
 import {meetingStartAuthority} from './start-authority.js';
@@ -136,15 +137,39 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
   }));
   return {people:people.sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')),complete};
  }
- async function original(r,row){if(hub.file(r))return hub.file(r);const item=await archive.original(r.message_id,row.source_kind==='user'?{userId:row.source_id}:{groupId:row.source_id});if(!item?.file?.id)throw failure(503,'原始錄音仍在保存中或尚未可用，請稍後重試。');return item.file;}
+ async function original(r,row,recording){
+  const selected=recording??recordingList(r)[0];
+  if(selected?.file?.id)return selected.file;
+  if(selected?.id===ORIGINAL_RECORDING){
+   const item=await archive.original(r.message_id,row.source_kind==='user'?{userId:row.source_id}:{groupId:row.source_id});
+   if(item?.file?.id)return item.file;
+  }
+  throw failure(503,'原始錄音仍在保存中或尚未可用，請稍後重試。');
+ }
+ function playbackRecordings(r){
+  return ['review','publishing','published'].includes(r.state)&&Array.isArray(r.receipt.generationSnapshot?.recordings)
+   ?r.receipt.generationSnapshot.recordings:recordingList(r);
+ }
+ function playback(r,actor){
+  const files=playbackRecordings(r),explicit=Array.isArray(r.receipt.audioManifest);
+  const recordings=files.map((file,i)=>{
+   const recording=explicit?file.id:null;
+   const query=new URLSearchParams({ticket:audioAccess().mint(r,actor,recording)});
+   if(recording)query.set('recording',recording);
+   return {index:i+1,filename:file.filename,url:'/meetings/review/work/'+r.id+'/audio?'+query};
+  });
+  return {audioUrl:recordings[0]?.url||null,...explicit?{audioRecordings:recordings}:{}};
+ }
  async function generate(r,row){
   const checkpoint = generationCheckpoint(pool,r);
+  const preparation=r.receipt.generationSnapshot||{preparation:'',version:null};
+  const recordings=preparation.recordings;
   const heartbeat = setInterval(()=>checkpoint.heartbeat().catch(()=>{}),20000);
   heartbeat.unref();
   try{
    const ctx=await context(row,r.source,{senderName:r.host_name});
-   const audioStreamFactory=async({signal}={})=>{
-    const file=await original(r,row);
+   const audioForRecording=async(recording,{signal}={})=>{
+    const file=await original(r,row,recording);
     const token=await platform.drive.getAccessToken();
     const response=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true',{
      headers:{Authorization:'Bearer '+token},signal:signal||AbortSignal.timeout(300000)
@@ -156,12 +181,12 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     return {stream:response.body,contentType:response.headers.get('content-type')||file.mimeType,
      size:Number(file.size)||Number(response.headers.get('content-length'))};
    };
-   const preparation=r.receipt.generationSnapshot||{preparation:'',version:null};
    const settings=preparation.settings||r.fields.settings;
    const result=await meetingModule.generateWorkspace({
-    tenant:ctx.tenant,audioStreamFactory,filename:r.filename,settings,
+    tenant:ctx.tenant,audioStreamFactory:options=>audioForRecording(recordings?.[0],options),audioForRecording,recordings,filename:r.filename,settings,
     confirmedSpeakerCount:preparation.confirmedSpeakerCount,preparation:preparation.preparation||'',
-    inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null,checkpoint
+    inputTranscript:preparation.input?.source==='transcript'?preparation.input.text:null,checkpoint,
+    priorRecordingCache:checkpoint.value.recordingCacheSeed||r.result.recordingCache
    });
    const fields={...Object.fromEntries(Object.entries(r.fields).filter(([k])=>!k.startsWith('todo:'))),record:recordText(result.parsed),transcript:result.diarized};
    const versions={...r.field_versions,record:Number(r.field_versions.record||0)+1,transcript:Number(r.field_versions.transcript||0)+1};
@@ -170,9 +195,13 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    for(const key of Object.keys(r.fields).filter(k=>k.startsWith('todo:')))versions[key]=Number(r.field_versions[key]||0)+1;
    if(r.fields.record)for(const block of recordBlocks(r)){const key='record:'+block.id;versions[key]=Number(r.field_versions[key]||0)+1;}
    for(const t of (result.parsed.todos||[]).slice(0,60)){
-    const key='todo:'+crypto.randomUUID();fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')};versions[key]=1;
+    const key='todo:'+crypto.randomUUID();
+    const sources=result.segments.filter(s=>s.recordingIndex&&recordingTimestamp(s.recordingIndex,s.start)===t.timestamp);
+    const reference=sources.length?('；錄音 '+sources[0].recordingIndex+' ['+t.timestamp+'] '+sources.map(s=>s.text).join('／').slice(0,2000)):recordings?.length>1?'；音檔時間待核對':'';
+    fields[key]={content:String(t.content||'').slice(0,4000),ownerId:'',due:meetingDueDate(r.fields.settings,meetingToday()),evidence:'AI 待辦候選；原文提及：'+String(t.owner||'未指定負責人')+'／'+String(t.due||'未指定日期')+reference};versions[key]=1;
    }
-   await checkpoint.finish(fields,versions,{segments:result.segments,warning:result.warning,diagnostics:result.diagnostics||null,
+   await checkpoint.finish(fields,versions,{segments:result.segments,warning:[preparation.omittedRecordings?'本次只整理保留的錄音。另有 '+preparation.omittedRecordings+' 份先前選定的錄音未納入。':'',result.warning].filter(Boolean).join('\n'),diagnostics:result.diagnostics||null,
+    ...result.recordingCache?{recordingCache:result.recordingCache}:{},
     generationSettings:settings,glossaryUsed:result.glossaryUsed||[],preparationVersion:preparation.version});
   }catch(error){
    if(error.message==='meeting_generation_lease_lost')return;
@@ -187,7 +216,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     const delay=Math.max(30*2**(attempts-1),Math.min(900,Math.ceil((error.retryAfterMs||0)/1000)));
     await checkpoint.defer(delay,'處理暫時中斷，系統會從已保存的進度繼續。');
    }else{
-    await checkpoint.fail(error.status===413?error.message:'製作未完成，原始錄音及已完成的進度仍保留；可再次開始製作。');
+    const failedFile=recordings?.find(item=>item.id===checkpoint.value.activeRecording);
+    const message=failedFile?'第 '+checkpoint.value.recordingNumber+' 份錄音「'+failedFile.filename+'」尚未辨識完成。原始錄音及已完成的進度仍保留，可再次開始製作。':'製作未完成，原始錄音及已完成的進度仍保留；可再次開始製作。';
+    await checkpoint.fail(error.status===413?error.message:message);
    }
    logger.warn('Meeting workspace generation deferred or failed.',{stage:checkpoint.value.stage||'upload',status:Number(error.status)||null,attempts});
   }finally{clearInterval(heartbeat);}
@@ -215,7 +246,9 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    locked=(await db.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok',['publish-meeting:'+r.id])).rows[0].ok;if(!locked)return;
    r=await store.get(r.id);if(r.state!=='publishing')return;
    await assertMember(row,r.host_id);await validateAssignees(r,row);const destination=await publication.resolve(r,row);
-   const ctx=await context(row,r.source,{senderName:r.host_name}),target=await ensureDatabase(row),audio=r.receipt.generationSnapshot?.input?.source==='transcript'&&!hub.file(r)&&!r.filename?null:await original(r,row),marker='meeting-workspace:'+r.id;
+  const ctx=await context(row,r.source,{senderName:r.host_name}),target=await ensureDatabase(row),recordings=playbackRecordings(r),marker='meeting-workspace:'+r.id;
+  const audioFiles=await Promise.all(recordings.map(item=>original(r,row,item)));
+  const audio=audioFiles[0]||null;
    let receipt={...r.receipt};const save=async()=>{await pool.query(`UPDATE central_archive.meeting_workspaces SET receipt=$2::jsonb,error_code='',updated_at=now() WHERE id=$1`,[r.id,JSON.stringify(receipt)]);};
    if(!receipt.notionId){
     const found=await request('/data_sources/'+target.dbId+'/query','POST',{filter:{property:'來源識別',rich_text:{equals:marker}},page_size:2});
@@ -225,7 +258,8 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
      '參與者':{rich_text:rich(r.fields.settings.speakers.map(s=>s.name).filter(Boolean).join('、'))},'原始錄音名稱':{rich_text:rich(r.filename)},'Google Drive 錄音':{url:audio?.webViewLink||null},'錄音保存狀態':{rich_text:rich(audio?'已保存':'逐字稿來源（無錄音）')},'來源識別':{rich_text:rich(marker)}
     }});receipt.notionId=page.id;await save();
    }
-   const lines=['會議記錄',r.fields.record,'','待辦事項',...todos(r.fields).map((t,i)=>`${i+1}. ${t.content}\n負責人：${t.ownerId?receipt.ownerNames?.[t.ownerId]||t.ownerId:'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'','逐字稿',r.fields.transcript||r.result.warning||'未提供','',`來源：${row.display_name||'LINE 對話'}／${r.filename}／上傳者 ${r.host_name}／${new Date(r.source.timestamp).toISOString()}／訊息 ${r.message_id}`,`專案／目標：${r.fields.settings.projectGoal||'尚待補充'}`,`原始錄音：${audio?.webViewLink||'逐字稿來源（無錄音）'}`,`會議連結：${link(r.id)}`,`整理類型：${r.fields.settings.type}\n整理要求：${r.fields.settings.prompt}`];
+   const sourceLines=recordings.length>1?recordings.map((file,i)=>({label:`原始錄音 ${i+1}：${file.filename}`,url:'https://drive.google.com/file/d/'+encodeURIComponent(audioFiles[i].id)+'/view'})):[`原始錄音：${audio?.webViewLink||'逐字稿來源（無錄音）'}`];
+   const lines=['會議記錄',r.fields.record,'','待辦事項',...todos(r.fields).map((t,i)=>`${i+1}. ${t.content}\n負責人：${t.ownerId?receipt.ownerNames?.[t.ownerId]||t.ownerId:'未分派'}；截止日期：${t.due||'未設定'}\n依據：${t.evidence}`),'','逐字稿',r.fields.transcript||r.result.warning||'未提供','',`來源：${row.display_name||'LINE 對話'}／${r.filename}／上傳者 ${r.host_name}／${new Date(r.source.timestamp).toISOString()}／訊息 ${r.message_id}`,`專案／目標：${r.fields.settings.projectGoal||'尚待補充'}`,...sourceLines,`會議連結：${link(r.id)}`,`整理類型：${r.fields.settings.type}\n整理要求：${r.fields.settings.prompt}`];
    await appendVerifiedMeetingBlocks(request,receipt.notionId,meetingNotionBlocks(lines));
    receipt.notionSaved=true;await save();
    await taskDispatch.enqueue({...r,receipt});
@@ -290,17 +324,21 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(match[2]==='hub'&&req.method==='POST'&&String(req.headers['content-type']||'').split(';')[0]==='application/octet-stream'){const actor=await authenticate(req,row,r);if(actor.maintenanceOnly)throw failure(403,'整理協助權限不包含更換錄音。');actor.audioRequestIdentity=true;await locale.guard(actor);sendJson(res,200,await hub.binary(req,r,row,actor,url));return true;}
    if(match[2]==='hub'&&req.method==='POST'){const actor=await authenticate(req,row,r),input=await readBody(req);if(actor.maintenanceOnly&&input.action!=='plan-read')throw failure(403,'整理協助權限只可查看來源與開始整理。');if(input.action?.startsWith('audio-'))actor.audioRequestIdentity=true;if(!['plan-read','plan-organization'].includes(input.action))await locale.guard(actor);sendJson(res,200,{...await hub.detail(r,row,actor,input),experience:await locale.profile(actor)});return true;}
    if(match[2]==='audio'&&req.method==='GET'){
-    const ticket=url.searchParams.get('ticket');if(ticket){const who=audioAccess().verify(r,ticket);if(who!=='public')await assertRead(r,row,who);}else await authenticate(req,row,r,true);
-    const file=await original(r,row),token=await platform.drive.getAccessToken();const range=String(req.headers.range||'');if(range&&!/^bytes=\d*-\d*$/.test(range))throw failure(416,'無效的播放範圍。');
+    const ticket=url.searchParams.get('ticket'),recording=url.searchParams.get('recording');
+    if(ticket){const who=audioAccess().verify(r,ticket,recording);if(who!=='public')await assertRead(r,row,who);}else await authenticate(req,row,r,true);
+    const files=playbackRecordings(r),selected=recording?files.find(file=>file.id===recording):files[0];
+    if(!selected||!recording&&Array.isArray(r.receipt.audioManifest))throw failure(404,'找不到這份錄音。');
+    const file=await original(r,row,selected),token=await platform.drive.getAccessToken();const range=String(req.headers.range||'');if(range&&!/^bytes=\d*-\d*$/.test(range))throw failure(416,'無效的播放範圍。');
     const controller=new AbortController(),abort=()=>controller.abort(),timeout=setTimeout(abort,15000);req.once?.('aborted',abort);res.once?.('close',abort);let response;
     try{response=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true',{headers:{Authorization:'Bearer '+token,...range?{Range:range}:{}},signal:controller.signal});}finally{clearTimeout(timeout);}
     if(![200,206].includes(response.status)){controller.abort();throw failure(response.status===416?416:503,'錄音暫時無法播放。');}res.statusCode=response.status;
+    res.setHeader('Cache-Control','private, no-store');
     for(const h of ['content-type','content-length','content-range','accept-ranges'])if(response.headers.has(h))res.setHeader(h,response.headers.get(h));Readable.fromWeb(response.body).on('error',()=>res.destroy()).pipe(res);return true;
    }
    if(match[2]!=='api'||req.method!=='POST')throw failure(405,'不支援此操作。');
    const input=await readBody(req),authorityStarted=performance.now();let current=r,actor;
    try{actor=await authenticate(req,row,r,['read','locale','translate','reply-list','reply-add'].includes(input.action),false,input.action==='read');}catch(e){if(e.code?.startsWith('FIRST_USE_'))throw e;if(input.action==='read'&&canReadShared(r)&&(!platform.ensureFirstUseBinding||e.firstUseVerified)){
-    sendJson(res,200,workspaceResponse({ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,'public')):null},input));return true;
+    sendJson(res,200,workspaceResponse({ok:true,access:'public',host:false,actor:{name:'分享觀看'},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),...playback(r,'public')},input));return true;
    }throw e;}
    const authorityMs=performance.now()-authorityStarted;
    // Language and live progress are independent authorized reads. For read
@@ -313,7 +351,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    if(input.action==='reply-list'||input.action==='reply-add'){const replies=input.action==='reply-add'?await locale.reply(r,actor,input):r.state==='published'?await locale.list(r):[];sendJson(res,200,{ok:true,experience,replies});return true;}
    if(!['read','members','history','generation-versions','generation-version','organization','glossary-list','publication-targets'].includes(input.action))await locale.guard(actor);
    if(['generation-versions','generation-version'].includes(input.action)){if(actor.readOnly)throw failure(403,'只有原會議成員或整理協助者可比較舊版。');sendJson(res,200,input.action==='generation-versions'?{ok:true,versions:await store.generationVersions(r.id)}:{ok:true,version:await store.generationVersion(r.id,input.revision)});return true;}
-   if(actor.readOnly){const [replies,progress,readExperience]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor),input.action==='read'?locale.profile(actor):experience]);res.setHeader('Server-Timing',`meeting_auth;dur=${authorityMs.toFixed(1)},meeting_total;dur=${(performance.now()-requestStarted).toFixed(1)}`);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience:readExperience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,audioUrl:r.filename?'/meetings/review/work/'+r.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(r,actor.id)):null},input,actor.id));return true;}
+   if(actor.readOnly){const [replies,progress,readExperience]=await Promise.all([r.state==='published'?locale.list(r):[],taskProgress(r,actor),input.action==='read'?locale.profile(actor):experience]);res.setHeader('Server-Timing',`meeting_auth;dur=${authorityMs.toFixed(1)},meeting_total;dur=${(performance.now()-requestStarted).toFixed(1)}`);sendJson(res,200,workspaceResponse({ok:true,access:actor.publicationReader?'publication':'recipient',experience:readExperience,replies,host:false,actor:{name:actor.name},workspace:{id:r.id,state:'published',revision:Number(r.revision)},reader:readerData(r),taskProgress:progress,...playback(r,actor.id)},input,actor.id));return true;}
    if(['glossary-list','glossary-save','glossary-preview','glossary-import'].includes(input.action)){
     const canEdit=row.enabled&&!['left','blocked'].includes(row.connection_state)&&(['setup','failed','review'].includes(r.state)||r.state==='published');
     if(input.action!=='glossary-list'){
@@ -371,9 +409,16 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
     const identities=await validateAssignees({...r,fields},row);const ownerNames=Object.fromEntries(identities.map(p=>[p.userId,p.name]));
     current=await store.revise(r.id,actor,fields,input.revision,ownerNames);drain().catch(()=>{});
    }
-   else if(['start','regenerate','publish','retry-publish'].includes(input.action)){
+   else if(['start','regenerate','stop-generation','publish','retry-publish'].includes(input.action)){
     const generating=['start','regenerate'].includes(input.action);
-    if(generating&&r.state!=='processing'){if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');if(r.receipt.transcriptInput?.source!=='transcript')await original(r,row);}
+    if(generating&&r.state!=='processing'){
+     if((await hub.plan(r.id))?.cancelled)throw failure(409,'會議已取消，請先恢復排程。');
+     if(r.receipt.transcriptInput?.source!=='transcript'){
+      const files=recordingList(r);
+      if(!files.length)throw failure(Array.isArray(r.receipt.audioManifest)?409:503,'請先保存至少一份錄音。');
+      await Promise.all(files.map(file=>original(r,row,file)));
+     }
+    }
     if(!row.enabled||['left','blocked'].includes(row.connection_state))throw failure(409,'此對話會議功能已關閉或無法接收，請聯絡管理者。');
    if(input.action==='publish'&&r.state==='review'){
      if(actor.id!==r.host_id)throw failure(403,'只有主持人可以發布。');
@@ -396,7 +441,7 @@ export function createMeetingWorkspace({pool,botId,platform,archive,env,context,
    res.setHeader('X-Meeting-Refresh',WORKSPACE_REFRESH_CONTRACT);
    const types=[...MEETING_TYPES.filter(t=>!templates.some(x=>x.name===t.name)),...templates.map(t=>({...t,version:Number(t.version)}))];
    const reader=readerData(current);
-   const result={ok:true,experience,replies,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,canStart:actor.id===r.host_id||actor.canStart,types,reader,sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},audioUrl:current.filename?'/meetings/review/work/'+current.id+'/audio?ticket='+encodeURIComponent(audioAccess().mint(current,actor.id)):null,workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',...current.state==='processing'?{generationStage:current.receipt.generationProgress?.stage||(current.receipt.generationLease?'upload':'queued')}:{},segments:reader.segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:view.presence};
+   const result={ok:true,experience,replies,contract:WORKSPACE_CONTRACT,access:'member',actor,host:actor.id===r.host_id,canStart:actor.id===r.host_id||actor.canStart,types,reader,sharing:{enabled:!!current.sharing_enabled,version:Number(current.sharing_version)},...playback(current,actor.id),workspace:{id:current.id,state:current.state,revision:Number(current.revision),fields:current.fields,versions:current.field_versions,hostName:current.host_name,filename:current.filename,sourceRecordingCount:recordingList(current).length,sourceName:row.display_name,ownerNames:current.receipt.ownerNames||{},warning:current.result.warning||'',...current.state==='processing'?{generationStage:current.receipt.generationProgress?.stage||(current.receipt.generationLease?'upload':'queued'),recordingNumber:current.receipt.generationProgress?.activeRecording?current.receipt.generationProgress.recordingNumber:null,recordingCount:current.receipt.generationSnapshot?.recordings?.length||0}:{},segments:reader.segments,error:current.error_code,publishedAt:current.state==='published'?current.updated_at:null},presence:view.presence};
    result.canConfigure=(actor.id===r.host_id||actor.canStart)&&row.enabled&&!['left','blocked'].includes(row.connection_state)&&['setup','failed','review'].includes(current.state);
    result.generationDiagnostics=current.result.diagnostics||null;
    result.canEdit=!actor.maintenanceOnly&&['review','published'].includes(current.state);result.pendingRevision=view.pendingRevision;result.assignment=assignment;result.taskProgress=progress;

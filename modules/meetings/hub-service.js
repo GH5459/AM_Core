@@ -1,6 +1,7 @@
 import {visibleMeetingRows} from './hub-list.js';
 import {dailylogTiming} from './dailylog-embedded.js';
 import {meetingAudioStream,AUDIO_TRANSPORT} from './audio-stream.js';
+import {recordingView,recordingStamp,saveRecordingList} from './audio-manifest.js';
 import {multilingualScript} from "./multilingual.js";
 import crypto from 'node:crypto';
 import {Readable} from 'node:stream';
@@ -83,7 +84,7 @@ export function meetingHub({startAuthority,locale,pool,botId,platform,env,store,
   }
   if(v.action!=='audio-finish')throw failure(400,'不支援錄音操作。');
   return store.locked(r.id,async(current,db)=>{
-   if(!['setup','failed'].includes(current.state))throw failure(409,'會議已開始整理。');
+   if(!['setup','failed'].includes(current.state)||Array.isArray(current.receipt.audioManifest))throw failure(409,'請從新版錄音清單操作。');
    const status=(await db.query('SELECT * FROM central_archive.meeting_audio_uploads WHERE workspace_id=$1 AND upload_id=$2 FOR UPDATE',[r.id,v.uploadId])).rows[0];if(status.state==='saved')return {saved:true};
    const info=(await db.query('SELECT count(*) AS n,sum(octet_length(bytes)) AS size,min(part) AS first,max(part) AS last FROM central_archive.meeting_audio_chunks WHERE workspace_id=$1 AND upload_id=$2',[r.id,v.uploadId])).rows[0];if(Number(info.n)!==v.parts||info.first!==0||info.last!==v.parts-1)throw failure(409,'錄音尚未完整上傳，請按繼續上傳。');
    const folder=row.drive_folder_id||await platform.drive.ensureFolder((row.display_name||'會議')+' · '+row.key.slice(0,12),env.AMCORE_CENTRAL_ARCHIVE_DRIVE_ROOT_FOLDER_ID);if(!folder)throw failure(503,'原錄音資料夾尚未可用。');
@@ -119,9 +120,13 @@ if(v.action==='preparation-init'){if(typeof v.text!=='string'||v.text.length>600
   else if(v.action==='plan-organization'){const org=await platform.meetingOrganization(actor.id);return {ok:true,organization:org};}
   else if(v.action==='audio-fast-begin')return audioStream.begin(r,row,actor,v);
   else if(v.action==='audio-fast-finish')return audioStream.finish(r,row,actor,v);
+  else if(v.action==='audio-list-save')await saveRecordingList({store,workspace:r,actor,ids:v.ids,revision:v.revision,folder:row.drive_folder_id});
   else if(v.action.startsWith('audio-')){const result=await upload(r,row,actor,v);if(v.action!=='audio-finish')return {ok:true,...result};}
   else if(v.action!=='plan-read')throw failure(400,'不支援此操作。');
-  const p=await plan(r.id),current=await store.get(r.id);return {ok:true,audioTransport:AUDIO_TRANSPORT,plan:p,input:actor.id===r.host_id||actor.canStart?current.receipt.transcriptInput||{source:'audio',text:'',version:0}:undefined,actorId:actor.id,host:actor.id===r.host_id,externalCalendar:!!r.receipt?.externalCalendar,audio:!!file(current),calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
+  const p=await plan(r.id),current=await store.get(r.id),host=actor.id===current.host_id;
+  return {ok:true,audioTransport:AUDIO_TRANSPORT,plan:p,input:host||actor.canStart?current.receipt.transcriptInput||{source:'audio',text:'',version:0}:undefined,actorId:actor.id,host,externalCalendar:!!r.receipt?.externalCalendar,audio:recordingView(current).length>0,
+   ...(host?{recordings:recordingView(current),audioRevision:Number(current.revision),audioCollection:Array.isArray(current.receipt.audioManifest),audioStamp:recordingStamp(current)}:{}),
+   calendar:(await pool.query('SELECT account,state,error_code FROM central_archive.meeting_calendar_links WHERE workspace_id=$1 ORDER BY account',[r.id])).rows};
  }
  async function calendar(actor,v){
   const who=await identity(actor.id);let query;

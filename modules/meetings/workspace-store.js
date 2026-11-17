@@ -2,6 +2,7 @@ import {isDeepStrictEqual} from 'node:util';
 import crypto from 'node:crypto';
 import {failure,initialFields,checkField,checkPublication} from './workspace-model.js';
 import {applyPart,recordBlocks} from './workspace-collaboration.js';
+import {recordingList} from './audio-manifest.js';
 export function createWorkspaceStore(pool){
  async function transaction(work){const db=await pool.connect();try{await db.query('BEGIN');const r=await work(db);await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}}
  const get=async(id,db=pool)=>(await db.query('SELECT * FROM central_archive.meeting_workspaces WHERE id=$1',[id])).rows[0];
@@ -25,17 +26,29 @@ export function createWorkspaceStore(pool){
   if(['publish','retry-publish'].includes(action)&&['publishing','published'].includes(r.state))return r;
   if(action==='start'&&r.state==='processing')return r;
   if(Number(r.revision)!==revision)throw failure(409,'內容剛有修改，請重新查看後再確認。');
+  if(action==='stop-generation'){
+   if(r.state!=='processing'||r.receipt.generationSnapshot?.recordings?.length<2||!r.receipt.generationSnapshot?.recordings)throw failure(409,'目前沒有可停止的多份錄音整理。');
+   await db.query(`UPDATE central_archive.meeting_workspaces SET state='failed',revision=revision+1,lease_until=NULL,
+    receipt=receipt-'generationLease',error_code='整理已停止。可調整錄音清單，或接續本次整理。',updated_at=now() WHERE id=$1`,[id]);
+   return get(id,db);
+  }
   let state;
   if(action==='start'&&['setup','failed'].includes(r.state)||action==='regenerate'&&r.state==='review'){
    if(action==='regenerate'&&generation?.confirmed!==true)throw failure(400,'請確認人員與保留舊版後，再手動重新整理。');
    if(!r.fields.settings.topic.trim()||!r.fields.settings.type.trim()||!r.fields.settings.prompt.trim())throw failure(400,'請填寫主題、會議類型與整理重點。');state='processing';
-  }else if(action==='publish'&&r.state==='review'){checkPublication(r);state='publishing';}
+  }else if(action==='publish'&&r.state==='review'){
+   if(Array.isArray(r.receipt.audioManifest)&&
+      !isDeepStrictEqual(r.receipt.audioManifest,r.receipt.generationSnapshot?.recordings)) {
+    throw failure(409,'錄音清單已更改，請先重新整理，再發布。');
+   }
+   checkPublication(r);state='publishing';
+  }
   else throw failure(409,'目前無法進行此操作。');
   const generating=['start','regenerate'].includes(action);
   if(generating){
    const count=r.fields.settings.speakers.filter(s=>s.name.trim()).length;
    if(generation?.confirmedSpeakerCount!==undefined&&(!Number.isInteger(generation.confirmedSpeakerCount)||generation.confirmedSpeakerCount!==count||count<1||count>40))throw failure(400,'請重新確認實際發言人數。');
-   if(action==='regenerate'&&(!generation?.confirmedSpeakerCount||count!==r.fields.settings.speakers.length))throw failure(400,'請確認本次發言人員與順序，並移除空白列。');
+   if(action==='regenerate'&&recordingList(r).length<2&&(!generation?.confirmedSpeakerCount||count!==r.fields.settings.speakers.length))throw failure(400,'請確認本次發言人員與順序，並移除空白列。');
    // Archive atomically before a job can run; history reads redact the body.
    const snapshot=r.fields.record||r.fields.transcript?{revision:Number(r.revision),fields:r.fields,versions:r.field_versions,blocks:recordBlocks(r),result:r.result,settingsUsed:r.result.generationSettings||null,ownerNames:r.receipt.ownerNames||{}}:null;
    await db.query(`INSERT INTO central_archive.meeting_workspace_edits(workspace_id,revision,actor_id,actor_name,field,before_value,after_value) VALUES($1,$2,$3,$4,'generation_start',$5::jsonb,$6::jsonb)`,[id,Number(r.revision)+1,actor.id,actor.name,JSON.stringify({state:r.state,...snapshot?{snapshot}:{}}),JSON.stringify({state:'processing',assisted:actor.id!==r.host_id,regenerate:action==='regenerate',archivedRevision:snapshot?.revision||null})]);
@@ -43,11 +56,18 @@ export function createWorkspaceStore(pool){
   const generationSnapshot=generating?{
    ...(generation||{preparation:'',version:null}),
    audioFileId:r.receipt.hubAudio?.id||null,
+   ...(Array.isArray(r.receipt.audioManifest)?{recordings:recordingList(r)}:{}),
+   ...(r.receipt.audioOmissions?{omittedRecordings:r.receipt.audioOmissions.length}:{}),
    settings:structuredClone(r.fields.settings),
    input:structuredClone(r.receipt.transcriptInput||{source:'audio',text:'',version:0}),
   }:null;
   const reuse=r.state==='failed'&&isDeepStrictEqual(generationSnapshot,r.receipt.generationSnapshot);
   const progress=reuse?{...r.receipt.generationProgress,attempts:0}:{};
+  if(generating&&!reuse&&r.state==='failed'&&r.receipt.generationProgress?.recordingAudioKey){
+   const prior=r.receipt.generationProgress;
+   const files=Object.values(prior.fileJobs||{}).flatMap(job=>job.result?[job.result]:[]);
+   if(files.length)progress.recordingCacheSeed={key:prior.recordingAudioKey,files};
+  }
   return(await db.query(`UPDATE central_archive.meeting_workspaces SET state=$2,revision=revision+1,error_code='',lease_until=CASE WHEN $2='publishing' AND receipt->'publicationTarget'->>'key'<>conversation_key THEN 'infinity'::timestamptz ELSE NULL END,receipt=receipt||$3::jsonb,updated_at=now() WHERE id=$1 RETURNING *`,[id,state,JSON.stringify(generating?{generationSnapshot,generationProgress:progress}:{})])).rows[0];
  });}
  async function presence(id,actor,field=''){await pool.query(`INSERT INTO central_archive.meeting_workspace_presence(workspace_id,actor_id,actor_name,field) VALUES($1,$2,$3,$4)

@@ -122,16 +122,70 @@ export function workspaceClient(BOOT){
   summary.innerHTML='<span>共 '+Number(p.counts.total)+' 項</span>'+Object.entries(progressLabels).filter(([k])=>p.counts[k]).map(([k,label])=>'<span>'+esc(label)+' '+Number(p.counts[k])+' 項</span>').join('')+(p.counts.overdue?'<span>已逾期 '+Number(p.counts.overdue)+' 項</span>':'');
   checked.textContent=(!p.available?'部分進度暫時無法讀取，請稍後重試。 ':'')+(p.checkedAt?'最後讀取：'+new Date(p.checkedAt).toLocaleString('zh-TW'):'尚無已派發任務可讀取。');
  }
- function seek(seconds){$('#audio').currentTime=Number(seconds);$('#audio').play().catch(error);}
+ let selectedRecording=1,recordingOptions='',playingSource='';
+ const playbackItems=()=>data?.audioRecordings??(data?.audioUrl?[{index:1,filename:'原始錄音',url:data.audioUrl}]:[]);
+ const sourceKey=item=>item.url.split('?')[0]+':'+(new URLSearchParams(item.url.split('?')[1]).get('recording')||'original');
+ const recordingSelect=document.createElement('select');
+ recordingSelect.setAttribute('aria-label','選擇播放錄音');recordingSelect.hidden=true;
+ $('#audio').before(recordingSelect);
+ function selectRecording(index){
+  const player=$('#audio'),item=playbackItems().find(file=>file.index===index);
+  if(!item)return false;
+  selectedRecording=index;recordingSelect.value=String(index);
+  playingSource=sourceKey(item);
+  if(audioUrl!==item.url){audioUrl=item.url;player.src=audioUrl;}
+  return true;
+ }
+ recordingSelect.onchange=()=>selectRecording(Number(recordingSelect.value));
+ $('#audio').onended=()=>{if(selectRecording(selectedRecording+1))$('#audio').play().catch(error);};
+ function renderAudio(){
+  const files=playbackItems(),options=JSON.stringify(files.map(({index,filename})=>[index,filename]));
+  if(options!==recordingOptions){
+   recordingOptions=options;
+   recordingSelect.replaceChildren(...files.map(file=>{
+    const option=document.createElement('option');option.value=String(file.index);option.textContent='錄音 '+file.index+' · '+file.filename;return option;
+   }));
+   recordingSelect.hidden=files.length<2;
+  }
+  const player=$('#audio');player.hidden=!files.length;
+  if(!files.length){if(audioUrl)player.removeAttribute('src');audioUrl='';return;}
+  const selected=files.find(file=>file.index===selectedRecording)||files[0];
+  if(!audioUrl||playingSource!==sourceKey(selected))selectRecording(selected.index);
+  $('#audioStatus').textContent=files.length>1?'可切換或依序收聽 '+files.length+' 份原始錄音。':'原始會議錄音，按播放即可收聽。';
+ }
+ async function seek(seconds,index=1){
+  if(!selectRecording(Number(index))){error('找不到對應錄音。');return;}
+  const player=$('#audio');
+  try{player.currentTime=Number(seconds);await player.play();}catch(e){error(e);}
+ }
+ function linkEvidence(section){
+  section.querySelectorAll('.decision-evidence p').forEach(line=>{
+   const entry=speakerTools.entries(line.textContent)[0];
+   if(!entry?.recordingIndex)return;
+   const button=document.createElement('button');button.type='button';button.className='secondary';
+   button.textContent='播放錄音 '+entry.recordingIndex+' · '+entry.timestamp.split('@').at(-1);
+   button.onclick=()=>seek(entry.start/1000,entry.recordingIndex);line.append(' ',button);
+  });
+ }
  function renderReader(){const r={...data.reader};if(memberList.length&&data.workspace.fields){const ts=Object.entries(data.workspace.fields).filter(([k,v])=>k.startsWith('todo:')&&v);r.todos=(r.todos||[]).map((t,i)=>({...t,owner:memberList.find(p=>p.id===ts[i]?.[1].ownerId)?.name||t.owner}));}const hash=JSON.stringify([r,data.assignment,data.taskProgress?.items]);if(readingHash===hash)return;readingHash=hash;
   const openTopics=new Set(Array.from($('#readingRecordText').querySelectorAll('details[open]')).map(e=>e.dataset.decision));
   const contentHash=JSON.stringify([r.record,r.transcript,r.warning,r.segments]),contentChanged=readingContentHash!==contentHash;
-  if(contentChanged){readingContentHash=contentHash;$('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';}
+  if(contentChanged){readingContentHash=contentHash;$('#readingRecordText').innerHTML=decisionRecordHtml(r.record)??prose(r.record);$('#readingRecordText').querySelectorAll('details[data-decision]').forEach(e=>e.open=openTopics.has(e.dataset.decision));$('#readingTranscriptText').textContent=r.transcript||r.warning||'這場會議未提供逐字稿。';linkEvidence($('#readingRecordText'));}
   const openEvidence=new Set(Array.from($('#readingTodoList').querySelectorAll('details[open]')).map(e=>e.dataset.taskEvidence));const ts=r.todos||[];$('#readingTodoCount').textContent=ts.length?'（'+ts.length+' 項）':'（無）';$('#readingTodoList').innerHTML=ts.length?'<ol>'+ts.map((t,i)=>'<li><h3>任務 '+(i+1)+'</h3><p>'+esc(t.content)+'</p><dl><div><dt>負責人</dt><dd>'+esc(t.owner)+'</dd></div><div><dt>截止日期</dt><dd>'+esc(data.taskProgress?.items[i]?(data.taskProgress.items[i].due||'未設定'):t.due)+'</dd></div></dl>'+taskProgressDetail(data.taskProgress?.items[i])+'</li>').join('')+'</ol>':'<p class="muted">本次會議沒有待辦事項。</p>';
-  $('#readingTodoList').querySelectorAll('details[data-task-evidence]').forEach(e=>e.open=openEvidence.has(e.dataset.taskEvidence));if(contentChanged){$('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'">'+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time));}
+  $('#readingTodoList').querySelectorAll('details[data-task-evidence]').forEach(e=>e.open=openEvidence.has(e.dataset.taskEvidence));if(contentChanged){$('#readingSegments').innerHTML=(r.segments||[]).map(s=>'<p><button class="secondary" data-time="'+Number(s.start/1000)+'" data-recording="'+(s.recordingIndex||1)+'">'+(s.recordingIndex?'錄音 '+s.recordingIndex+' · ':'')+Math.floor(s.start/60000)+':'+String(Math.floor(s.start/1000)%60).padStart(2,'0')+' '+esc(s.speaker)+'</button> '+esc(s.text)+'</p>').join('')||'沒有可定位的逐字稿時間。';$('#readingSegments').querySelectorAll('[data-time]').forEach(b=>b.onclick=()=>seek(b.dataset.time,b.dataset.recording));}
  }
 
- function render(){if(!data)return;document.body.classList.toggle('publication-reader',data.access==='publication');let recovered=false;for(const key of dirty.keys())if(!saving.has(key))recovered=recoverSaved(key)||recovered;if(recovered&&!dirty.size&&!saving.size){contentSaveError='';error('');}if(data.access==='member'&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token,host:data.host,state:data.workspace.state});else document.querySelector('#hubPreparation')?.setAttribute('hidden','');const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
+ const stopGeneration=document.createElement('button');
+ stopGeneration.type='button';stopGeneration.className='secondary';stopGeneration.textContent='停止整理';stopGeneration.hidden=true;
+ $('#processingPanel').append(stopGeneration);
+ stopGeneration.onclick=async()=>{
+  if(busy)return;
+  busy=true;stopGeneration.disabled=true;
+  try{acceptData(await api({action:'stop-generation',revision:data.workspace.revision}));render();}
+  catch(e){error(e);}
+  finally{busy=false;stopGeneration.disabled=false;}
+ };
+ function render(){if(!data)return;document.body.classList.toggle('publication-reader',data.access==='publication');let recovered=false;for(const key of dirty.keys())if(!saving.has(key))recovered=recoverSaved(key)||recovered;if(recovered&&!dirty.size&&!saving.size){contentSaveError='';error('');}if(data.access==='member'&&window.initializeMeetingHub)window.initializeMeetingHub({id:BOOT.id,token,host:data.host,state:data.workspace.state,returned:showingSettings&&mode==='edit'});else document.querySelector('#hubPreparation')?.setAttribute('hidden','');const w=data.workspace,locked=['publishing','published'].includes(w.state),review=['review','publishing','published'].includes(w.state),readOnly=data.access!=='member';
   // Publishing is locked too. Keep its content in the same formatted, folded
   // reader as the published result, including while a background retry waits.
   if(!mode||locked&&lastState!==w.state)mode=locked?'view':'edit';lastState=w.state;if(readOnly||w.state==='publishing'||review&&!data.canEdit&&!data.canConfigure)mode='view';
@@ -143,9 +197,9 @@ export function workspaceClient(BOOT){
   $('#connection').textContent=(readOnly?(data.access==='publication'?'發布群組成員觀看':data.access==='recipient'?'指定夥伴分享觀看':'連結分享觀看'):'已確認：'+data.actor.name)+' · '+statusNames[w.state];$('#title').textContent=data.reader?.topic||w.fields?.settings.topic||'會議工作頁';$('#source').textContent=(data.reader?.date||w.fields?.settings.date||'')+' · '+(data.reader?.filename||w.filename||'')+' · 主持人：'+(data.reader?.hostName||w.hostName||'');
   const assignments=data.assignment?.items||[],waiting=assignments.filter(t=>t.state==='pending');const deliveryNotice=w.state==='published'&&data.assignment?'個人任務：已派發 '+(assignments.length-waiting.length)+' 項，待派發 '+waiting.length+' 項。'+(data.assignment.message||(waiting.length?'未完成連線者完成 UOF／LINE 與工作日誌連線後，系統會自動補派。':'')):'';
   $('#notice').textContent=[w.warning,w.error,data.pendingRevision?.error_code|| (data.pendingRevision?'修改已儲存，正在依序同步正式記錄；個人任務另行派發。':''),deliveryNotice].filter(Boolean).join('\n');
-  if(!audioUrl&&data.audioUrl){audioUrl=data.audioUrl;$('#audio').src=audioUrl;$('#audio').hidden=false;$('#audioStatus').textContent='原始會議錄音，按播放即可收聽。';}
+  renderAudio();
   const configure=data.canConfigure??data.host,returned=showingSettings&&w.state==='review'&&configure&&mode==='edit';
-  $('#setupPanel').hidden=readOnly||!['setup','failed'].includes(w.state)&&!returned;$('#processingPanel').hidden=w.state!=='processing';$('#processingPanel h2').textContent=({queued:'排隊中',upload:'傳送錄音中',transcribing:'辨識中',summary:'整理中',fallback:'備援處理中'})[w.generationStage]||'正在辨識與製作';$('#recordPanel').hidden=!review||reading||returned;$('#todoPanel').hidden=!review||reading||returned;$('#historyPanel').hidden=readOnly||reading||returned;$('#publishPanel').hidden=!review||locked||reading||returned;$('#readerPanel').hidden=!reading;
+  $('#setupPanel').hidden=readOnly||!['setup','failed'].includes(w.state)&&!returned;$('#processingPanel').hidden=w.state!=='processing';stopGeneration.hidden=!data.host||!(w.recordingCount>1);$('#processingPanel h2').textContent=(w.recordingNumber?'錄音 '+w.recordingNumber+'／'+w.recordingCount+' · ':'')+(({queued:'排隊中',upload:'傳送錄音中',transcribing:'辨識中',summary:'整理中',fallback:'備援處理中'})[w.generationStage]||'正在辨識與製作');$('#recordPanel').hidden=!review||reading||returned;$('#todoPanel').hidden=!review||reading||returned;$('#historyPanel').hidden=readOnly||reading||returned;$('#publishPanel').hidden=!review||locked||reading||returned;$('#readerPanel').hidden=!reading;
   $('#reviewNavigation').hidden=!configure||w.state!=='review'||mode!=='edit'||returned;$('#returnReview').hidden=!returned;$('#settingsReviewHint').hidden=!returned;$('#saveType').hidden=returned;
   $('#regenerate').hidden=!returned;$('#settingsReviewHint').textContent='儲存設定不會重做。確認發言人員後，按「保留目前結果，重新整理」才會開始；原結果與人工修改可從歷次結果比較。';
   $('#generationCompare').hidden=readOnly||!['review','failed','processing','published'].includes(w.state);
@@ -183,7 +237,7 @@ export function workspaceClient(BOOT){
   if(!$('#segmentCorrection').open)return;
   const text=transcriptValue(),hash=JSON.stringify([text,names]);if(hash===segmentsHash)return;segmentsHash=hash;$('#segments').replaceChildren();
   for(const entry of speakerTools.entries(text).filter(e=>e.timestamp||names.includes(e.speaker))){const row=document.createElement('div');row.className='speaker-segment';row.dataset.line=entry.line;const label=document.createElement('label');label.textContent=(entry.timestamp?'['+entry.timestamp+'] ':'')+'講話者';const select=document.createElement('select');select.setAttribute('aria-label',label.textContent);select.innerHTML=names.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');select.value=entry.speaker;label.append(select);row.append(label);const p=document.createElement('p');p.textContent=entry.text;row.append(p);
-   if(entry.start!==null){const play=document.createElement('button');play.type='button';play.className='secondary';play.textContent='播放此段';play.onclick=()=>seek(entry.start/1000);row.append(play);}
+   if(entry.start!==null){const play=document.createElement('button');play.type='button';play.className='secondary';play.textContent='播放此段';play.onclick=()=>seek(entry.start/1000,entry.recordingIndex);row.append(play);}
    const apply=document.createElement('button');apply.type='button';apply.className='secondary';apply.textContent='套用此段';apply.onclick=()=>{if(transcriptValue()!==text){error('逐字稿剛有修改，請重新選擇這一段。');segmentsHash='';renderSpeakerCorrection();return;}previewSpeakers({[entry.speaker]:select.value},{line:entry.line,time:entry.timestamp||null});};row.append(apply);$('#segments').append(row);
   }
   if(!$('#segments').children.length)$('#segments').textContent='尚無可辨識的講話者段落，可在下方逐字稿直接修正。';
@@ -310,8 +364,8 @@ export function workspaceClient(BOOT){
  $('#saveSettings').onclick=()=>saveSettings().catch(error);
  $('#saveType').onclick=async()=>{try{const s=settings(),prior=data.types.find(t=>t.name===s.type);data=await api({action:'save-type',name:s.type,prompt:s.prompt,version:prior?.version||0});$('#settingsStatus').textContent='已保存為本對話可重複選用的會議類型；本場設定仍請儲存。';}catch(e){error(e);}};
  const startFeedback=meetingStartFeedback({button:$('#start'),status:$('#startStatus'),checkButton:$('#checkStart'),beforeStart:async()=>{if(settingsDirty)await saveSettings();},start:()=>api({action:'start',revision:data.workspace.revision,...$('#confirmSpeakerCount').checked?{confirmedSpeakerCount:settings().speakers.filter(s=>s.name.trim()).length}:{}}),read:()=>api({action:'read'}),onData:next=>{acceptData(next);render();},getState:()=>data.workspace.state,isBusy:()=>busy,setBusy:value=>{busy=value;},report:error});
- const regenerationFeedback=meetingStartFeedback({button:$('#confirmRegenerate'),status:$('#regenerateStatus'),checkButton:$('#checkRegenerate'),beforeStart:async()=>{if(!regenerationConfirmed||settingsDirty||dirty.size||saving.size||Number(data.workspace.revision)!==regenerationBase.revision)throw Error('設定或內容剛有修改，請返回重新確認。');},start:()=>api({action:'regenerate',revision:regenerationBase.revision,confirmed:true,confirmedSpeakerCount:regenerationBase.count}),read:()=>api({action:'read'}),onData:next=>{acceptData(next);if(data.workspace.state!=='review'||Number(data.workspace.revision)!==regenerationBase.revision){$('#regenerateDialog').close();regenerationConfirmed=false;showingSettings=false;}render();},getState:()=>data.workspace.state==='review'&&Number(data.workspace.revision)===regenerationBase?.revision?'setup':data.workspace.state,isBusy:()=>busy,setBusy:value=>{busy=value;$('#cancelRegenerate').disabled=value;},report:error});
- $('#regenerate').onclick=async()=>{try{if(busy)return;if(dirty.size||saving.size)throw Error('請先儲存或取消目前的內容修改，再重新整理。');if(!$('#confirmSpeakerCount').checked)throw Error('請先確認實際發言人員與首次發言順序。');const count=settings().speakers.filter(s=>s.name.trim()).length;if(!count||settings().speakers.some(s=>!s.name.trim()))throw Error('請填妥每位發言者姓名，或移除空白列。');if(settingsDirty)await saveSettings();if(settingsDirty)throw Error('仍有設定尚未儲存，請重新確認。');regenerationBase={revision:Number(data.workspace.revision),count};regenerationConfirmed=true;$('#regenerateSummary').textContent='會議：'+settings().topic+'\n本次確認 '+count+' 位發言者：'+settings().speakers.map(s=>s.name).join(' → ')+'\n按首次發言順序配對；若結果人數不足，將明確提醒。';$('#regenerateDialog').showModal();}catch(e){error(e);}};
+ const regenerationFeedback=meetingStartFeedback({button:$('#confirmRegenerate'),status:$('#regenerateStatus'),checkButton:$('#checkRegenerate'),beforeStart:async()=>{if(!regenerationConfirmed||settingsDirty||dirty.size||saving.size||Number(data.workspace.revision)!==regenerationBase.revision)throw Error('設定或內容剛有修改，請返回重新確認。');},start:()=>api({action:'regenerate',revision:regenerationBase.revision,confirmed:true,...regenerationBase.multi?{}:{confirmedSpeakerCount:regenerationBase.count}}),read:()=>api({action:'read'}),onData:next=>{acceptData(next);if(data.workspace.state!=='review'||Number(data.workspace.revision)!==regenerationBase.revision){$('#regenerateDialog').close();regenerationConfirmed=false;showingSettings=false;}render();},getState:()=>data.workspace.state==='review'&&Number(data.workspace.revision)===regenerationBase?.revision?'setup':data.workspace.state,isBusy:()=>busy,setBusy:value=>{busy=value;$('#cancelRegenerate').disabled=value;},report:error});
+ $('#regenerate').onclick=async()=>{try{if(busy)return;if(dirty.size||saving.size)throw Error('請先儲存或取消目前的內容修改，再重新整理。');const multi=data.workspace.sourceRecordingCount>1;if(!multi&&!$('#confirmSpeakerCount').checked)throw Error('請先確認實際發言人員與首次發言順序。');const count=settings().speakers.filter(s=>s.name.trim()).length;if(!multi&&(!count||settings().speakers.some(s=>!s.name.trim())))throw Error('請填妥每位發言者姓名，或移除空白列。');if(settingsDirty)await saveSettings();if(settingsDirty)throw Error('仍有設定尚未儲存，請重新確認。');regenerationBase={revision:Number(data.workspace.revision),count,multi};regenerationConfirmed=true;$('#regenerateSummary').textContent='會議：'+settings().topic+(multi?'\n依序整理 '+data.workspace.sourceRecordingCount+' 份錄音，請在整理後核對各檔講者。':'\n本次確認 '+count+' 位發言者：'+settings().speakers.map(s=>s.name).join(' → ')+'\n按首次發言順序配對；若結果人數不足，將明確提醒。');$('#regenerateDialog').showModal();}catch(e){error(e);}};
  $('#cancelRegenerate').onclick=()=>{regenerationConfirmed=false;$('#regenerateDialog').close();};
  $('#regenerateDialog').addEventListener('cancel',e=>{if(busy)e.preventDefault();else regenerationConfirmed=false;});
  function generationDetails(fields,ownerNames=data.workspace.ownerNames){return '逐字稿\n'+(fields.transcript||'未提供')+'\n\n待辦\n'+Object.entries(fields).filter(([k,v])=>k.startsWith('todo:')&&v).map(([,v],i)=>(i+1)+'. '+v.content+'\n負責人：'+(ownerNames?.[v.ownerId]||v.ownerId||'未指定')+'；期限：'+(v.due||'未設定')+'\n依據：'+(v.evidence||'')).join('\n\n');}
@@ -342,10 +396,10 @@ export function workspaceClient(BOOT){
  $('#saveSharing').onclick=async()=>{if(busy)return;busy=true;$('#saveSharing').disabled=true;try{data=await api({action:'sharing',enabled:$('#shareEnabled').checked,accounts:selectedPeople.map(p=>p.account),revision:data.workspace.revision,version:sharingBase?.version??data.sharing.version});sharingDirty=false;sharingBase=null;audioUrl='';$('#sharingStatus').textContent='分享設定已儲存。發布後，指定夥伴可從 Rich Menu「會議」的「分享給我的會議」閱讀與收聽；不發送 LINE 推播。';render();error('');}catch(e){error(e);}finally{busy=false;$('#saveSharing').disabled=false;}};
 
  let audioRetries=0;
- $('#audio').onerror=async()=>{if(audioRetries++<2&&data?.audioUrl&&data.audioUrl!==audioUrl){const player=$('#audio'),at=player.currentTime;audioUrl=data.audioUrl;player.src=audioUrl;player.currentTime=at;$('#audioStatus').textContent='正在更新錄音播放授權，請再按播放。';return;}$('#audioStatus').textContent='錄音暫時無法播放。可重新整理頁面再試，原始錄音仍保留。';};
+ $('#audio').onerror=async()=>{const latest=playbackItems().find(file=>file.index===selectedRecording);if(audioRetries++<2&&latest?.url&&latest.url!==audioUrl){const player=$('#audio'),at=player.currentTime;selectRecording(selectedRecording);player.currentTime=at;$('#audioStatus').textContent='正在更新錄音播放授權，請再按播放。';return;}$('#audioStatus').textContent='錄音暫時無法播放。可重新整理頁面再試，原始錄音仍保留。';};
  window.addEventListener('beforeunload',e=>{if(dirty.size||settingsDirty||sharingDirty||publicationDirty){e.preventDefault();e.returnValue='';}});
  window.refreshMeetingWorkspace=async()=>{acceptData(await api({action:'read'}));render();};
- async function refresh(){if(polling||publishing||document.hidden||!data)return;polling=true;try{const active=document.activeElement,field=mode==='edit'?(active?.closest('[data-part]')?.dataset.part||(active?.closest('#setupPanel')?'settings':'')):'';acceptData(await api({action:'read',field}));render();if(mode==='view'&&pollError&&$('#error').textContent===pollError)error('');pollError='';}catch(e){error(e);pollError=$('#error').textContent;if([401,403].includes(e.status)){data.taskProgress=null;$('#taskProgressPanel').hidden=true;$('#readingTodoList').replaceChildren();readingHash='';}else if(data.taskProgress){$('#taskProgressChecked').textContent='本次更新未完成，以下為先前讀取結果，請重新讀取。';}if(data?.access!=='member'&&[401,403].includes(e.status)){$('#readerPanel').hidden=true;$('#meetingHeading').hidden=true;$('#connection').textContent='此連結已停止對外分享';$('#hostLogin').hidden=false;$('#audio').pause();$('#audio').removeAttribute('src');audioUrl='';}}finally{polling=false;}}
+ async function refresh(){if(polling||publishing||document.hidden||!data)return;polling=true;try{const active=document.activeElement,field=mode==='edit'?(active?.closest('[data-part]')?.dataset.part||(active?.closest('#setupPanel')?'settings':'')):'';acceptData(await api({action:'read',field}));render();if(mode==='view'&&pollError&&$('#error').textContent===pollError)error('');pollError='';}catch(e){error(e);pollError=$('#error').textContent;if([401,403].includes(e.status)){data.taskProgress=null;$('#taskProgressPanel').hidden=true;$('#readingTodoList').replaceChildren();readingHash='';}else if(data.taskProgress){$('#taskProgressChecked').textContent='本次更新未完成，以下為先前讀取結果，請重新讀取。';}if(data?.access!=='member'&&[401,403].includes(e.status)){$('#readerPanel').hidden=true;$('#meetingHeading').hidden=true;$('#connection').textContent='此連結已停止對外分享';$('#hostLogin').hidden=false;$('#audio').pause();$('#audio').removeAttribute('src');recordingSelect.hidden=true;audioUrl='';}}finally{polling=false;}}
  async function login(){if(await window.loginContinuationSession?.())return true;if(await window.tryLoginContinuation?.())return false;if(!BOOT.liffId||!window.liff)throw Error('LINE 登入尚未設定完成，請聯絡管理者。');await liff.init({liffId:BOOT.liffId});if(!liff.isLoggedIn()){liff.login({redirectUri:location.origin+'/meetings/review/work/'+BOOT.id});return false;}token=liff.getAccessToken();return true;}
  $('#hostLogin').onclick=async()=>{try{if(!await login())return;data=await api({action:'read'});audioUrl='';$('#meetingHeading').hidden=false;render();if(data.access!=='member')error('此身分僅可觀看；編輯限原對話成員。');else error('');}catch(e){error(e);}};
  async function init(){try{if(BOOT.loginUrl&&location.origin!==new URL(BOOT.loginUrl).origin){location.replace(BOOT.loginUrl);return;}if((!BOOT.publicAvailable||BOOT.firstUseRequired)&&!await login())return;data=await api({action:'read'});render();setInterval(refresh,5000);}catch(e){error(e);$('#connection').textContent='尚未完成身分驗證';$('#hostLogin').hidden=false;}}
