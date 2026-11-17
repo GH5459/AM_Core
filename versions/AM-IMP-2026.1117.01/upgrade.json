@@ -1,0 +1,13 @@
+{
+  "id": "AM-IMP-2026.1117.01",
+  "name": "Multiple recordings for one meeting",
+  "type": "runtime",
+  "portable": true,
+  "status": "Ready",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": ["Root AM Platform"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Multiple recordings upload and generate one meeting record", "Existing recordings remain compatible", "Source-specific playback and evidence verified", "Recovery and permission tests pass"]
+}
