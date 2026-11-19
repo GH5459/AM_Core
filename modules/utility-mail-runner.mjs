@@ -3,8 +3,6 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-export const utilityMailPath = '/integrations/utility-bill-mail';
-
 export function createUtilityMailRunner(env) {
   const origin = env.UTILITY_MAIL_PORTAL;
   const jobs = [];
