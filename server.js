@@ -4,6 +4,7 @@ import { llmGate, previewGate } from './core/resource-gate.js';
 // core 只做底座 + 路由 + 租戶解析 + 隔離;功能邏輯全在 modules/。
 
 import http from 'node:http';
+import {createUtilityMailRunner, utilityMailPath} from './modules/utility-mail-runner.mjs';
 import {createOutboundTraffic,OUTBOUND_TRAFFIC_CONTRACT} from './core/outbound-traffic.js';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
@@ -282,9 +283,11 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
   return true;
 }
 
+const utilityMail = createUtilityMailRunner(process.env);
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname === utilityMailPath) return utilityMail(req,res);
   if(req.method==='GET'&&pathname==='/portal/admin/outbound-traffic'){
     if(!leafTasks.adminAuthorized(String(req.headers.authorization||'').replace(/^Bearer /,'')))return sendJson(res,403,{error:'Forbidden'});
     res.setHeader('Cache-Control','no-store');
