@@ -282,9 +282,19 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
   return true;
 }
 
+let utilityMail;
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname === '/integrations/utility-bill-mail' && process.env.UTILITY_MAIL_PORTAL) {
+    utilityMail ??= import('./modules/utility-mail-runner.mjs')
+      .then(({createUtilityMailRunner}) => createUtilityMailRunner(process.env));
+    try { return await (await utilityMail)(req,res); }
+    catch {
+      utilityMail = undefined;
+      return sendJson(res,503,{error:'Utility mail runner unavailable'});
+    }
+  }
   if(req.method==='GET'&&pathname==='/portal/admin/outbound-traffic'){
     if(!leafTasks.adminAuthorized(String(req.headers.authorization||'').replace(/^Bearer /,'')))return sendJson(res,403,{error:'Forbidden'});
     res.setHeader('Cache-Control','no-store');
